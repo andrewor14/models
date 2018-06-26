@@ -13,10 +13,10 @@
 #
 #SBATCH --mail-type=begin
 #SBATCH --mail-type=end
-#SBATCH --mail-user=haoyuz@princeton.edu
+#SBATCH --mail-user=andrewor@princeton.edu
 
-SLURM_LOG_DIR=/home/haoyuz
-SCRIPT_PATH=/home/haoyuz/jobs/dist_resnet_cifar10.sh
+SLURM_LOG_DIR=/home/andrewor/log
+SCRIPT_PATH=/home/andrewor/models/slurm/dist_resnet_cifar10.sh
 
 srun --output=$SLURM_LOG_DIR/slurm-%x-%j-%n.out $SCRIPT_PATH
 
