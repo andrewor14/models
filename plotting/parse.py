@@ -4,9 +4,9 @@ import re
 import sys
 
 args = sys.argv
-if len(args) < 2:
+if len(args) <= 1:
   print "Usage: parse.py [log_file]"
-  exit(1)
+  sys.exit(1)
 log_file = args[1]
 out_file = log_file.replace(".log", ".csv")
 
