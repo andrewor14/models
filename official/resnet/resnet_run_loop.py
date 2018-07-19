@@ -28,7 +28,7 @@ import os
 # pylint: disable=g-bad-import-order
 from absl import flags
 import tensorflow as tf
-from slurm.tensorflow_on_slurm import json_tf_config_from_slurm
+from slurm.tensorflow_on_slurm import json_tf_config_from_slurm, tf_config_from_slurm
 
 from official.resnet import resnet_model
 from official.utils.flags import core as flags_core
@@ -277,6 +277,20 @@ def resnet_model_fn(features, labels, mode, model_class,
         momentum=momentum
     )
 
+    should_sync = os.environ.get("ANDREW_RESNET_SYNC_ENABLED") is not None
+    training_hooks = None
+    tf.logging.info("Using synchronized optimizer? %s" % should_sync)
+    if should_sync:
+      num_aggregate_replicas = int(os.environ.get("ANDREW_RESNET_SYNC_AGGREGATE_REPLICAS"))
+      num_total_replicas = int(os.environ.get("ANDREW_RESNET_SYNC_TOTAL_REPLICAS"))
+      optimizer = tf.train.SyncReplicasOptimizer(
+        optimizer,
+        replicas_to_aggregate=num_aggregate_replicas,
+        total_num_replicas=num_total_replicas)
+      _, role, _ = tf_config_from_slurm(1)
+      is_chief = role == "chief"
+      training_hooks = [optimizer.make_session_run_hook(is_chief, num_tokens=0)]
+
     if loss_scale != 1:
       # When computing fp16 gradients, often intermediate tensor values are
       # so small, they underflow to 0. To avoid this, we multiply the loss by
@@ -314,7 +328,8 @@ def resnet_model_fn(features, labels, mode, model_class,
       predictions=predictions,
       loss=loss,
       train_op=train_op,
-      eval_metric_ops=metrics)
+      eval_metric_ops=metrics,
+      training_hooks=training_hooks)
 
 
 def per_device_batch_size(batch_size, num_gpus):
@@ -346,134 +361,6 @@ def per_device_batch_size(batch_size, num_gpus):
           ).format(num_gpus, batch_size, batch_size - remainder)
     raise ValueError(err)
   return int(batch_size / num_gpus)
-
-
-def resnet_main(
-    flags_obj, model_function, input_function, dataset_name, shape=None):
-  """Shared main loop for ResNet Models.
-
-  Args:
-    flags_obj: An object containing parsed flags. See define_resnet_flags()
-      for details.
-    model_function: the function that instantiates the Model and builds the
-      ops for train/eval. This will be passed directly into the estimator.
-    input_function: the function that processes the dataset and returns a
-      dataset that the estimator can train on. This will be wrapped with
-      all the relevant flags for running and passed to estimator.
-    dataset_name: the name of the dataset for training and evaluation. This is
-      used for logging purpose.
-    shape: list of ints representing the shape of the images used for training.
-      This is only used if flags_obj.export_dir is passed.
-  """
-
-  # Using the Winograd non-fused algorithms provides a small performance boost.
-  os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1'
-
-  # Create session config based on values of inter_op_parallelism_threads and
-  # intra_op_parallelism_threads. Note that we default to having
-  # allow_soft_placement = True, which is required for multi-GPU and not
-  # harmful for other modes.
-  session_config = tf.ConfigProto(
-      inter_op_parallelism_threads=flags_obj.inter_op_parallelism_threads,
-      intra_op_parallelism_threads=flags_obj.intra_op_parallelism_threads,
-      allow_soft_placement=True,
-      log_device_placement=True)
-
-  if flags_core.get_num_gpus(flags_obj) == 0:
-    distribution = tf.contrib.distribute.OneDeviceStrategy('device:CPU:0')
-  elif flags_core.get_num_gpus(flags_obj) == 1:
-    distribution = tf.contrib.distribute.OneDeviceStrategy('device:GPU:0')
-  else:
-    distribution = tf.contrib.distribute.MirroredStrategy(
-        num_gpus=flags_core.get_num_gpus(flags_obj)
-    )
-
-  # TODO: make distributed training configurable from cmd argument
-  # Read Slurm cluster configuration using Slurm deployment script, and set
-  # environment variable TF_CONFIG to make Estimator run on cluster
-  json_tf_config = json_tf_config_from_slurm(ps_number=1)
-  os.environ['TF_CONFIG'] = json_tf_config
-
-  run_config = tf.estimator.RunConfig(train_distribute=distribution,
-                                      session_config=session_config)
-
-  classifier = tf.estimator.Estimator(
-      model_fn=model_function, model_dir=flags_obj.model_dir, config=run_config,
-      params={
-          'resnet_size': int(flags_obj.resnet_size),
-          'data_format': flags_obj.data_format,
-          'batch_size': flags_obj.batch_size,
-          'resnet_version': int(flags_obj.resnet_version),
-          'loss_scale': flags_core.get_loss_scale(flags_obj),
-          'dtype': flags_core.get_tf_dtype(flags_obj)
-      })
-
-  run_params = {
-      'batch_size': flags_obj.batch_size,
-      'dtype': flags_core.get_tf_dtype(flags_obj),
-      'resnet_size': flags_obj.resnet_size,
-      'resnet_version': flags_obj.resnet_version,
-      'synthetic_data': flags_obj.use_synthetic_data,
-      'train_epochs': flags_obj.train_epochs,
-  }
-  if flags_obj.use_synthetic_data:
-    dataset_name = dataset_name + "-synthetic"
-
-  benchmark_logger = logger.get_benchmark_logger()
-  benchmark_logger.log_run_info('resnet', dataset_name, run_params,
-                                test_id=flags_obj.benchmark_test_id)
-
-  train_hooks = hooks_helper.get_train_hooks(
-      flags_obj.hooks,
-      batch_size=flags_obj.batch_size)
-
-  def input_fn_train():
-    return input_function(
-        is_training=True, data_dir=flags_obj.data_dir,
-        batch_size=per_device_batch_size(
-            flags_obj.batch_size, flags_core.get_num_gpus(flags_obj)),
-        num_epochs=flags_obj.epochs_between_evals,
-        num_gpus=flags_core.get_num_gpus(flags_obj))
-
-  def input_fn_eval():
-    return input_function(
-        is_training=False, data_dir=flags_obj.data_dir,
-        batch_size=per_device_batch_size(
-            flags_obj.batch_size, flags_core.get_num_gpus(flags_obj)),
-        num_epochs=1)
-
-  total_training_cycle = (flags_obj.train_epochs //
-                          flags_obj.epochs_between_evals)
-  for cycle_index in range(total_training_cycle):
-    tf.logging.info('Starting a training cycle: %d/%d',
-                    cycle_index, total_training_cycle)
-
-    classifier.train(input_fn=input_fn_train, hooks=train_hooks,
-                     max_steps=flags_obj.max_train_steps)
-
-    tf.logging.info('Starting to evaluate.')
-
-    # flags_obj.max_train_steps is generally associated with testing and
-    # profiling. As a result it is frequently called with synthetic data, which
-    # will iterate forever. Passing steps=flags_obj.max_train_steps allows the
-    # eval (which is generally unimportant in those circumstances) to terminate.
-    # Note that eval will run for max_train_steps each loop, regardless of the
-    # global_step count.
-    eval_results = classifier.evaluate(input_fn=input_fn_eval,
-                                       steps=flags_obj.max_train_steps)
-
-    benchmark_logger.log_evaluation_result(eval_results)
-
-    if model_helpers.past_stop_threshold(
-        flags_obj.stop_threshold, eval_results['accuracy']):
-      break
-
-  if flags_obj.export_dir is not None:
-    # Exports a saved model for the given classifier.
-    input_receiver_fn = export.build_tensor_serving_input_receiver_fn(
-        shape, batch_size=flags_obj.batch_size)
-    classifier.export_savedmodel(flags_obj.export_dir, input_receiver_fn)
-
 
 def resnet_train_and_evaluate(
   flags_obj, model_function, input_function, dataset_name, shape=None):

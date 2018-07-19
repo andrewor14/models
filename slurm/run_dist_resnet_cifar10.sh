@@ -19,5 +19,9 @@ SLURM_LOG_DIR=/home/andrewor/logs
 SCRIPT_PATH=/home/andrewor/models/slurm/dist_resnet_cifar10.sh
 TIMESTAMP=`date +%s`
 
+export ANDREW_RESNET_SYNC_ENABLED="true"
+export ANDREW_RESNET_SYNC_AGGREGATE_REPLICAS=4
+export ANDREW_RESNET_SYNC_TOTAL_REPLICAS=4
+
 srun --output="$SLURM_LOG_DIR/slurm-%x-%j-%n-$TIMESTAMP.out" "$SCRIPT_PATH" "$TIMESTAMP"
 
