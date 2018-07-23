@@ -262,6 +262,7 @@ def resnet_model_fn(features, labels, mode, model_class,
        if loss_filter_fn(v.name)])
   tf.summary.scalar('l2_loss', l2_loss)
   loss = cross_entropy + l2_loss
+  training_hooks = None
 
   if mode == tf.estimator.ModeKeys.TRAIN:
     global_step = tf.train.get_or_create_global_step()
@@ -278,7 +279,6 @@ def resnet_model_fn(features, labels, mode, model_class,
     )
 
     should_sync = os.environ.get("ANDREW_RESNET_SYNC_ENABLED") is not None
-    training_hooks = None
     tf.logging.info("Using synchronized optimizer? %s" % should_sync)
     if should_sync:
       num_aggregate_replicas = int(os.environ.get("ANDREW_RESNET_SYNC_AGGREGATE_REPLICAS"))
