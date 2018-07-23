@@ -25,6 +25,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--batch_size', default=100, type=int, help='batch size')
 parser.add_argument('--train_steps', default=1000, type=int,
                     help='number of training steps')
+parser.add_argument('--sync_enabled', action='store_true',
+                    help='whether or not to synchronize optimization')
 
 def my_model(features, labels, mode, params):
     """DNN with three hidden layers, and dropout of 0.1 probability."""
@@ -65,8 +67,18 @@ def my_model(features, labels, mode, params):
     assert mode == tf.estimator.ModeKeys.TRAIN
 
     optimizer = tf.train.AdagradOptimizer(learning_rate=0.1)
+    training_hooks = None
+    should_sync = params['sync_enabled']
+    tf.logging.info("Using synchronized optimization? %s" % should_sync)
+    if should_sync:
+        optimizer = tf.train.SyncReplicasOptimizer(
+                optimizer, replicas_to_aggregate=1, total_num_replicas=1)
+        is_chief = True
+        training_hooks = [optimizer.make_session_run_hook(is_chief)]
+
     train_op = optimizer.minimize(loss, global_step=tf.train.get_global_step())
-    return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
+    return tf.estimator.EstimatorSpec(
+        mode, loss=loss, train_op=train_op, training_hooks=training_hooks)
 
 
 def main(argv):
@@ -89,6 +101,8 @@ def main(argv):
             'hidden_units': [10, 10],
             # The model must choose between 3 classes.
             'n_classes': 3,
+            # Whether to synchronize optimization.
+            'sync_enabled': args.sync_enabled,
         })
 
     # Train the Model.
