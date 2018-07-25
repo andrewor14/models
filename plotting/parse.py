@@ -8,7 +8,7 @@ if len(args) <= 1:
   print "Usage: parse.py [log_file]"
   sys.exit(1)
 log_file = args[1]
-out_file = log_file.replace(".log", ".csv")
+out_file = re.sub("\..*$", "", log_file) + ".csv"
 
 # Parse into list
 data = []
@@ -38,3 +38,4 @@ with open(out_file, "w") as f:
   for d in data:
     f.write(d + "\n")
 
+print "Wrote to " + out_file
