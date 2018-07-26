@@ -20,6 +20,7 @@ import argparse
 import tensorflow as tf
 
 import iris_data
+import my_sync_optimizer
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--batch_size', default=100, type=int, help='batch size')
@@ -71,7 +72,7 @@ def my_model(features, labels, mode, params):
     should_sync = params['sync_enabled']
     tf.logging.info("Using synchronized optimization? %s" % should_sync)
     if should_sync:
-        optimizer = tf.train.SyncReplicasOptimizer(
+        optimizer = my_sync_optimizer.SyncReplicasOptimizer(
                 optimizer, replicas_to_aggregate=1, total_num_replicas=1)
         is_chief = True
         training_hooks = [optimizer.make_session_run_hook(is_chief)]
