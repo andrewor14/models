@@ -1,14 +1,14 @@
 #!/bin/bash
 #
-#SBATCH --nodes=6
-#SBATCH --ntasks=6
+#SBATCH --nodes=4
+#SBATCH --ntasks=4
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=28
-#SBATCH --mem=240G
+#SBATCH --mem=128G
 #SBATCH --gres=gpu:4
 #SBATCH --time=48:00:00
 #
-#SBATCH --job-name=dist_resnet_cifar10
+#SBATCH --job-name=dist_resnet_cifar10_async
 #SBATCH --output=slurm-%x-%j.out
 #
 #SBATCH --mail-type=begin
