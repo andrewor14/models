@@ -408,8 +408,9 @@ def resnet_train_and_evaluate(
   # TODO: make distributed training configurable from cmd argument
   # Read Slurm cluster configuration using Slurm deployment script, and set
   # environment variable TF_CONFIG to make Estimator run on cluster
-  json_tf_config = json_tf_config_from_slurm(ps_number=1)
-  os.environ['TF_CONFIG'] = json_tf_config
+  if 'TF_CONFIG' not in os.environ:
+    json_tf_config = json_tf_config_from_slurm(ps_number=1)
+    os.environ['TF_CONFIG'] = json_tf_config
 
   run_config = tf.estimator.RunConfig(session_config=session_config,
                                       save_summary_steps=100)

@@ -10,6 +10,6 @@ export PYTHONPATH="$PYTHONPATH:$TF_MODELS"
 cd $TF_MODELS/official/resnet
 python cifar10_main.py --data_dir="$DATASET_DIR" \
                        --model_dir="$MODEL_DIR" \
-                       --num_gpus=4 \
+                       --num_gpus=1 \
                        --train_epochs=1000
 
