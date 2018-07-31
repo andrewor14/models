@@ -23,6 +23,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import json
 import os
 
 # pylint: disable=g-bad-import-order
@@ -36,6 +37,8 @@ from official.utils.export import export
 from official.utils.logs import hooks_helper
 from official.utils.logs import logger
 from official.utils.misc import model_helpers
+
+import my_sync_optimizer
 # pylint: enable=g-bad-import-order
 
 
@@ -283,12 +286,11 @@ def resnet_model_fn(features, labels, mode, model_class,
     if should_sync:
       num_aggregate_replicas = int(os.environ.get("ANDREW_RESNET_SYNC_AGGREGATE_REPLICAS"))
       num_total_replicas = int(os.environ.get("ANDREW_RESNET_SYNC_TOTAL_REPLICAS"))
-      optimizer = tf.train.SyncReplicasOptimizer(
+      optimizer = my_sync_optimizer.SyncReplicasOptimizer(
         optimizer,
         replicas_to_aggregate=num_aggregate_replicas,
         total_num_replicas=num_total_replicas)
-      _, role, _ = tf_config_from_slurm(1)
-      is_chief = role == "chief"
+      is_chief = json.loads(os.environ["TF_CONFIG"])["task"]["type"] == "chief"
       training_hooks = [optimizer.make_session_run_hook(is_chief, num_tokens=0)]
 
     if loss_scale != 1:
