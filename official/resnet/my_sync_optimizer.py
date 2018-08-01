@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import tensorflow as tf
 from tensorflow.core.framework import types_pb2
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
@@ -177,7 +178,8 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
     self._variable_averages = variable_averages
     self._variables_to_average = variables_to_average
     self._total_num_replicas = total_num_replicas
-    self._tokens_per_step = max(total_num_replicas, replicas_to_aggregate)
+    self._tokens_per_step = None
+    self._local_step = None
     self._global_step = None
     self._sync_token_queue = None
 
@@ -324,6 +326,8 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
                                     shared_name="dummy_queue"))
 
       with ops.device(global_step.device), ops.name_scope(""):
+        self._tokens_per_step = self.get_token_schedule()
+
         # Replicas have to wait until they can get a token from the token queue.
         with ops.control_dependencies(train_ops):
           token = sync_token_queue.dequeue()
@@ -352,6 +356,20 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
       self.chief_init_op = control_flow_ops.group(*(chief_init_ops))
       self._gradients_applied = True
       return train_op
+
+  def get_token_schedule(self):
+    """Returns a schedule for the number of tokens to enqueue in each step.
+
+    Currently this just increments the number of tokens per step across each boundary.
+    TODO: Make this more meaningful.
+
+    Returns:
+      A 0-D Tensor whose value depends on the schedule and the global step.
+    """
+    initial_tokens_per_step = max(self._replicas_to_aggregate, self._total_num_replicas)
+    boundaries = [100, 200, 300]
+    values = [initial_tokens_per_step + i for i in range(len(boundaries) + 1)]
+    return tf.train.piecewise_constant(self._global_step, boundaries, values)
 
   def get_chief_queue_runner(self):
     """Returns the QueueRunner for the chief to execute.
@@ -474,6 +492,11 @@ class _SyncReplicasOptimizerHook(session_run_hook.SessionRunHook):
     self._sync_optimizer = sync_optimizer
     self._is_chief = is_chief
     self._num_tokens = num_tokens
+    self._epoch = 0
+    self._session = None
+
+  def _log(self, msg):
+    self._sync_optimizer._log(msg)
 
   def begin(self):
     if self._sync_optimizer._gradients_applied is False:  # pylint: disable=protected-access
@@ -504,6 +527,7 @@ class _SyncReplicasOptimizerHook(session_run_hook.SessionRunHook):
           "Init operations did not make model ready for SyncReplicasOptimizer "
           "local_init. Init op: %s, error: %s" %
           (self._local_init_op.name, msg))
+    self._session = session
     session.run(self._local_init_op)
     if self._init_tokens_op is not None:
       session.run(self._init_tokens_op)
@@ -511,3 +535,10 @@ class _SyncReplicasOptimizerHook(session_run_hook.SessionRunHook):
       self._q_runner.create_threads(
           session, coord=coord, daemon=True, start=True)
 
+  def after_run(self, run_context, run_values):
+    self._epoch += 1
+    opt = self._sync_optimizer
+    gs = int(self._session.run(opt._global_step))
+    ls = int(self._session.run(opt._local_step))
+    tks = int(self._session.run(opt._tokens_per_step))
+    self._log("AFTER RUN epoch = %s, gs = %s, ls = %s, tks = %s" % (self._epoch, gs, ls, tks))
