@@ -190,6 +190,9 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
     # following format: (accumulator, device).
     self._accumulator_list = []
 
+  def _log(self, msg):
+    logging.info("ANDREW(sync_replica_opt): %s" % msg)
+
   def compute_gradients(self, *args, **kwargs):
     """Compute gradients of "loss" for the variables in "var_list".
 
@@ -206,7 +209,7 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
     Returns:
       A list of (gradient, variable) pairs.
     """
-    logging.info("ANDREW(sync_replica_opt): Computing gradients...")
+    self._log("Computing gradients...")
     return self._opt.compute_gradients(*args, **kwargs)
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
@@ -232,10 +235,10 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
       ValueError: If global step is not provided, the staleness cannot be
         checked.
     """
-    msg = "ANDREW(sync_replica_opt): Applying gradients (%s of them):" % len(grads_and_vars)
+    msg = "Applying gradients (%s of them):" % len(grads_and_vars)
     for g, _ in grads_and_vars[:10]:
       msg += "\n    %s" % str(g)
-    logging.info(msg)
+    self._log(msg)
 
     if not grads_and_vars:
       raise ValueError("Must supply at least one variable")
@@ -324,7 +327,7 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
         # Replicas have to wait until they can get a token from the token queue.
         with ops.control_dependencies(train_ops):
           token = sync_token_queue.dequeue()
-          logging.info("ANDREW(sync_replica_opt): dequeued token %s" % token)
+          self._log("Dequeue token op: %s" % token)
         train_op = state_ops.assign(self._local_step, token)
 
         with ops.control_dependencies([update_op]):
@@ -332,7 +335,7 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
           # step so the replicas can fetch them to start the next step.
           tokens = array_ops.fill([self._tokens_per_step], global_step)
           sync_op = sync_token_queue.enqueue_many((tokens,))
-          logging.info("ANDREW(sync_replica_opt): enqueue token op: %s" % str(sync_op))
+          self._log("Enqueue token op: %s" % str(sync_op))
 
         if self._variable_averages is not None:
           with ops.control_dependencies([sync_op]), ops.name_scope(""):
@@ -441,11 +444,11 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
           "Too few tokens to finish the first step: %d (given) vs %d (needed)" %
           (num_tokens, tokens_needed))
 
-    logging.info("ANDREW(sync_replica_opt): Initializing with %s token(s)" % num_tokens)
+    self._log("Initializing with %s token(s)" % num_tokens)
     if num_tokens > 0:
       with ops.device(self._global_step.device), ops.name_scope(""):
         tokens = array_ops.fill([num_tokens], self._global_step)
-        logging.info("ANDREW(sync_replica_opt): Token enqueuing op: %s" % str(tokens))
+        self._log("Initial enqueue token op: %s" % str(tokens))
         init_tokens = self._sync_token_queue.enqueue_many((tokens,))
     else:
       init_tokens = control_flow_ops.no_op(name="no_init_tokens")

@@ -184,6 +184,9 @@ class QueueBase(object):
     else:
       self._name = self._queue_ref.op.name.split("/")[-1]
 
+  def _log(self, msg):
+    logging.info("ANDREW(queue): %s" % msg)
+
   @staticmethod
   def from_list(index, queues):
     """Create a queue using the queue reference from `queues[index]`.
@@ -334,7 +337,7 @@ class QueueBase(object):
     Returns:
       The operation that enqueues a new tuple of tensors to the queue.
     """
-    logging.info("ANDREW(data_flow_ops): enqueuing to queue %s these values %s", self._name, str(self._scope_vals(vals)))
+    self._log("Enqueuing to queue %s these values %s" % (self._name, str(self._scope_vals(vals))))
     with ops.name_scope(name, "%s_enqueue" % self._name,
                         self._scope_vals(vals)) as scope:
       vals = self._check_enqueue_dtypes(vals)
@@ -378,7 +381,8 @@ class QueueBase(object):
     Returns:
       The operation that enqueues a batch of tuples of tensors to the queue.
     """
-    logging.info("ANDREW(data_flow_ops): enqueuing MANY to queue %s these values %s", self._name, str(self._scope_vals(vals)))
+    self._log("Enqueuing MANY to queue %s these values %s" %
+              (self._name, str(self._scope_vals(vals))))
     with ops.name_scope(name, "%s_EnqueueMany" % self._name,
                         self._scope_vals(vals)) as scope:
       vals = self._check_enqueue_dtypes(vals)
@@ -417,7 +421,7 @@ class QueueBase(object):
       ret = tensors[0]
     else:
       ret = tensors
-    logging.info("ANDREW(data_flow_ops): dequeued from queue %s this value %s", self._name, str(ret))
+    self._log("Dequeued from queue %s this value %s" % (self._name, str(ret)))
     return ret
 
   def dequeue(self, name=None):
@@ -440,7 +444,7 @@ class QueueBase(object):
     Returns:
       The tuple of tensors that was dequeued.
     """
-    logging.info("ANDREW(data_flow_ops): dequeuing from queue %s", self._name)
+    self._log("Dequeuing from queue %s" % self._name)
     if name is None:
       name = "%s_Dequeue" % self._name
     if self._queue_ref.dtype == _dtypes.resource:
@@ -484,7 +488,7 @@ class QueueBase(object):
     Returns:
       The list of concatenated tensors that was dequeued.
     """
-    logging.info("ANDREW(data_flow_ops): dequeuing MANY (%s) from queue %s", n, self._name)
+    self._log("Dequeuing MANY (%s) from queue %s" % (n, self._name))
     if name is None:
       name = "%s_DequeueMany" % self._name
 
@@ -529,7 +533,7 @@ class QueueBase(object):
     Returns:
       The tuple of concatenated tensors that was dequeued.
     """
-    logging.info("ANDREW(data_flow_ops): dequeuing UP TO (%s) from queue %s", n, self._name)
+    self._log("Dequeuing UP TO (%s) from queue %s" % (n, self._name))
     if name is None:
       name = "%s_DequeueUpTo" % self._name
 
@@ -1198,6 +1202,11 @@ class ConditionalAccumulatorBase(object):
     else:
       self._name = self._accumulator_ref.op.name.split("/")[-1]
 
+  def _log(self, msg):
+    # logging.info("ANDREW(conditional_accumulator): %s" % msg)
+    # Keep quiet for now
+    pass
+
   @property
   def accumulator_ref(self):
     """The underlying accumulator reference."""
@@ -1293,8 +1302,8 @@ class ConditionalAccumulator(ConditionalAccumulatorBase):
     Raises:
       ValueError: If grad is of the wrong shape
     """
-    logging.info("ANDREW(data_flow_ops): applying grad %s to cond accumulator %s (local_step = %s, name? = %s)",\
-      str(grad), self._myname, local_step, name or "None")
+    self._log("Applying grad %s to cond accumulator %s (local_step = %s, name = %s)" %
+              (str(grad), self._myname, local_step, name or "None"))
     grad = ops.convert_to_tensor(grad, self._dtype)
     grad.get_shape().assert_is_compatible_with(self._shape)
     local_step = math_ops.to_int64(ops.convert_to_tensor(local_step))
@@ -1323,8 +1332,8 @@ class ConditionalAccumulator(ConditionalAccumulatorBase):
     Raises:
       InvalidArgumentError: If num_required < 1
     """
-    logging.info("ANDREW(data_flow_ops): taking grad (num required = %s) from cond accumulator %s (name? = %s)",\
-      num_required, self._myname, name or "None")
+    self._log("Taking grad (num required = %s) from cond accumulator %s (name = %s)" %
+              (num_required, self._myname, name or "None"))
     out = gen_data_flow_ops.accumulator_take_gradient(
         self._accumulator_ref, num_required, dtype=self._dtype, name=name)
     out.set_shape(self._shape)
@@ -1378,8 +1387,8 @@ class SparseConditionalAccumulator(ConditionalAccumulatorBase):
     Raises:
       InvalidArgumentError: If grad is of the wrong shape
     """
-    logging.info("ANDREW(data_flow_ops): applying indexed grad %s to sparse accumulator %s (local_step = %s, name? = %s)",\
-      str(grad), self._myname, local_step, name or "None")
+    self._log("Applying indexed grad %s to sparse accumulator %s (local_step = %s, name = %s)" %
+              (str(grad), self._myname, local_step, name or "None"))
     return self.apply_grad(
         grad_indices=grad.indices,
         grad_values=grad.values,
@@ -1424,8 +1433,9 @@ class SparseConditionalAccumulator(ConditionalAccumulatorBase):
     Raises:
       InvalidArgumentError: If grad is of the wrong shape
     """
-    logging.info("ANDREW(data_flow_ops): applying grad (%s, %s, %s) to sparse accumulator %s (local_step = %s, name? = %s)",\
-      str(grad_indices), str(grad_values), str(grad_shape), self._myname, local_step, name or "None")
+    self._log("Applying grad (%s, %s, %s) to sparse accumulator %s (local_step = %s, name = %s)" %
+              (str(grad_indices), str(grad_values), str(grad_shape),
+               self._myname, local_step, name or "None"))
     local_step = math_ops.to_int64(ops.convert_to_tensor(local_step))
     return gen_data_flow_ops.sparse_accumulator_apply_gradient(
         self._accumulator_ref,
@@ -1458,8 +1468,8 @@ class SparseConditionalAccumulator(ConditionalAccumulatorBase):
     Raises:
       InvalidArgumentError: If num_required < 1
     """
-    logging.info("ANDREW(data_flow_ops): taking grad (num required = %s) from sparse accumulator %s (name? = %s)",\
-      num_required, self._myname, name or "None")
+    self._log("Taking grad (num required = %s) from sparse accumulator %s (name = %s)" %
+              (num_required, self._myname, name or "None"))
     return gen_data_flow_ops.sparse_accumulator_take_gradient(
         self._accumulator_ref, num_required, dtype=self._dtype, name=name)
 
@@ -1484,8 +1494,8 @@ class SparseConditionalAccumulator(ConditionalAccumulatorBase):
     Raises:
       InvalidArgumentError: If num_required < 1
     """
-    logging.info("ANDREW(data_flow_ops): taking indexed grad (num required = %s) from sparse accumulator %s (name? = %s)",\
-      num_required, self._myname, name or "None")
+    self._log("Taking indexed grad (num required = %s) from sparse accumulator %s (name = %s)" %
+              (num_required, self._myname, name or "None"))
     return_val = gen_data_flow_ops.sparse_accumulator_take_gradient(
         self._accumulator_ref, num_required, dtype=self._dtype, name=name)
     return ops.IndexedSlices(
