@@ -4,12 +4,34 @@ LOG_DIR="/home/andrewor/logs"
 EXPR_NAME="local_resnet_cifar10"
 TIMESTAMP=`date +%s`
 
-CLUSTER="{\"ps\": [\"localhost:2222\"], \"chief\": [\"localhost:2223\"], \"worker\": [\"localhost:2224\", \"localhost:2225\"]}"
+# Number of processes: 1 parameter server, 1 chief, (n-2) workers
+NUM_PROCESSES="${1:-4}"
+if [[ "$NUM_PROCESSES" < 3 ]]; then
+  echo "Number of processes must be >= 3 (was $NUM_PROCESSES)"
+  exit 1
+fi
+NUM_WORKERS=$(($NUM_PROCESSES - 2))
 
+# Enable sync mode
 export ANDREW_RESNET_SYNC_ENABLED="true"
-export ANDREW_RESNET_SYNC_AGGREGATE_REPLICAS=2
-export ANDREW_RESNET_SYNC_TOTAL_REPLICAS=2
+export ANDREW_RESNET_SYNC_AGGREGATE_REPLICAS="$NUM_WORKERS"
+export ANDREW_RESNET_SYNC_TOTAL_REPLICAS="$NUM_WORKERS"
 
+# Build the json string for ClusterSpec, to be used in TF_CONFIG
+function build_tf_config() {
+  CLUSTER="{\"ps\": [\"localhost:2222\"], \"chief\": [\"localhost:2223\"], \"worker\": ["
+  STARTING_PORT=2223
+  for i in `seq 1 $NUM_WORKERS`; do
+    PORT=$(($STARTING_PORT + $i))
+    CLUSTER="$CLUSTER\"localhost:$PORT\""
+    if [[ "$i" < "$NUM_WORKERS" ]]; then
+      CLUSTER="$CLUSTER, "
+    fi
+  done
+  CLUSTER="$CLUSTER]}"
+}
+
+# Start a process in the background and redirect everything to the appropriate log file
 function start_it() {
   ROLE="$1"
   TASK_INDEX="$2"
@@ -20,8 +42,12 @@ function start_it() {
   ./dist_resnet_cifar10.sh "$TIMESTAMP" > "$LOG_FILE" 2>&1 &
 }
 
+# Actually start everything
+build_tf_config
+echo "ClusterSpec: $CLUSTER"
 start_it "chief" 0 0
 start_it "ps" 0 1
-start_it "worker" 0 2
-start_it "worker" 1 3
+for i in `seq 0 $(($NUM_WORKERS - 1))`; do
+  start_it "worker" $i $(($i + 2))
+done
 
