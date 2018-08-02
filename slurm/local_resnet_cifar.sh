@@ -16,6 +16,7 @@ NUM_WORKERS=$(($NUM_PROCESSES - 2))
 export RESNET_K_SYNC_ENABLED="true"
 export RESNET_K_SYNC_STARTING_AGGREGATE_REPLICAS=1
 export RESNET_K_SYNC_TOTAL_REPLICAS="$NUM_WORKERS"
+export RESNET_K_SYNC_SCALING_DURATION=10000
 
 # Build the json string for ClusterSpec, to be used in TF_CONFIG
 function build_tf_config() {

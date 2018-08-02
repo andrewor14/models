@@ -145,6 +145,7 @@ class KSyncOptimizer(optimizer.Optimizer):
                variable_averages=None,
                variables_to_average=None,
                use_locking=False,
+               scaling_duration=10000,
                name="k_sync"):
     """Construct a k_sync optimizer.
 
@@ -155,6 +156,8 @@ class KSyncOptimizer(optimizer.Optimizer):
         for each variable update.
       total_num_replicas: Total number of tasks/workers/replicas, could be
         different from replicas_to_aggregate. Must be > replicas_to_aggregate.
+      scaling_duration: How many steps before the number of replicas to aggregate
+        reaches its final value (total_num_replicas).
       variable_averages: Optional `ExponentialMovingAverage` object, used to
         maintain moving averages for the variables passed in
         `variables_to_average`.
@@ -181,6 +184,7 @@ class KSyncOptimizer(optimizer.Optimizer):
     self._variable_averages = variable_averages
     self._variables_to_average = variables_to_average
     self._total_num_replicas = total_num_replicas
+    self._scaling_duration = scaling_duration
     self._local_step = None
     self._global_step = None
     self._sync_token_queue = None
@@ -362,10 +366,8 @@ class KSyncOptimizer(optimizer.Optimizer):
       self._gradients_applied = True
       return train_op
 
-  def get_num_replicas_to_aggregate(self, n=1000):
+  def get_num_replicas_to_aggregate(self):
     """Returns a schedule for the number of replicas to aggregate in each step.
-
-    TODO: adjust based on delta loss instead.
 
     Returns:
       A 0-D Tensor whose value depends on the schedule and the global step.
@@ -374,11 +376,13 @@ class KSyncOptimizer(optimizer.Optimizer):
     end = self._total_num_replicas
     if start == end:
       return tf.Variable(start, tf.int32)
-    num_values = end - start + 1
+    num_boundaries = end - start
+    num_values = num_boundaries + 1
+    n = self._scaling_duration / num_boundaries
     values = [start + i for i in range(num_values)]
-    boundaries = [i * n for i in range(1, num_values)]  # TODO: this is arbitrary
-    self._log("Schedule for number of replicas to aggregate =\n"
-              "\tboundaries: %s\n\tvalues: %s" % (boundaries, values))
+    boundaries = [i * n for i in range(1, num_values)]
+    self._log("Schedule for number of replicas to aggregate: "
+              "boundaries = %s, values = %s, interval = %s" % (boundaries, values, n))
     return tf.train.piecewise_constant(self._global_step, boundaries, values)
 
   def get_chief_queue_runner(self):

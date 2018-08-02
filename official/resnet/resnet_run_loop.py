@@ -287,10 +287,12 @@ def resnet_model_fn(features, labels, mode, model_class,
       starting_replicas_to_aggregate = int(os.environ.get(
         "RESNET_K_SYNC_STARTING_AGGREGATE_REPLICAS"))
       total_num_replicas = int(os.environ.get("RESNET_K_SYNC_TOTAL_REPLICAS"))
+      scaling_duration = int(os.environ.get("RESNET_K_SYNC_SCALING_DURATION"))
       optimizer = k_sync_optimizer.KSyncOptimizer(
         optimizer,
         starting_replicas_to_aggregate=starting_replicas_to_aggregate,
-        total_num_replicas=total_num_replicas)
+        total_num_replicas=total_num_replicas,
+        scaling_duration=scaling_duration)
       is_chief = json.loads(os.environ["TF_CONFIG"])["task"]["type"] == "chief"
       training_hooks = [optimizer.make_session_run_hook(is_chief, num_tokens=0)]
 
