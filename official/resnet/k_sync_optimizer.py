@@ -380,11 +380,11 @@ class KSyncOptimizer(optimizer.Optimizer):
       return tf.Variable(start, tf.int32)
     num_boundaries = end - start
     num_values = num_boundaries + 1
-    n = self._scaling_duration / num_boundaries
+    interval = int(self._scaling_duration / num_boundaries)
     values = [start + i for i in range(num_values)]
-    boundaries = [i * n for i in range(1, num_values)]
+    boundaries = [i * interval for i in range(1, num_values)]
     self._log("Schedule for number of replicas to aggregate: "
-              "boundaries = %s, values = %s, interval = %s" % (boundaries, values, n))
+              "boundaries = %s, values = %s, interval = %s" % (boundaries, values, interval))
     return tf.train.piecewise_constant(self._global_step, boundaries, values)
 
   def get_chief_queue_runner(self):
