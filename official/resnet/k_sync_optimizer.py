@@ -157,7 +157,9 @@ class KSyncOptimizer(optimizer.Optimizer):
       total_num_replicas: Total number of tasks/workers/replicas, could be
         different from replicas_to_aggregate. Must be > replicas_to_aggregate.
       scaling_duration: How many steps before the number of replicas to aggregate
-        reaches its final value (total_num_replicas).
+        reaches its final value (total_num_replicas). If scaling_duration is -1,
+        there will be no scaling, i.e. the number of replicas to aggregate stays
+        at starting_replicas_to_aggregate.
       variable_averages: Optional `ExponentialMovingAverage` object, used to
         maintain moving averages for the variables passed in
         `variables_to_average`.
@@ -374,7 +376,7 @@ class KSyncOptimizer(optimizer.Optimizer):
     """
     start = self._starting_replicas_to_aggregate
     end = self._total_num_replicas
-    if start == end:
+    if self._scaling_duration < 0 or start == end:
       return tf.Variable(start, tf.int32)
     num_boundaries = end - start
     num_values = num_boundaries + 1
