@@ -272,10 +272,6 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
     self.ready_for_local_init_op = variables.report_uninitialized_variables(
         variables.global_variables())
 
-    # Fake local step, so we don't drop stale gradients (needed for "async" case)
-    # NOTE: This doesn't actually work right now, hangs for some reason
-    # fake_local_step = tf.Variable(sys.maxsize, dtype=tf.int32)
-
     with ops.name_scope(None, self._name):
       for grad, var in grads_and_vars:
         var_list.append(var)
@@ -289,8 +285,9 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
                 grad.dtype,
                 shape=var.get_shape(),
                 shared_name=var.name + "/grad_accum")
+            # Set the local step as global step here to avoid dropping stale gradients
             train_ops.append(grad_accum.apply_grad(
-                grad, local_step=self._local_step))
+                grad, local_step=self._global_step))
             aggregated_grad.append(grad_accum.take_grad(
                 self._replicas_to_aggregate))
           else:
@@ -299,7 +296,7 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
             grad_accum = data_flow_ops.SparseConditionalAccumulator(
                 grad.dtype, shape=(), shared_name=var.name + "/grad_accum")
             train_ops.append(grad_accum.apply_indexed_slices_grad(
-                grad, local_step=self._local_step))
+                grad, local_step=self._global_step))
             aggregated_grad.append(grad_accum.take_indexed_slices_grad(
                 self._replicas_to_aggregate))
 
@@ -362,7 +359,7 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
       self._gradients_applied = True
       return train_op
 
-  def get_num_replicas_to_aggregate(self, n=100):
+  def get_num_replicas_to_aggregate(self, n=1000):
     """Returns a schedule for the number of replicas to aggregate in each step.
 
     TODO: adjust based on delta loss instead.
