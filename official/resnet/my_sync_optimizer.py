@@ -18,6 +18,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import sys
+
 import tensorflow as tf
 from tensorflow.core.framework import types_pb2
 from tensorflow.python.framework import ops
@@ -152,11 +154,7 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
       replicas_to_aggregate: number of replicas to aggregate for each variable
         update.
       total_num_replicas: Total number of tasks/workers/replicas, could be
-        different from replicas_to_aggregate.
-        If total_num_replicas > replicas_to_aggregate: it is backup_replicas +
-        replicas_to_aggregate.
-        If total_num_replicas < replicas_to_aggregate: Replicas compute
-        multiple batches per update to variables.
+        different from replicas_to_aggregate. Must be > replicas_to_aggregate.
       variable_averages: Optional `ExponentialMovingAverage` object, used to
         maintain moving averages for the variables passed in
         `variables_to_average`.
@@ -168,17 +166,21 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
     if total_num_replicas is None:
       total_num_replicas = replicas_to_aggregate
 
+    if replicas_to_aggregate > total_num_replicas:
+      raise ValueError("Number of replicas to aggregate (%s) exceeds total number of replicas (%s)"
+                       % (replicas_to_aggregate, total_num_replicas))
+
     super(SyncReplicasOptimizer, self).__init__(use_locking, name)
     logging.info(
         "SyncReplicasV2: replicas_to_aggregate=%s; total_num_replicas=%s",
         replicas_to_aggregate, total_num_replicas)
     self._opt = opt
-    self._replicas_to_aggregate = replicas_to_aggregate
+    self._starting_replicas_to_aggregate = replicas_to_aggregate
+    self._replicas_to_aggregate = None
     self._gradients_applied = False
     self._variable_averages = variable_averages
     self._variables_to_average = variables_to_average
     self._total_num_replicas = total_num_replicas
-    self._tokens_per_step = None
     self._local_step = None
     self._global_step = None
     self._sync_token_queue = None
@@ -249,6 +251,7 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
       raise ValueError("Global step is required to check staleness")
 
     self._global_step = global_step
+    self._replicas_to_aggregate = self.get_num_replicas_to_aggregate()
     train_ops = []
     aggregated_grad = []
     var_list = []
@@ -268,6 +271,10 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
     chief_init_ops = [self.local_step_init_op]
     self.ready_for_local_init_op = variables.report_uninitialized_variables(
         variables.global_variables())
+
+    # Fake local step, so we don't drop stale gradients (needed for "async" case)
+    # NOTE: This doesn't actually work right now, hangs for some reason
+    # fake_local_step = tf.Variable(sys.maxsize, dtype=tf.int32)
 
     with ops.name_scope(None, self._name):
       for grad, var in grads_and_vars:
@@ -326,8 +333,6 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
                                     shared_name="dummy_queue"))
 
       with ops.device(global_step.device), ops.name_scope(""):
-        self._tokens_per_step = self.get_token_schedule()
-
         # Replicas have to wait until they can get a token from the token queue.
         with ops.control_dependencies(train_ops):
           token = sync_token_queue.dequeue()
@@ -337,7 +342,7 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
         with ops.control_dependencies([update_op]):
           # Sync_op needs to insert tokens to the token queue at the end of the
           # step so the replicas can fetch them to start the next step.
-          tokens = array_ops.fill([self._tokens_per_step], global_step)
+          tokens = array_ops.fill([self._total_num_replicas], global_step)
           sync_op = sync_token_queue.enqueue_many((tokens,))
           self._log("Enqueue token op: %s" % str(sync_op))
 
@@ -357,18 +362,23 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
       self._gradients_applied = True
       return train_op
 
-  def get_token_schedule(self):
-    """Returns a schedule for the number of tokens to enqueue in each step.
+  def get_num_replicas_to_aggregate(self, n=100):
+    """Returns a schedule for the number of replicas to aggregate in each step.
 
-    Currently this just increments the number of tokens per step across each boundary.
-    TODO: Make this more meaningful.
+    TODO: adjust based on delta loss instead.
 
     Returns:
       A 0-D Tensor whose value depends on the schedule and the global step.
     """
-    initial_tokens_per_step = max(self._replicas_to_aggregate, self._total_num_replicas)
-    boundaries = [100, 200, 300]
-    values = [initial_tokens_per_step + i for i in range(len(boundaries) + 1)]
+    start = self._starting_replicas_to_aggregate
+    end = self._total_num_replicas
+    if start == end:
+      return tf.Variable(start, tf.int32)
+    num_values = end - start + 1
+    values = [start + i for i in range(num_values)]
+    boundaries = [i * n for i in range(1, num_values)]  # TODO: this is arbitrary
+    self._log("Schedule for number of replicas to aggregate =\n"
+              "\tboundaries: %s\n\tvalues: %s" % (boundaries, values))
     return tf.train.piecewise_constant(self._global_step, boundaries, values)
 
   def get_chief_queue_runner(self):
@@ -454,9 +464,9 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
       raise ValueError(
           "get_init_tokens_op() should be called after apply_gradients().")
 
-    tokens_needed = self._replicas_to_aggregate - self._total_num_replicas
+    tokens_needed = self._starting_replicas_to_aggregate - self._total_num_replicas
     if num_tokens == -1:
-      num_tokens = self._replicas_to_aggregate
+      num_tokens = self._starting_replicas_to_aggregate
     elif num_tokens < tokens_needed:
       raise ValueError(
           "Too few tokens to finish the first step: %d (given) vs %d (needed)" %
@@ -540,5 +550,5 @@ class _SyncReplicasOptimizerHook(session_run_hook.SessionRunHook):
     opt = self._sync_optimizer
     gs = int(self._session.run(opt._global_step))
     ls = int(self._session.run(opt._local_step))
-    tks = int(self._session.run(opt._tokens_per_step))
-    self._log("AFTER RUN epoch = %s, gs = %s, ls = %s, tks = %s" % (self._epoch, gs, ls, tks))
+    rta = int(self._session.run(opt._replicas_to_aggregate))
+    self._log("AFTER RUN epoch = %s, gs = %s, ls = %s, rta = %s" % (self._epoch, gs, ls, rta))
