@@ -38,7 +38,7 @@ from official.utils.logs import hooks_helper
 from official.utils.logs import logger
 from official.utils.misc import model_helpers
 
-import my_sync_optimizer
+import k_sync_optimizer
 # pylint: enable=g-bad-import-order
 
 
@@ -281,15 +281,16 @@ def resnet_model_fn(features, labels, mode, model_class,
         momentum=momentum
     )
 
-    should_sync = os.environ.get("ANDREW_RESNET_SYNC_ENABLED") is not None
-    tf.logging.info("Using synchronized optimizer? %s" % should_sync)
+    should_sync = os.environ.get("RESNET_K_SYNC_ENABLED") is not None
+    tf.logging.info("Using KSyncOptimizer? %s" % should_sync)
     if should_sync:
-      num_aggregate_replicas = int(os.environ.get("ANDREW_RESNET_SYNC_AGGREGATE_REPLICAS"))
-      num_total_replicas = int(os.environ.get("ANDREW_RESNET_SYNC_TOTAL_REPLICAS"))
-      optimizer = my_sync_optimizer.SyncReplicasOptimizer(
+      starting_replicas_to_aggregate = int(os.environ.get(
+        "RESNET_K_SYNC_STARTING_AGGREGATE_REPLICAS"))
+      total_num_replicas = int(os.environ.get("RESNET_K_SYNC_TOTAL_REPLICAS"))
+      optimizer = k_sync_optimizer.KSyncOptimizer(
         optimizer,
-        replicas_to_aggregate=num_aggregate_replicas,
-        total_num_replicas=num_total_replicas)
+        starting_replicas_to_aggregate=starting_replicas_to_aggregate,
+        total_num_replicas=total_num_replicas)
       is_chief = json.loads(os.environ["TF_CONFIG"])["task"]["type"] == "chief"
       training_hooks = [optimizer.make_session_run_hook(is_chief, num_tokens=0)]
 

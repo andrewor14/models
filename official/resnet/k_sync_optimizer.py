@@ -18,13 +18,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import sys
-
 import tensorflow as tf
 from tensorflow.core.framework import types_pb2
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import control_flow_ops
+from tensorflow.python.ops import data_flow_ops
 from tensorflow.python.ops import state_ops
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.ops import variables
@@ -35,16 +34,17 @@ from tensorflow.python.training import session_manager
 from tensorflow.python.training import session_run_hook
 from tensorflow.python.util.tf_export import tf_export
 
-import my_data_flow_ops as data_flow_ops
 
 # Please note that the gradients from replicas are averaged instead of summed
-# (as in the old sync_replicas_optimizer) so you need to increase the learning
+# (as in the old k_sync_optimizer) so you need to increase the learning
 # rate according to the number of replicas. This change is introduced to be
 # consistent with how gradients are aggregated (averaged) within a batch in a
 # replica.
-@tf_export("train.SyncReplicasOptimizer")
-class SyncReplicasOptimizer(optimizer.Optimizer):
+@tf_export("train.KSyncOptimizer")
+class KSyncOptimizer(optimizer.Optimizer):
   """Class to synchronize, aggregate gradients and pass them to the optimizer.
+
+  Note: This optimizer borrows heavily from SyncReplicasOptimizer.
 
   In a typical asynchronous training environment, it's common to have some
   stale gradients. For example, with a N-replica asynchronous training,
@@ -99,16 +99,16 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
   # Create any optimizer to update the variables, say a simple SGD:
   opt = GradientDescentOptimizer(learning_rate=0.1)
 
-  # Wrap the optimizer with sync_replicas_optimizer with 50 replicas: at each
+  # Wrap the optimizer with k_sync_optimizer with 50 replicas: at each
   # step the optimizer collects 50 gradients before applying to variables.
   # Note that if you want to have 2 backup replicas, you can change
   # total_num_replicas=52 and make sure this number matches how many physical
   # replicas you started in your job.
-  opt = tf.train.SyncReplicasOptimizer(opt, replicas_to_aggregate=50,
+  opt = tf.train.KSyncOptimizer(opt, replicas_to_aggregate=50,
                                  total_num_replicas=50)
 
   # Some models have startup_delays to help stabilize the model but when using
-  # sync_replicas training, set it to 0.
+  # k_sync training, set it to 0.
 
   # Now you can call `minimize()` or `compute_gradients()` and
   # `apply_gradients()` normally
@@ -116,7 +116,7 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
 
 
   # You can create the hook which handles initialization and queues.
-  sync_replicas_hook = opt.make_session_run_hook(is_chief)
+  k_sync_hook = opt.make_session_run_hook(is_chief)
   ```
 
   In the training program, every worker will run the train_op as if not
@@ -125,34 +125,34 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
   ```python
   with training.MonitoredTrainingSession(
       master=workers[worker_id].target, is_chief=is_chief,
-      hooks=[sync_replicas_hook]) as mon_sess:
+      hooks=[k_sync_hook]) as mon_sess:
     while not mon_sess.should_stop():
       mon_sess.run(training_op)
   ```
 
-  To use SyncReplicasOptimizer with an `Estimator`, you need to send
-  sync_replicas_hook while calling the fit.
+  To use KSyncOptimizer with an `Estimator`, you need to send
+  k_sync_hook while calling the fit.
   ```python
   my_estimator = DNNClassifier(..., optimizer=opt)
-  my_estimator.fit(..., hooks=[sync_replicas_hook])
+  my_estimator.fit(..., hooks=[k_sync_hook])
   ```
   """
 
   def __init__(self,
                opt,
-               replicas_to_aggregate,
+               starting_replicas_to_aggregate,
                total_num_replicas=None,
                variable_averages=None,
                variables_to_average=None,
                use_locking=False,
-               name="sync_replicas"):
-    """Construct a sync_replicas optimizer.
+               name="k_sync"):
+    """Construct a k_sync optimizer.
 
     Args:
       opt: The actual optimizer that will be used to compute and apply the
         gradients. Must be one of the Optimizer classes.
-      replicas_to_aggregate: number of replicas to aggregate for each variable
-        update.
+      starting_replicas_to_aggregate: starting number of replicas to aggregate
+        for each variable update.
       total_num_replicas: Total number of tasks/workers/replicas, could be
         different from replicas_to_aggregate. Must be > replicas_to_aggregate.
       variable_averages: Optional `ExponentialMovingAverage` object, used to
@@ -164,18 +164,18 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
       name: string. Optional name of the returned operation.
     """
     if total_num_replicas is None:
-      total_num_replicas = replicas_to_aggregate
+      total_num_replicas = starting_replicas_to_aggregate
 
-    if replicas_to_aggregate > total_num_replicas:
+    if starting_replicas_to_aggregate > total_num_replicas:
       raise ValueError("Number of replicas to aggregate (%s) exceeds total number of replicas (%s)"
-                       % (replicas_to_aggregate, total_num_replicas))
+                       % (starting_replicas_to_aggregate, total_num_replicas))
 
-    super(SyncReplicasOptimizer, self).__init__(use_locking, name)
+    super(KSyncOptimizer, self).__init__(use_locking, name)
     logging.info(
-        "SyncReplicasV2: replicas_to_aggregate=%s; total_num_replicas=%s",
-        replicas_to_aggregate, total_num_replicas)
+        "KSyncReplicaOptimizer: starting_replicas_to_aggregate=%s; total_num_replicas=%s",
+        starting_replicas_to_aggregate, total_num_replicas)
     self._opt = opt
-    self._starting_replicas_to_aggregate = replicas_to_aggregate
+    self._starting_replicas_to_aggregate = starting_replicas_to_aggregate
     self._replicas_to_aggregate = None
     self._gradients_applied = False
     self._variable_averages = variable_averages
@@ -184,6 +184,9 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
     self._local_step = None
     self._global_step = None
     self._sync_token_queue = None
+    self.chief_init_op = None
+    self.local_step_init_op = None
+    self.ready_for_local_init_op = None
 
     # The synchronization op will be executed in a queue runner which should
     # only be executed by one of the replicas (usually the chief).
@@ -195,7 +198,7 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
     self._accumulator_list = []
 
   def _log(self, msg):
-    logging.info("ANDREW(sync_replica_opt): %s" % msg)
+    logging.info("ANDREW(k_sync): %s" % msg)
 
   def compute_gradients(self, *args, **kwargs):
     """Compute gradients of "loss" for the variables in "var_list".
@@ -416,7 +419,7 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
     """Fetches a list of optimizer variables in the default graph.
 
     This wraps `variables()` from the actual optimizer. It does not include
-    the `SyncReplicasOptimizer`'s local step.
+    the `KSyncOptimizer`'s local step.
 
     Returns:
       A list of variables.
@@ -482,17 +485,17 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
 
   def make_session_run_hook(self, is_chief, num_tokens=-1):
     """Creates a hook to handle SyncReplicasHook ops such as initialization."""
-    return _SyncReplicasOptimizerHook(self, is_chief, num_tokens)
+    return _KSyncOptimizerHook(self, is_chief, num_tokens)
 
 
-class _SyncReplicasOptimizerHook(session_run_hook.SessionRunHook):
-  """A SessionRunHook handles ops related to SyncReplicasOptimizer."""
+class _KSyncOptimizerHook(session_run_hook.SessionRunHook):
+  """A SessionRunHook handles ops related to KSyncOptimizer."""
 
   def __init__(self, sync_optimizer, is_chief, num_tokens):
-    """Creates hook to handle SyncReplicasOptimizer initialization ops.
+    """Creates hook to handle KSyncOptimizer initialization ops.
 
     Args:
-      sync_optimizer: `SyncReplicasOptimizer` which this hook will initialize.
+      sync_optimizer: `KSyncOptimizer` which this hook will initialize.
       is_chief: `Bool`, whether is this a chief replica or not.
       num_tokens: Number of tokens to add to the queue.
     """
@@ -501,6 +504,10 @@ class _SyncReplicasOptimizerHook(session_run_hook.SessionRunHook):
     self._num_tokens = num_tokens
     self._epoch = 0
     self._session = None
+    self._local_init_op = None
+    self._ready_for_local_init_op = None
+    self._q_runner = None
+    self._init_tokens_op = None
 
   def _log(self, msg):
     self._sync_optimizer._log(msg)
@@ -508,7 +515,7 @@ class _SyncReplicasOptimizerHook(session_run_hook.SessionRunHook):
   def begin(self):
     if self._sync_optimizer._gradients_applied is False:  # pylint: disable=protected-access
       raise ValueError(
-          "SyncReplicasOptimizer.apply_gradient should be called before using "
+          "KSyncOptimizer.apply_gradient should be called before using "
           "the hook.")
     if self._is_chief:
       self._local_init_op = self._sync_optimizer.chief_init_op
@@ -525,13 +532,13 @@ class _SyncReplicasOptimizerHook(session_run_hook.SessionRunHook):
       self._init_tokens_op = None
 
   def after_create_session(self, session, coord):
-    """Runs SyncReplicasOptimizer initialization ops."""
+    """Runs KSyncOptimizer initialization ops."""
     local_init_success, msg = session_manager._ready(  # pylint: disable=protected-access
         self._ready_for_local_init_op, session,
-        "Model is not ready for SyncReplicasOptimizer local init.")
+        "Model is not ready for KSyncOptimizer local init.")
     if not local_init_success:
       raise RuntimeError(
-          "Init operations did not make model ready for SyncReplicasOptimizer "
+          "Init operations did not make model ready for KSyncOptimizer "
           "local_init. Init op: %s, error: %s" %
           (self._local_init_op.name, msg))
     self._session = session

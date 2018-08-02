@@ -12,10 +12,10 @@ if [[ "$NUM_PROCESSES" < 3 ]]; then
 fi
 NUM_WORKERS=$(($NUM_PROCESSES - 2))
 
-# Enable sync mode
-export ANDREW_RESNET_SYNC_ENABLED="true"
-export ANDREW_RESNET_SYNC_AGGREGATE_REPLICAS="$NUM_WORKERS"
-export ANDREW_RESNET_SYNC_TOTAL_REPLICAS="$NUM_WORKERS"
+# Enable k-sync mode
+export RESNET_K_SYNC_ENABLED="true"
+export RESNET_K_SYNC_STARTING_AGGREGATE_REPLICAS=1
+export RESNET_K_SYNC_TOTAL_REPLICAS="$NUM_WORKERS"
 
 # Build the json string for ClusterSpec, to be used in TF_CONFIG
 function build_tf_config() {
