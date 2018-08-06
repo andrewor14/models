@@ -95,11 +95,9 @@ def main():
     plot_data(x_label, y_label, log_file, ax)
   ax.set_xlabel(x_label)
   ax.set_ylabel(y_label)
-  legend_loc = "upper center"
-  if y_label == "train_accuracy":
-    legend_loc = "lower center"
-  legend = ax.legend(loc=legend_loc)
-  ax.set_title(title)
+  legend = ax.legend(loc="best")
+  if title is not None:
+    ax.set_title(title)
   fig.savefig(out_file, bbox_extra_artists=(legend,), bbox_inches='tight')
   print "Wrote to " + out_file
 
