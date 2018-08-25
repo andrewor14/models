@@ -10,7 +10,7 @@
 #SBATCH --mail-type=end
 #SBATCH --mail-user=haoyuz@princeton.edu
 
-module load cudnn/cuda-9.1/7.1.2
+./setup_env.sh
 export DATA_DIR=/tigress/haoyuz/imagenet-dataset
 cd /home/haoyuz/tensorflow-models/research/inception
 bazel-bin/inception/tf_preprocess_imagenet "${DATA_DIR}"

@@ -9,7 +9,7 @@
 #SBATCH --mail-type=end
 #SBATCH --mail-user=haoyuz@princeton.edu
 
-module load cudnn/cuda-9.1/7.1.2
+./setup_env.sh
 cd /home/haoyuz
 python models/cnn_mnist.py
 

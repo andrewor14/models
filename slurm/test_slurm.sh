@@ -1,8 +1,7 @@
 #!/bin/bash
 
 echo "Hey guys"
-module load cudnn/cuda-8.0/7.0
-module load anaconda3/5.0.1
+./setup_env.sh
 python /home/andrewor/models/samples/core/get_started/premade_estimator.py
 echo "Signing off!"
 
