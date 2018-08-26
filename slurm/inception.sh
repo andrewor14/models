@@ -11,7 +11,6 @@
 #SBATCH --mail-type=end
 #SBATCH --mail-user=haoyuz@princeton.edu
 
-./setup_env.sh
 cd /home/haoyuz/tensorflow-models/research/inception
 bazel-bin/inception/imagenet_train --num_gpus=4 --batch_size=256 --train_dir=/tigress/haoyuz/imagenet_train --data_dir=/tigress/haoyuz/imagenet-dataset
 

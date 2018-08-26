@@ -94,4 +94,7 @@ ENV/
 # Rsync
 rsync*
 
+# Other
 .nfs*
+slurm/*out
+

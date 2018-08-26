@@ -11,7 +11,6 @@
 #SBATCH --mail-type=end
 #SBATCH --mail-user=haoyuz@princeton.edu
 
-./setup_env.sh
 export PYTHONPATH="$PYTHONPATH:/home/haoyuz/tensorflow-models"
 cd /home/haoyuz/tensorflow-models/official/resnet
 python cifar10_main.py --data_dir=/tigress/haoyuz/cifar10-dataset \

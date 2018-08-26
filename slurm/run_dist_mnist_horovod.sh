@@ -15,9 +15,9 @@
 #SBATCH --mail-type=end
 #SBATCH --mail-user=andrewor@princeton.edu
 
-SLURM_LOG_DIR=/home/andrewor/logs
-SCRIPT_PATH=/home/andrewor/models/slurm/dist_mnist_horovod.sh
-TIMESTAMP=`date %+s`
+SLURM_LOG_DIR="/home/andrewor/logs"
+RUN_PATH="/home/andrewor/models/slurm/run_with_env.sh"
+SCRIPT_NAME="dist_mnist_horovod.sh"
 
-srun --output="$SLURM_LOG_DIR/slurm-%x-%j-%n-$TIMESTAMP.out" "$SCRIPT_PATH" "$TIMESTAMP"
+srun --output="$SLURM_LOG_DIR/slurm-%x-%j-%n-$TIMESTAMP.out" "$RUN_PATH" "$SCRIPT_NAME"
 

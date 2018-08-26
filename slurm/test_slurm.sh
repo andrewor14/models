@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "Hey guys"
-./setup_env.sh
+echo "First argument is = $1"
 python /home/andrewor/models/samples/core/get_started/premade_estimator.py
 echo "Signing off!"
 

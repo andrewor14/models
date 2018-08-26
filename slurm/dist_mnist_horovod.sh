@@ -5,7 +5,7 @@ HOROVOD=/home/andrewor/horovod
 DATASET_DIR=/tigress/andrewor/dataset/cifar10-dataset
 MODEL_DIR=/tigress/andrewor/logs/resnet_cifar10_model
 
-# TODO: use setup_env.sh
+# TODO: how to make this work with run_wth_env.sh?
 module load cudnn/cuda-8.0/7.0
 module load anaconda3/5.0.1
 module load openmpi/cuda-8.0/gcc/3.0.0/64

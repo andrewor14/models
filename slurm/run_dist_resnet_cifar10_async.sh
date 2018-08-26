@@ -15,14 +15,14 @@
 #SBATCH --mail-type=end
 #SBATCH --mail-user=andrewor@princeton.edu
 
-SLURM_LOG_DIR=/home/andrewor/logs
-SCRIPT_PATH=/home/andrewor/models/slurm/dist_resnet_cifar10.sh
-TIMESTAMP=`date +%s`
+SLURM_LOG_DIR="/home/andrewor/logs"
+RUN_PATH="/home/andrewor/models/slurm/run_with_env.sh"
+SCRIPT_NAME="dist_resnet_cifar10.sh"
 
 export RESNET_K_SYNC_ENABLED="true"
 export RESNET_K_SYNC_STARTING_AGGREGATE_REPLICAS=1
 export RESNET_K_SYNC_TOTAL_REPLICAS=4
 export RESNET_K_SYNC_SCALING_DURATION=-1
 
-srun --output="$SLURM_LOG_DIR/slurm-%x-%j-%n-$TIMESTAMP.out" "$SCRIPT_PATH" "$TIMESTAMP"
+srun --output="$SLURM_LOG_DIR/slurm-%x-%j-%n-$TIMESTAMP.out" "$RUN_PATH" "$SCRIPT_NAME"
 
