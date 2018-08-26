@@ -8,7 +8,7 @@
 #SBATCH --gres=gpu:4
 #SBATCH --time=48:00:00
 #
-#SBATCH --job-name=dist_resnet_cifar10_sync
+#SBATCH --job-name=dist_resnet_cifar10_ksync
 #SBATCH --output=slurm-%x-%j.out
 #
 #SBATCH --mail-type=begin
