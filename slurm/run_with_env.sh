@@ -1,11 +1,9 @@
 #!/bin/bash
 
-if [[ "$#" -ne 1 ]]; then
-  echo "Usage: run_with_env.sh <script_name>"
+if [[ "$#" -lt 1 ]]; then
+  echo "Usage: run_with_env.sh <script_name> [<arg1>] [<arg2>] ..."
   exit 1
 fi
-
-TIMESTAMP=`date +%s`
 
 module load cudnn/cuda-9.1/7.1.2
 module load anaconda3/5.0.1
@@ -23,5 +21,5 @@ if [[ "$?" -ne 0 ]]; then
   exit 1
 fi
 
-bash "$1" "$TIMESTAMP"
+bash "$@"
 
