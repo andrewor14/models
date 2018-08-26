@@ -1,6 +1,6 @@
 #!/bin/bash
 
-TITLE="Resnet-50 cifar10, 4 workers, 1 server"
+TITLE="Resnet-50 cifar10, 4 workers, 1 ps"
 LOG_FILES="$(ls *out | tr '\n' ',' | sed 's/,$//g')"
 
 ./plot.py --x time_elapsed --y train_accuracy --output train_accuracy.png --title "$TITLE" --logs "$LOG_FILES"

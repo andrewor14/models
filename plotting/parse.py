@@ -18,8 +18,12 @@ def parse_data(log_file):
       if "tf_logging" not in line:
         continue
       if "learning_rate" in line:
-        m = re.match(".*learning_rate = ([\.\d]+), cross_entropy = ([\.\d]+), train_accuracy = ([\.\d]+)", line)
-        (learning_rate, cross_entropy, train_accuracy) = m.groups()
+        m1 = re.match(".*learning_rate = ([\.\d]+)", line)
+        m2 = re.match(".*cross_entropy = ([\.\d]+)", line)
+        m3 = re.match(".*train_accuracy = ([\.\d]+)", line)
+        learning_rate = m1.groups()[0]
+        cross_entropy = m2.groups()[0]
+        train_accuracy = m3.groups()[0]
       elif "global_step/sec" in line:
         m = re.match(".*global_step/sec: ([\.\d]+)", line)
         global_step_per_sec = m.groups()[0]
