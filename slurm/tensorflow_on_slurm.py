@@ -9,8 +9,14 @@ from __future__ import print_function
 
 import json
 import os
-import re
 
+
+SLURM_JOB_NODELIST = "SLURM_JOB_NODELIST"
+SLURM_JOB_NUM_NODES = "SLURM_JOB_NUM_NODES"
+SLURMD_NODENAME = "SLURMD_NODENAME"
+
+def running_through_slurm():
+  return SLURM_JOB_NODELIST in os.environ and SLURMD_NODENAME in os.environ
 
 def json_tf_config_from_slurm(ps_number, port_number=2222):
   """
@@ -52,10 +58,12 @@ def tf_config_from_slurm(ps_number, port_number=2222):
            task_name and task_id
   """
 
-  nodelist = os.environ["SLURM_JOB_NODELIST"]
-  nodename = os.environ["SLURMD_NODENAME"]
-  nodelist = _expand_nodelist(nodelist)
-  num_nodes = int(os.getenv("SLURM_JOB_NUM_NODES"))
+  if not running_through_slurm():
+    raise ValueError("Slurm environment variables not found.")
+
+  nodename = os.environ[SLURMD_NODENAME]
+  nodelist = _expand_nodelist(os.environ[SLURM_JOB_NODELIST])
+  num_nodes = int(os.environ[SLURM_JOB_NUM_NODES])
 
   if len(nodelist) != num_nodes:
     raise ValueError("Number of slurm nodes {} not equal to {}".format(len(nodelist), num_nodes))
