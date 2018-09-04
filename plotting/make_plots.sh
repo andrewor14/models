@@ -6,6 +6,7 @@ ACCURACY_METRIC="top_1_accuracy"
 IS_NEW_FORMAT="$(echo "$LOG_FILES" | grep "benchmark")"
 
 if [[ -z "$IS_NEW_FORMAT" ]]; then
+  TITLE="Resnet-50 cifar10, 4 workers, 1 ps"
   ACCURACY_METRIC="train_accuracy"
 fi
 
