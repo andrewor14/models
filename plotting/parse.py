@@ -23,7 +23,7 @@ def parse_data(log_file):
         continue
       if "images/sec" in line and "jitter" in line:
         use_new_format = True
-        m1 = re.match(".*(\d\d\d\d \d\d:\d\d:\d\d).*\s+([\.\d]+)\s+images/sec: ([\.\d]+)", line)
+        m1 = re.match(".*(\d\d\d\d \d\d:\d\d:\d\d\.[\d]+).*\s+([\.\d]+)\s+images/sec: ([\.\d]+)", line)
         m2 = re.match(".*\s+([\.\d]+)\s+([\.\d]+)\s+([\.\d]+)", line)
         (timestamp, step, images_per_sec) = m1.groups()
         (loss, top_1_accuracy, top_5_accuracy) = m2.groups()
@@ -40,7 +40,7 @@ def parse_data(log_file):
           m = re.match(".*global_step/sec: ([\.\d]+)", line)
           global_step_per_sec = m.groups()[0]
         elif "loss" in line:
-          m = re.match(".*(\d\d\d\d \d\d:\d\d:\d\d).*loss = ([\.\d]+), step = ([\.\d]+)", line)
+          m = re.match(".*(\d\d\d\d \d\d:\d\d:\d\d\.[\d]+).*loss = ([\.\d]+), step = ([\.\d]+)", line)
           (timestamp, loss, step) = m.groups()
           data += [",".join([step, parse_time(timestamp), loss, learning_rate,\
             cross_entropy, train_accuracy, global_step_per_sec or "0"])]
@@ -53,13 +53,14 @@ def parse_data(log_file):
   data.insert(0, header)
   return data
 
-# Parse timestamp in the format "MMDD hh:mm:ss" into a UNIX timestamp
+# Parse timestamp in the format "MMDD hh:mm:ss.[...ms...]" into a UNIX timestamp (unit = ms)
 def parse_time(ts):
-  m = re.match("(\d\d)(\d\d) (\d\d):(\d\d):(\d\d)", ts)
-  (month, day, hour, minute, second) = m.groups()
+  m = re.match("(\d\d)(\d\d) (\d\d):(\d\d):(\d\d)(.*)", ts)
+  (month, day, hour, minute, second, milliseconds) = m.groups()
+  milliseconds = long(float(milliseconds) * 1000)
   dt = datetime.datetime(year=2018, month=int(month), day=int(day),\
     hour=int(hour), minute=int(minute), second=int(second))
-  return dt.strftime('%s')
+  return str(long(dt.strftime('%s')) * 1000 + milliseconds)
 
 def main():
   args = sys.argv

@@ -10,6 +10,13 @@ import scipy.stats as stats
 from subprocess import Popen, PIPE
 import sys 
 
+# Some special labels
+STEP = "step"
+TIMESTAMP = "timestamp"
+TIME_ELAPSED = "time_elapsed"
+TIME_ELAPSED_PER_STEP = "time_elapsed_per_step"
+GLOBAL_STEP_PER_SEC = "global_step_per_sec"
+
 # Make log file name more human-readable
 def format_name(log_file):
   name = log_file.lstrip("slurm-")
@@ -24,8 +31,16 @@ def get_values(label, data, known_labels):
     sys.exit(1)
   return data[label]
 
+# Return the label text for a certain axis on the plot
+def get_label_text(label, convert_timestamp_to_seconds):
+  if label == TIME_ELAPSED or label == TIME_ELAPSED_PER_STEP:
+    time_units_text = "(s)" if convert_timestamp_to_seconds else "(ms)"
+    return "%s %s" % (label, time_units_text)
+  else:
+    return label
+
 # Parse and plot data from the specified log file
-def plot_data(x_label, y_label, log_file, ax):
+def plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax):
   Popen(['./parse.py', log_file], stdout=PIPE, stderr=PIPE).communicate()
   csv_file = re.sub("\..*$", "", log_file) + ".csv"
   labels = []
@@ -36,36 +51,53 @@ def plot_data(x_label, y_label, log_file, ax):
     lines = f.readlines()
     # Parse labels
     for label in lines[0].strip().split(","):
-      if label == "timestamp":
-        label = "time_elapsed"
+      if label == TIMESTAMP:
+        label = TIME_ELAPSED
       data[label] = []
       labels.append(label)
+    # Add custom label time_elapsed_per_step
+    data[TIME_ELAPSED_PER_STEP] = []
+    labels.append(TIME_ELAPSED_PER_STEP)
     # Parse data
     for line in lines[1:]:
       split = line.strip().split(",")
-      if len(split) != len(labels):
+      num_values = len(split)
+      num_columns = len(labels) - 1 # don't count time_elapsed_per_step
+      if num_values != num_columns:
         raise Exception("Number of values (%s) does not match number of columns in header (%s)"\
-          % (len(split), len(labels)))
+          % (num_values, num_columns))
       for i, value in enumerate(split):
         label = labels[i]
         # Format value according to label
-        if label == "step":
+        if label == STEP:
           value = int(value)
-        elif label == "time_elapsed":
+        elif label == TIME_ELAPSED:
           value = long(value)
+          if convert_timestamp_to_seconds:
+            value = value / 1000
           if first_timestamp is None:
             first_timestamp = value
           value -= first_timestamp
         else:
           value = float(value)
         data[label].append(value)
+      # Record time elapsed per step
+      if len(data[TIME_ELAPSED]) > 0 and len(data[STEP]) > 0:
+        time_elapsed_start = data[TIME_ELAPSED][-2] if len(data[TIME_ELAPSED]) > 1 else 0
+        time_elapsed_delta = data[TIME_ELAPSED][-1] - time_elapsed_start
+        step_start = data[STEP][-2] if len(data[STEP]) > 1 else 0
+        step_delta = data[STEP][-1] - step_start
+        if step_delta > 0:
+          data[TIME_ELAPSED_PER_STEP].append(float(time_elapsed_delta) / step_delta)
   # Plot the requested labels
   x_data = get_values(x_label, data, labels)
   y_data = get_values(y_label, data, labels)
   name = format_name(log_file)
-  if y_label == "global_step_per_sec":
+  if y_label == GLOBAL_STEP_PER_SEC:
     x_data = x_data[1:]
     y_data = y_data[1:]
+  if y_label == TIME_ELAPSED_PER_STEP:
+    x_data = x_data[len(x_data) - len(y_data):]
   ax.plot(x_data, y_data, "-x", label=name)
   # Clean up
   os.remove(csv_file)
@@ -76,8 +108,8 @@ def main():
   #   --title "Resnet50 cifar10, 2 workers (4 GPUs), 1 parameter server"
   #   --logs slurm-dist_resnet_cifar10-async-1053120-1-1532482561.out,slurm-dist_resnet_cifar10-sync-1053119-1-1532445251.out
   parser = argparse.ArgumentParser()
-  parser.add_argument("--x", help="x label", default="time_elapsed")
-  parser.add_argument("--y", help="y label", default="train_accuracy")
+  parser.add_argument("--x", help="x label", default=TIME_ELAPSED)
+  parser.add_argument("--y", help="y label", default="top_1_accuracy")
   parser.add_argument("--title", help="plot title")
   parser.add_argument("--logs", help="comma separated path(s) to one or more log files", required=True)
   parser.add_argument("--output", help="path to output file")
@@ -91,10 +123,14 @@ def main():
   # Plot it
   fig = plt.figure()
   ax = fig.add_subplot(1, 1, 1)
+  convert_timestamp_to_seconds =\
+    x_label != TIME_ELAPSED_PER_STEP and y_label != TIME_ELAPSED_PER_STEP
   for log_file in log_files:
-    plot_data(x_label, y_label, log_file, ax)
-  ax.set_xlabel(x_label)
-  ax.set_ylabel(y_label)
+    plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax)
+  x_label_text = get_label_text(x_label, convert_timestamp_to_seconds)
+  y_label_text = get_label_text(y_label, convert_timestamp_to_seconds)
+  ax.set_xlabel(x_label_text)
+  ax.set_ylabel(y_label_text)
   legend = ax.legend(loc="best")
   if title is not None:
     ax.set_title(title)
