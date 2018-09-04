@@ -73,7 +73,7 @@ def plot_data(x_label, y_label, log_file, ax):
 def main():
   # Parse arguments, e.g.
   # ./plot.py --x time_elapsed --y loss --output loss.png
-  #   --title "Resnet50 cifar10, 2 workers (4 GPUs), 1 server"
+  #   --title "Resnet50 cifar10, 2 workers (4 GPUs), 1 parameter server"
   #   --logs slurm-dist_resnet_cifar10-async-1053120-1-1532482561.out,slurm-dist_resnet_cifar10-sync-1053119-1-1532445251.out
   parser = argparse.ArgumentParser()
   parser.add_argument("--x", help="x label", default="time_elapsed")
