@@ -465,7 +465,7 @@ def resnet_train_and_evaluate(
                                       hooks=train_hooks,
                                       max_steps=flags_obj.max_train_steps)
 
-  eval_spec = tf.estimator.EvalSpec(input_fn=input_fn_eval)
+  eval_spec = tf.estimator.EvalSpec(input_fn=input_fn_eval, throttle_secs=100)
 
   tf.estimator.train_and_evaluate(classifier, train_spec, eval_spec)
 
