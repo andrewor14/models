@@ -15,6 +15,7 @@ STEP = "step"
 TIMESTAMP = "timestamp"
 TIME_ELAPSED = "time_elapsed"
 TIME_ELAPSED_PER_STEP = "time_elapsed_per_step"
+TOP_1_ACCURACY = "top_1_accuracy"
 GLOBAL_STEP_PER_SEC = "global_step_per_sec"
 
 # Make log file name more human-readable
@@ -39,8 +40,27 @@ def get_label_text(label, convert_timestamp_to_seconds):
   else:
     return label
 
+# Return whether the given log file describes an evaluator in the old format
+def is_evaluator(log_file):
+  with open(log_file, "r") as f:
+    for line in f.readlines():
+      if "Evaluation" in line:
+        return True
+  return False
+
+# Return whether the given log file uses the new format
+def is_new_format(log_file):
+  return "benchmark" in log_file
+
 # Parse and plot data from the specified log file
 def plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax):
+  # For now, we only support top_1_accuracy for evaluator logs
+  if not is_new_format(log_file):
+    evaluator = is_evaluator(log_file)
+    if evaluator and y_label != TOP_1_ACCURACY:
+      return
+    if not evaluator and y_label == TOP_1_ACCURACY:
+      return
   Popen(['./parse.py', log_file], stdout=PIPE, stderr=PIPE).communicate()
   csv_file = re.sub("\..*$", "", log_file) + ".csv"
   labels = []

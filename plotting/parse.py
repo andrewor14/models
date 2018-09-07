@@ -9,6 +9,7 @@ import sys
 def parse_data(log_file):
   data = []
   use_new_format = False
+  evaluator = False
   with open(log_file, "r") as f:
     loss = None
     learning_rate = None
@@ -28,8 +29,17 @@ def parse_data(log_file):
         (timestamp, step, images_per_sec) = m1.groups()
         (loss, top_1_accuracy, top_5_accuracy) = m2.groups()
         data += [",".join([step, parse_time(timestamp), loss, top_1_accuracy, top_5_accuracy])]
+      if "Evaluation" in line:
+        use_new_format = False
+        evaluator = True
+        continue
       if not use_new_format:
-        if "learning_rate" in line:
+        if evaluator:
+          if "Saving dict for global step" in line:
+            m = re.match(".*(\d\d\d\d \d\d:\d\d:\d\d\.[\d]+).*accuracy = ([\.\d]+), global_step = ([\.\d]+), loss = ([\.\d]+)", line)
+            (timestamp, accuracy, step, loss) = m.groups()
+            data += [",".join([step, parse_time(timestamp), loss, accuracy])]
+        elif "learning_rate" in line:
           m1 = re.match(".*learning_rate = ([\.\d]+)", line)
           m2 = re.match(".*cross_entropy = ([\.\d]+)", line)
           m3 = re.match(".*train_accuracy = ([\.\d]+)", line)
@@ -39,7 +49,7 @@ def parse_data(log_file):
         elif "global_step/sec" in line:
           m = re.match(".*global_step/sec: ([\.\d]+)", line)
           global_step_per_sec = m.groups()[0]
-        elif "loss" in line:
+        elif "loss = " in line:
           m = re.match(".*(\d\d\d\d \d\d:\d\d:\d\d\.[\d]+).*loss = ([\.\d]+), step = ([\.\d]+)", line)
           (timestamp, loss, step) = m.groups()
           data += [",".join([step, parse_time(timestamp), loss, learning_rate,\
@@ -48,6 +58,8 @@ def parse_data(log_file):
   header = None
   if use_new_format:
     header = "step,timestamp,loss,top_1_accuracy,top_5_accuracy"
+  elif evaluator:
+    header = "step,timestamp,loss,top_1_accuracy"
   else:
     header = "step,timestamp,loss,learning_rate,cross_entropy,train_accuracy,global_step_per_sec"
   data.insert(0, header)
