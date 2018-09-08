@@ -16,6 +16,7 @@ TIMESTAMP = "timestamp"
 TIME_ELAPSED = "time_elapsed"
 TIME_ELAPSED_PER_STEP = "time_elapsed_per_step"
 TOP_1_ACCURACY = "top_1_accuracy"
+VALIDATION_ACCURACY = "validation_accuracy"
 GLOBAL_STEP_PER_SEC = "global_step_per_sec"
 
 # Make log file name more human-readable
@@ -34,11 +35,11 @@ def get_values(label, data, known_labels):
 
 # Return the label text for a certain axis on the plot
 def get_label_text(label, convert_timestamp_to_seconds):
+  text = label
   if label == TIME_ELAPSED or label == TIME_ELAPSED_PER_STEP:
     time_units_text = "(s)" if convert_timestamp_to_seconds else "(ms)"
-    return "%s %s" % (label, time_units_text)
-  else:
-    return label
+    text = "%s %s" % (text, time_units_text)
+  return text.replace("_", " ")
 
 # Return whether the given log file describes an evaluator in the old format
 def is_evaluator(log_file):
@@ -54,12 +55,12 @@ def is_new_format(log_file):
 
 # Parse and plot data from the specified log file
 def plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax):
-  # For now, we only support top_1_accuracy for evaluator logs
+  # For now, we only support validation_accuracy for evaluator logs
   if not is_new_format(log_file):
     evaluator = is_evaluator(log_file)
-    if evaluator and y_label != TOP_1_ACCURACY:
+    if evaluator and y_label != VALIDATION_ACCURACY:
       return
-    if not evaluator and y_label == TOP_1_ACCURACY:
+    if not evaluator and y_label == VALIDATION_ACCURACY:
       return
   Popen(['./parse.py', log_file], stdout=PIPE, stderr=PIPE).communicate()
   csv_file = re.sub("\..*$", "", log_file) + ".csv"
@@ -73,6 +74,8 @@ def plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax):
     for label in lines[0].strip().split(","):
       if label == TIMESTAMP:
         label = TIME_ELAPSED
+      if label == TOP_1_ACCURACY:
+        label = VALIDATION_ACCURACY
       data[label] = []
       labels.append(label)
     # Add custom label time_elapsed_per_step
@@ -118,7 +121,21 @@ def plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax):
     y_data = y_data[1:]
   if y_label == TIME_ELAPSED_PER_STEP:
     x_data = x_data[len(x_data) - len(y_data):]
-  ax.plot(x_data, y_data, "-x", label=name)
+  # Pick a style
+  color = None
+  linewidth = 1
+  fmt = ":"
+  if "async" in log_file:
+    color = "red"
+  elif "ksync" in log_file:
+    color = "green"
+    linewidth = 3
+    fmt = "-"
+  elif "sync" in log_file:
+    color = "blue"
+  else:
+    raise ValueError("Invalid log file name: %s" % log_file)
+  ax.plot(x_data, y_data, fmt, label=name, color=color, linewidth=linewidth)
   # Clean up
   os.remove(csv_file)
 
@@ -129,7 +146,7 @@ def main():
   #   --logs slurm-dist_resnet_cifar10-async-1053120-1-1532482561.out,slurm-dist_resnet_cifar10-sync-1053119-1-1532445251.out
   parser = argparse.ArgumentParser()
   parser.add_argument("--x", help="x label", default=TIME_ELAPSED)
-  parser.add_argument("--y", help="y label", default="top_1_accuracy")
+  parser.add_argument("--y", help="y label", default="validation_accuracy")
   parser.add_argument("--title", help="plot title")
   parser.add_argument("--logs", help="comma separated path(s) to one or more log files", required=True)
   parser.add_argument("--output", help="path to output file")

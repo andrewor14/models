@@ -12,8 +12,8 @@ if [[ -z "$IS_NEW_FORMAT" ]]; then
 fi
 
 if [[ -n "$IS_NEW_FORMAT" ]] || [[ -n "$EVALUATOR" ]]; then
-  ./plot.py --x time_elapsed --y top_1_accuracy --output top_1_accuracy.png --title "$TITLE" --logs "$LOG_FILES"
-  ./plot.py --x step --y top_1_accuracy --output top_1_accuracy_step.png --title "$TITLE" --logs "$LOG_FILES"
+  ./plot.py --x time_elapsed --y validation_accuracy --output validation_accuracy.png --title "$TITLE" --logs "$LOG_FILES"
+  ./plot.py --x step --y validation_accuracy --output validation_accuracy_step.png --title "$TITLE" --logs "$LOG_FILES"
 fi
 
 ./plot.py --x time_elapsed --y loss --output loss.png --title "$TITLE" --logs "$LOG_FILES"
