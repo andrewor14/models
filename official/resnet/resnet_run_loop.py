@@ -281,7 +281,15 @@ def resnet_model_fn(features, labels, mode, model_class,
         momentum=momentum
     )
 
-    should_sync = os.environ.get("RESNET_K_SYNC_ENABLED") is not None
+    sync_enabled = os.environ.get("RESNET_K_SYNC_ENABLED")
+    should_sync = False
+    if sync_enabled is not None:
+      if sync_enabled.lower() == "true" or sync_enabled == "1":
+        should_sync = True
+      elif sync_enabled.lower() == "false" or sync_enabled == "0":
+        should_sync = False
+      else:
+        raise ValueError("RESNET_K_SYNC_ENABLED must be either 'true' or 'false' or '1' or '0'")
     tf.logging.info("Using KSyncOptimizer? %s" % should_sync)
     if should_sync:
       starting_replicas_to_aggregate = int(os.environ.get(
