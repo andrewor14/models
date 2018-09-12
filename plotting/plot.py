@@ -135,7 +135,7 @@ def plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax):
   elif "sync" in log_file:
     color = "blue"
   else:
-    raise ValueError("Invalid log file name: %s" % log_file)
+    color = "black"
   ax.plot(x_data, y_data, fmt, label=name, color=color, linewidth=linewidth)
   # Clean up
   os.remove(csv_file)
