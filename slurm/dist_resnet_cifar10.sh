@@ -9,5 +9,7 @@ cd $TF_MODELS/official/resnet
 python cifar10_main.py --data_dir="$DATASET_DIR" \
                        --model_dir="$MODEL_DIR" \
                        --num_gpus=4 \
-                       --train_epochs=1000
+                       --train_epochs=1000 \
+                       --resnet_size=32 \
+                       --epochs_between_evals=3
 
