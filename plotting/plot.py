@@ -23,7 +23,7 @@ GLOBAL_STEP_PER_SEC = "global_step_per_sec"
 def format_name(log_file):
   name = log_file.lstrip("slurm-")
   name = re.sub("\..*$", "", name)
-  name = re.sub("[-0-9]+$", "", name)
+  name = re.sub("-[-0-9]+$", "", name)
   return name
 
 # Return the values for a label, printing all known labels if the one requested is unknown
@@ -124,13 +124,14 @@ def plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax):
   # Pick a style
   color = None
   linewidth = 1
-  fmt = ":"
-  if "async" in log_file:
+  fmt = "-x"
+  if "async2" in log_file:
+    color = "magenta"
+  elif "async" in log_file:
     color = "red"
   elif "ksync" in log_file:
     color = "green"
     linewidth = 3
-    fmt = "-"
   elif "sync" in log_file:
     color = "blue"
   else:

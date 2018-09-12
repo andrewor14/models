@@ -97,4 +97,4 @@ rsync*
 # Other
 .nfs*
 slurm/*out
-
+.DS_Store
