@@ -124,7 +124,7 @@ def plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax):
   # Pick a style
   color = None
   linewidth = 1
-  fmt = "-x"
+  fmt = "-"
   if "async2" in log_file:
     color = "magenta"
   elif "async" in log_file:
