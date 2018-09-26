@@ -1,6 +1,7 @@
 #!/bin/bash
 
-TITLE="Resnet-56 cifar10, 4 workers, 1 ps"
+MODEL="${MODEL:=Resnet-56}"
+TITLE="$MODEL cifar10, 4 workers, 1 ps"
 LOG_FILES="$(ls *out | tr '\n' ',' | sed 's/,$//g')"
 IS_NEW_FORMAT="$(echo "$LOG_FILES" | grep "benchmark")"
 EVALUATOR="$(grep "Evaluation" *out)"
