@@ -19,11 +19,16 @@ TOP_1_ACCURACY = "top_1_accuracy"
 VALIDATION_ACCURACY = "validation_accuracy"
 GLOBAL_STEP_PER_SEC = "global_step_per_sec"
 
+# Number of values to take the average over to calculate the converged value
+CONVERGED_AVERAGE_OVER = 5
+
 # Make log file name more human-readable
 def format_name(log_file):
   name = log_file.lstrip("slurm-")
   name = re.sub("\..*$", "", name)
   name = re.sub("-[-0-9]+$", "", name)
+  name = re.sub("momentum-false", "async", name)
+  name = re.sub("momentum-true", "sync2", name)
   return name
 
 # Return the values for a label, printing all known labels if the one requested is unknown
@@ -121,6 +126,12 @@ def plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax):
     y_data = y_data[1:]
   if y_label == TIME_ELAPSED_PER_STEP:
     x_data = x_data[len(x_data) - len(y_data):]
+  # Append converged value to label
+  last_n = y_data[-CONVERGED_AVERAGE_OVER:]
+  label = name
+  if len(last_n) > 0:
+    converged_value = sum(last_n) / len(last_n)
+    label += " (%.3f)" % converged_value
   # Pick a style
   color = None
   linewidth = 1
@@ -136,7 +147,7 @@ def plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax):
   #  color = "blue"
   #else:
   #  color = "black"
-  ax.plot(x_data, y_data, fmt, label=name, linewidth=linewidth)
+  ax.plot(x_data, y_data, fmt, label=label, linewidth=linewidth)
   # Clean up
   os.remove(csv_file)
 
