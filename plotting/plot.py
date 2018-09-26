@@ -125,18 +125,18 @@ def plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax):
   color = None
   linewidth = 1
   fmt = "-"
-  if "async2" in log_file:
-    color = "magenta"
-  elif "async" in log_file:
-    color = "red"
-  elif "ksync" in log_file:
-    color = "green"
-    linewidth = 3
-  elif "sync" in log_file:
-    color = "blue"
-  else:
-    color = "black"
-  ax.plot(x_data, y_data, fmt, label=name, color=color, linewidth=linewidth)
+  #if "async2" in log_file:
+  #  color = "magenta"
+  #elif "async" in log_file:
+  #  color = "red"
+  #elif "ksync" in log_file:
+  #  color = "green"
+  #  linewidth = 3
+  #elif "sync" in log_file:
+  #  color = "blue"
+  #else:
+  #  color = "black"
+  ax.plot(x_data, y_data, fmt, label=name, linewidth=linewidth)
   # Clean up
   os.remove(csv_file)
 
