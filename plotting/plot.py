@@ -20,7 +20,7 @@ VALIDATION_ACCURACY = "validation_accuracy"
 GLOBAL_STEP_PER_SEC = "global_step_per_sec"
 
 # Number of values to take the average over to calculate the converged value
-CONVERGED_AVERAGE_OVER = 5
+CONVERGED_AVERAGE_OVER = 20
 
 # Make log file name more human-readable
 def format_name(log_file):
@@ -39,11 +39,10 @@ def get_values(label, data, known_labels):
   return data[label]
 
 # Return the label text for a certain axis on the plot
-def get_label_text(label, convert_timestamp_to_seconds):
+def get_label_text(label, time_unit):
   text = label
   if label == TIME_ELAPSED or label == TIME_ELAPSED_PER_STEP:
-    time_units_text = "(s)" if convert_timestamp_to_seconds else "(ms)"
-    text = "%s %s" % (text, time_units_text)
+    text = "%s (%s)" % (text, time_unit)
   return text.replace("_", " ")
 
 # Return whether the given log file describes an evaluator in the old format
@@ -58,8 +57,8 @@ def is_evaluator(log_file):
 def is_new_format(log_file):
   return "benchmark" in log_file
 
-# Parse and plot data from the specified log file
-def plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax):
+# Parse data and labels from the specified log file
+def parse_data(log_file):
   # For now, we only support validation_accuracy for evaluator logs
   if not is_new_format(log_file):
     evaluator = is_evaluator(log_file)
@@ -101,8 +100,6 @@ def plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax):
           value = int(value)
         elif label == TIME_ELAPSED:
           value = long(value)
-          if convert_timestamp_to_seconds:
-            value = value / 1000
           if first_timestamp is None:
             first_timestamp = value
           value -= first_timestamp
@@ -117,6 +114,12 @@ def plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax):
         step_delta = data[STEP][-1] - step_start
         if step_delta > 0:
           data[TIME_ELAPSED_PER_STEP].append(float(time_elapsed_delta) / step_delta)
+  # Clean up
+  os.remove(csv_file)
+  return (data, labels)
+
+# Plot data given the specified labels
+def plot_data(x_label, y_label, data, labels, log_file, ax):
   # Plot the requested labels
   x_data = get_values(x_label, data, labels)
   y_data = get_values(y_label, data, labels)
@@ -148,8 +151,6 @@ def plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax):
   #else:
   #  color = "black"
   ax.plot(x_data, y_data, fmt, label=label, linewidth=linewidth)
-  # Clean up
-  os.remove(csv_file)
 
 def main():
   # Parse arguments, e.g.
@@ -169,15 +170,44 @@ def main():
   log_files = args.logs.split(",")
   out_file = args.output or y_label + ".png"
 
+  # Parse data from all log files
+  # For now, assume labels are the same across all log files
+  labels = None
+  all_data = []
+  for log_file in log_files:
+    (d, l) = parse_data(log_file)
+    all_data.append(d)
+    labels = l
+
+  # Figure out units for time labels, converting the corresponding data if necessary
+  # For now, assume you can't specify time labels on both axes
+  our_time_label = None
+  our_time_unit = "ms"
+  time_labels = [TIME_ELAPSED, TIME_ELAPSED_PER_STEP]
+  for tl in time_labels:
+    if x_label == tl or y_label == tl:
+      our_time_label = tl
+      break
+  if our_time_label is not None:
+    # Find the max value for the time label across all log files
+    multiplier = 1
+    max_value = max([max(get_values(our_time_label, d, labels)) for d in all_data])
+    if max_value > 100 * 1000 * 1000:
+      our_time_unit = "h"
+      multiplier = 1000 * 60 * 60
+    elif max_value > 100 * 1000:
+      our_time_unit = "s"
+      multiplier = 1000
+    for d in all_data:
+      d[our_time_label] = [float(t) / multiplier for t in get_values(our_time_label, d, labels)]
+
   # Plot it
   fig = plt.figure()
   ax = fig.add_subplot(1, 1, 1)
-  convert_timestamp_to_seconds =\
-    x_label != TIME_ELAPSED_PER_STEP and y_label != TIME_ELAPSED_PER_STEP
-  for log_file in log_files:
-    plot_data(x_label, y_label, convert_timestamp_to_seconds, log_file, ax)
-  x_label_text = get_label_text(x_label, convert_timestamp_to_seconds)
-  y_label_text = get_label_text(y_label, convert_timestamp_to_seconds)
+  for i, log_file in enumerate(log_files):
+    plot_data(x_label, y_label, all_data[i], labels, log_file, ax)
+  x_label_text = get_label_text(x_label, our_time_unit)
+  y_label_text = get_label_text(y_label, our_time_unit)
   ax.set_xlabel(x_label_text)
   ax.set_ylabel(y_label_text)
   legend = ax.legend(loc="best")
