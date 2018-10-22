@@ -15,7 +15,6 @@ STEP = "step"
 TIMESTAMP = "timestamp"
 TIME_ELAPSED = "time_elapsed"
 TIME_ELAPSED_PER_STEP = "time_elapsed_per_step"
-TOP_1_ACCURACY = "top_1_accuracy"
 VALIDATION_ACCURACY = "validation_accuracy"
 GLOBAL_STEP_PER_SEC = "global_step_per_sec"
 
@@ -78,8 +77,6 @@ def parse_data(log_file):
     for label in lines[0].strip().split(","):
       if label == TIMESTAMP:
         label = TIME_ELAPSED
-      if label == TOP_1_ACCURACY:
-        label = VALIDATION_ACCURACY
       data[label] = []
       labels.append(label)
     # Add custom label time_elapsed_per_step
@@ -159,7 +156,7 @@ def main():
   #   --logs slurm-dist_resnet_cifar10-async-1053120-1-1532482561.out,slurm-dist_resnet_cifar10-sync-1053119-1-1532445251.out
   parser = argparse.ArgumentParser()
   parser.add_argument("--x", help="x label", default=TIME_ELAPSED)
-  parser.add_argument("--y", help="y label", default="validation_accuracy")
+  parser.add_argument("--y", help="y label", default="top_1_accuracy")
   parser.add_argument("--title", help="plot title")
   parser.add_argument("--logs", help="comma separated path(s) to one or more log files", required=True)
   parser.add_argument("--output", help="path to output file")
