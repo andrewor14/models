@@ -10,12 +10,16 @@ import scipy.stats as stats
 from subprocess import Popen, PIPE
 import sys 
 
+from parse import NO_ACCURACY_VALUE
+
 # Some special labels
 STEP = "step"
 TIMESTAMP = "timestamp"
 TIME_ELAPSED = "time_elapsed"
 TIME_ELAPSED_PER_STEP = "time_elapsed_per_step"
 VALIDATION_ACCURACY = "validation_accuracy"
+TOP_1_VALIDATION_ACCURACY = "top_1_validation_accuracy"
+TOP_5_VALIDATION_ACCURACY = "top_5_validation_accuracy"
 GLOBAL_STEP_PER_SEC = "global_step_per_sec"
 
 # Number of values to take the average over to calculate the converged value
@@ -27,7 +31,7 @@ def format_name(log_file):
   name = re.sub("\..*$", "", name)
   name = re.sub("-[-0-9]+$", "", name)
   name = re.sub("momentum-false", "async", name)
-  name = re.sub("momentum-true", "sync2", name)
+  name = re.sub("momentum-true", "cross_replica_sync", name)
   return name
 
 # Return the values for a label, printing all known labels if the one requested is unknown
@@ -126,8 +130,16 @@ def plot_data(x_label, y_label, data, labels, log_file, ax):
     y_data = y_data[1:]
   if y_label == TIME_ELAPSED_PER_STEP:
     x_data = x_data[len(x_data) - len(y_data):]
+  # For top n validation accuracy, filter out the empty values
+  if y_label == TOP_1_VALIDATION_ACCURACY or y_label == TOP_5_VALIDATION_ACCURACY:
+    indices = [i for i, v in enumerate(y_data) if v != int(NO_ACCURACY_VALUE)]
+    x_data = [v for i, v in enumerate(x_data) if i in indices]
+    y_data = [v for i, v in enumerate(y_data) if i in indices]
   # Append converged value to label
-  last_n = y_data[-CONVERGED_AVERAGE_OVER:]
+  converged_average_over = CONVERGED_AVERAGE_OVER
+  if y_label == TOP_1_VALIDATION_ACCURACY or y_label == TOP_5_VALIDATION_ACCURACY:
+    converged_average_over = 1
+  last_n = y_data[-converged_average_over:]
   label = name
   if len(last_n) > 0:
     converged_value = sum(last_n) / len(last_n)
@@ -156,7 +168,7 @@ def main():
   #   --logs slurm-dist_resnet_cifar10-async-1053120-1-1532482561.out,slurm-dist_resnet_cifar10-sync-1053119-1-1532445251.out
   parser = argparse.ArgumentParser()
   parser.add_argument("--x", help="x label", default=TIME_ELAPSED)
-  parser.add_argument("--y", help="y label", default="top_1_accuracy")
+  parser.add_argument("--y", help="y label", default="top_1_training_accuracy")
   parser.add_argument("--title", help="plot title")
   parser.add_argument("--logs", help="comma separated path(s) to one or more log files", required=True)
   parser.add_argument("--output", help="path to output file")

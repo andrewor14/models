@@ -12,9 +12,9 @@ LOG_DIR="$LOG_DIR/$TAG"
 for dir in `ls "$LOG_DIR"`; do
   if [[ -d "$LOG_DIR/$dir" ]] && [[ "$dir" == run* ]]; then
     echo "Processing logs in $LOG_DIR/$dir"
-    # Assume 5 nodes and the last machine is a worker
-    if [[ -n `find "$LOG_DIR/$dir" -name "*-4-*out"` ]]; then
-      cp "$LOG_DIR/$dir"/*-4-*out .
+    # Assume the second machine is a worker
+    if [[ -n `find "$LOG_DIR/$dir" -name "*-1-*out"` ]]; then
+      cp "$LOG_DIR/$dir"/*-1-*out .
       # If this is the models repo also try to get the evaluator
       if [[ -z `find "$LOG_DIR/$dir" -name "*benchmark*"` ]]; then
         cp "$LOG_DIR/$dir"/*-5-*out .

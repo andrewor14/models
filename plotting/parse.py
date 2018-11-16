@@ -5,6 +5,8 @@ import re
 import sys
 
 
+NO_ACCURACY_VALUE = "-1"
+
 # Parse data from the log file, return a list of CSVs
 def parse_data(log_file):
   data = []
@@ -16,19 +18,29 @@ def parse_data(log_file):
     cross_entropy = None
     train_accuracy = None
     global_step_per_sec = None
+    top_1_validation_accuracy = NO_ACCURACY_VALUE
+    top_5_validation_accuracy = NO_ACCURACY_VALUE
     for line in f.readlines():
       if "tf_logging" not in line:
         continue
       if "Img/sec" in line:
         use_new_format = True
         continue
+      if "Accuracy @ 1" in line:
+        # Accuracy @ 1 = 0.7386 Accuracy @ 5 = 0.9171 [4999168 examples]
+        m = re.match(".*Accuracy @ 1 = ([\.\d]+) Accuracy @ 5 = ([\.\d]+).*", line)
+        top_1_validation_accuracy = m.groups()[0]
+        top_5_validation_accuracy = m.groups()[1]
       if "images/sec" in line and "jitter" in line:
         use_new_format = True
         m1 = re.match(".*(\d\d\d\d \d\d:\d\d:\d\d\.[\d]+).*\s+([\.\d]+)\s+images/sec: ([\.\d]+)", line)
         m2 = re.match(".*\s+([\.\d]+)\s+([\.\d]+)\s+([\.\d]+)", line)
         (timestamp, step, images_per_sec) = m1.groups()
-        (loss, top_1_accuracy, top_5_accuracy) = m2.groups()
-        data += [",".join([step, parse_time(timestamp), loss, top_1_accuracy, top_5_accuracy])]
+        (loss, top_1_training_accuracy, top_5_training_accuracy) = m2.groups()
+        data += [",".join([step, parse_time(timestamp), loss, top_1_training_accuracy, top_5_training_accuracy,\
+          top_1_validation_accuracy, top_5_validation_accuracy])]
+        top_1_validation_accuracy = NO_ACCURACY_VALUE
+        top_5_validation_accuracy = NO_ACCURACY_VALUE
       if "Evaluation" in line:
         use_new_format = False
         evaluator = True
@@ -57,9 +69,9 @@ def parse_data(log_file):
   # Insert header based on the format
   header = None
   if use_new_format:
-    header = "step,timestamp,loss,top_1_accuracy,top_5_accuracy"
+    header = "step,timestamp,loss,top_1_training_accuracy,top_5_training_accuracy,top_1_validation_accuracy,top_5_validation_accuracy"
   elif evaluator:
-    header = "step,timestamp,loss,top_1_accuracy"
+    header = "step,timestamp,loss,top_1_training_accuracy"
   else:
     header = "step,timestamp,loss,learning_rate,cross_entropy,train_accuracy,global_step_per_sec"
   data.insert(0, header)
