@@ -20,7 +20,6 @@ import argparse
 import tensorflow as tf
 
 import iris_data
-import my_sync_optimizer
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--batch_size', default=100, type=int, help='batch size')
@@ -69,14 +68,6 @@ def my_model(features, labels, mode, params):
 
     optimizer = tf.train.AdagradOptimizer(learning_rate=0.1)
     training_hooks = None
-    should_sync = params['sync_enabled']
-    tf.logging.info("Using synchronized optimization? %s" % should_sync)
-    if should_sync:
-        optimizer = my_sync_optimizer.SyncReplicasOptimizer(
-                optimizer, replicas_to_aggregate=1, total_num_replicas=1)
-        is_chief = True
-        training_hooks = [optimizer.make_session_run_hook(is_chief)]
-
     train_op = optimizer.minimize(loss, global_step=tf.train.get_global_step())
     return tf.estimator.EstimatorSpec(
         mode, loss=loss, train_op=train_op, training_hooks=training_hooks)
