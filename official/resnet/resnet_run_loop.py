@@ -41,6 +41,7 @@ from official.utils.logs import logger
 from official.resnet import imagenet_preprocessing
 from official.utils.misc import distribution_utils
 from official.utils.misc import model_helpers
+from slurm.tensorflow_on_slurm import running_through_slurm, set_tf_config
 
 
 ################################################################################
@@ -545,6 +546,11 @@ def resnet_main(
   """
 
   model_helpers.apply_clean(flags.FLAGS)
+
+  # If we're running through slurm, set TF_CONFIG according to slurm environment variables
+  if running_through_slurm() and 'TF_CONFIG' not in os.environ:
+    num_ps = int(os.getenv("NUM_PARAMETER_SERVERS") or 1)
+    set_tf_config(num_ps)
 
   # Ensures flag override logic is only executed if explicitly triggered.
   if flags_obj.tf_gpu_thread_mode:
