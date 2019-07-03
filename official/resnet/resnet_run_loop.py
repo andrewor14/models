@@ -33,11 +33,10 @@ import os
 from absl import flags
 import tensorflow as tf
 
-from official.resnet import resnet_model
+from official.resnet import resnet_model, autoscaling_hook
 from official.utils.flags import core as flags_core
 from official.utils.export import export
-from official.utils.logs import hooks_helper
-from official.utils.logs import logger
+from official.utils.logs import hooks_helper, logger
 from official.resnet import imagenet_preprocessing
 from official.utils.misc import distribution_utils
 from official.utils.misc import model_helpers
@@ -624,6 +623,9 @@ def resnet_main(
       flags_obj.hooks,
       model_dir=flags_obj.model_dir,
       batch_size=flags_obj.batch_size)
+
+  tf.compat.v1.logging.info("Adding autoscaling hook")
+  train_hooks.append(autoscaling_hook.AutoscalingHook(classifier))
 
   def input_fn_train(num_epochs, input_context=None):
     return input_function(
