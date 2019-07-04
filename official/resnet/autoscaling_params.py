@@ -19,13 +19,13 @@ class AutoscalingStatus(Enum):
   RUNNING = 5
   TERMINATED = 6
 
-def get_next_autoscaling_status(autoscaling_status):
+def get_next_status(status):
   '''
   Return the next autoscaling status assuming this process has not terminated.
   '''
-  if autoscaling_status == AutoscalingStatus.TERMINATED:
-    return autoscaling_status
-  return AutoscalingStatus(autoscaling_status.value % (len(AutoscalingStatus) - 1) + 1)
+  if status == AutoscalingStatus.TERMINATED:
+    return status
+  return AutoscalingStatus(status.value % (len(AutoscalingStatus) - 1) + 1)
 
 # Client and server
 AUTOSCALING_MASTER_HOST_PORT = "AUTOSCALING_MASTER_HOST_PORT"

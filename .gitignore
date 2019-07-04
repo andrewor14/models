@@ -103,3 +103,5 @@ samples/outreach/blogs/segmentation_blogpost/carvana-image-masking-challenge/
 # Slurm
 slurm/*.out
 slurm/__pycache__
+
+*.swp
