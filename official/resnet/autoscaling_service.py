@@ -38,11 +38,15 @@ class AutoscalingService:
   def __init__(self, hook):
     self.hook = hook
 
-  def get_status(self):
-    return self.hook.status.value
+  def get_epoch(self):
+    return self.hook.epoch
 
   def get_cluster_spec(self):
     return self.hook.cluster_spec
+
+  def get_pending_cluster_spec(self):
+    with self.hook.pending_cluster_spec_lock:
+      return self.hook.pending_cluster_spec
 
   def get_global_batch_size(self):
     return self.hook.global_batch_size
