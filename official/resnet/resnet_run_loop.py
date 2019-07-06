@@ -666,6 +666,7 @@ def resnet_main(
     while True:
       try:
         tf.estimator.train_and_evaluate(classifier, train_spec, eval_spec)
+        tf.compat.v1.logging.info("Train and evaluate exited, but we're gonna do it again")
         if autoscaling_hook.status == AutoscalingStatus.TERMINATED:
           break
         autoscaling_hook.on_restart()
@@ -674,7 +675,6 @@ def resnet_main(
         log_fn("ERROR: %s (%s)" % (e, e.__class__.__name__))
         traceback.print_exc()
         raise e
-      tf.compat.v1.logging.info("Train and evaluate exited, but we're gonna do it again")
     # tf.estimator.train_and_evalute doesn't return anything in multi-worker
     # case.
     eval_results = {}

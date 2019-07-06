@@ -205,6 +205,7 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
     Check if cluster membership changed. If so, update server def accordingly.
     """
     log_fn("On restart")
+    self.status_barrier(AutoscalingStatus.RESTARTING)
     with self.pending_cluster_spec_lock:
       if self.pending_cluster_spec is not None:
         server_def = _make_server_def(
@@ -214,6 +215,7 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
         log_fn("Server def was set!")
         self.apply_cluster_spec(self.pending_cluster_spec)
         self.pending_cluster_spec = None
+    self.status = AutoscalingStatus.READY_TO_SYNC
 
   def do_begin(self):
     """
@@ -236,17 +238,15 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
     with self.pending_cluster_spec_lock:
       if self.pending_cluster_spec is not None:
         # Make sure we're ready to sync
-        if self.status != AutoscalingStatus.READY_TO_SYNC:
+        if self.status != AutoscalingStatus.READY_TO_RESTART:
           log_fn("Changing cluster membership: %s" % self.pending_cluster_spec)
           self.status_barrier(AutoscalingStatus.RUNNING)
-          self.status = AutoscalingStatus.READY_TO_SYNC
-        # TODO: Add a synchronization barrier here to make sure everyone has had
-        # the chance to transition to READY_TO_SYNC
-        # Once everyone is READY_TO_SYNC, we can go ahead and restart
+          self.status = AutoscalingStatus.READY_TO_RESTART
+        # Once everyone is READY_TO_RESTART, we can go ahead and restart
         # Note: we can't just block here because other processes may rely on us to make progress
         # Therefore, we need to keep running the benchmark until everyone is READY_TO_SYNC
-        if self.status == AutoscalingStatus.READY_TO_SYNC:
-          if self.status_barrier(AutoscalingStatus.READY_TO_SYNC, soft=True):
+        if self.status == AutoscalingStatus.READY_TO_RESTART:
+          if self.status_barrier(AutoscalingStatus.READY_TO_RESTART, soft=True):
             # If we're not in the new cluster spec, then that means we were removed
             # Otherwise, we should save our variables and restart
             if self.host_port not in self.pending_cluster_spec["worker"]:
@@ -254,6 +254,7 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
               self.status = AutoscalingStatus.TERMINATED
             else:
               log_fn("Received signal to restart server")
+              self.status = AutoscalingStatus.RESTARTING
               # TODO: save variables if we're rebuilding the graph
             run_context.request_stop()
           else:

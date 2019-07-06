@@ -3,21 +3,19 @@
 from enum import Enum
 
 
-# Statuses for syncing restart across replicas, state machine:
-# State machine looks like the following:
-#
-#   READY_TO_SYNC --> SYNCING --> SYNCED --> SETTING_UP --> RUNNING --> TERMINATED
-#        ^                                                     |
-#        |                                                     |
-#        '-----------------------------------------------------'
-#
+# Statuses for syncing restart across replicas, state machine
+# Transitions can only happen from state X to X+1, with two exceptions:
+#   1. The highest state can transition back to READY_TO_SYNC, and
+#   2. Any state can transition to TERMINATED
 class AutoscalingStatus(Enum):
   READY_TO_SYNC = 1
   SYNCING = 2
   SYNCED = 3
   SETTING_UP = 4
   RUNNING = 5
-  TERMINATED = 6
+  READY_TO_RESTART = 6
+  RESTARTING = 7
+  TERMINATED = -1
 
 def get_next_status(status):
   '''
