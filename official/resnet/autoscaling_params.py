@@ -4,26 +4,43 @@ from enum import Enum
 
 
 # Statuses for syncing restart across replicas, state machine
-# Transitions can only happen from state X to X+1, with two exceptions:
-#   1. The highest state can transition back to READY_TO_SYNC, and
-#   2. Any state can transition to TERMINATED
+# See `get_next_statuses` for state machine.
 class AutoscalingStatus(Enum):
   READY_TO_SYNC = 1
   SYNCING = 2
   SYNCED = 3
   SETTING_UP = 4
   RUNNING = 5
-  READY_TO_RESTART = 6
-  RESTARTING = 7
+  PENDING_RESTART = 6.1
+  NOT_PENDING_RESTART = 6.2
+  READY_TO_RESTART = 7.1
+  NOT_READY_TO_RESTART = 7.2
+  RESTARTING = 8
   TERMINATED = -1
 
-def get_next_status(status):
-  '''
-  Return the next autoscaling status assuming this process has not terminated.
-  '''
+def get_next_statuses(status):
+  """
+  Return the next autoscaling status(es) given the current status.
+  """
+  maybe_pending_restart = [AutoscalingStatus.PENDING_RESTART, AutoscalingStatus.NOT_PENDING_RESTART]
+  maybe_ready_to_restart = [AutoscalingStatus.READY_TO_RESTART, AutoscalingStatus.NOT_READY_TO_RESTART]
+  if status == AutoscalingStatus.RUNNING:
+    return maybe_pending_restart
+  if status in maybe_pending_restart:
+    return maybe_ready_to_restart
+  if status in maybe_ready_to_restart:
+    return [AutoscalingStatus.RUNNING, AutoscalingStatus.RESTARTING]
+  if status == AutoscalingStatus.RESTARTING:
+    return [AutoscalingStatus.READY_TO_SYNC]
   if status == AutoscalingStatus.TERMINATED:
-    return status
-  return AutoscalingStatus(status.value % (len(AutoscalingStatus) - 1) + 1)
+    return [status]
+  return [AutoscalingStatus(status.value + 1)]
+
+def format_statuses(statuses):
+  """
+  Format the given list of statuses in a nice string.
+  """
+  return [str(status).split(".")[-1] for status in statuses]
 
 # Client and server
 AUTOSCALING_MASTER_HOST_PORT = "AUTOSCALING_MASTER_HOST_PORT"

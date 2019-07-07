@@ -25,6 +25,7 @@ export BATCH_SIZE="32"
 # Autoscaling flags
 export AUTOSCALING_DISABLE_WRITE_GRAPH="true"
 export AUTOSCALING_DISABLE_CHECKPOINT_RESTORE="true"
+export AUTOSCALING_DISABLE_CHECKPOINTS="true"
 
 ./run_slurm.sh
 

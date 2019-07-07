@@ -148,31 +148,33 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
     #  per_device_batch_size = int(self.global_batch_size * 1.0 / len(worker_hosts) / self.num_gpus)
     #  self.params = self.params._replace(batch_size=per_device_batch_size)
 
-  def status_barrier(self, target, soft=False):
+  def status_barrier(self, target):
     """
-    Wait until everyone has reached the target autoscaling status or the one after it.
+    Wait until everyone has reached the target autoscaling status(es).
 
-    This requires the caller to already be in the target status.
-    If `soft` is True then this returns after the first attempt.
-    Return whether the target status barrier was reached by everyone.
+    The given target can be one status or a list of statuses.
+    This requires the caller to already be in one of the target statuses.
+    Return the list of everyone's status once the target is reached.
     """
-    if self.status != target:
-      raise ValueError("Current autoscaling status %s must match barrier target %s" %\
-        (self.status, target))
-    log_fn("Waiting for everyone to reach %s" % target)
-    target_next = get_next_status(target)
+    targets = [target] if not isinstance(target, list) else target
+    # Check if we have reached the target ourselves
+    my_status = self.status
+    if my_status not in targets:
+      raise ValueError("Current autoscaling status %s must match barrier target(s): %s" %\
+        (my_status, targets))
+    # A process may have passed the same barrier already, in which case it will be in
+    # one of the next statuses and that's OK. Terminated is also accepted.
+    acceptable_statuses = targets + [AutoscalingStatus.TERMINATED]
+    for t in targets:
+      acceptable_statuses.extend(get_next_statuses(t))
+    log_fn("Waiting for everyone to reach %s" % format_statuses(targets))
     while True:
       servers = self.client.servers
       statuses = [AutoscalingStatus(server.get_status()) for server in servers]
-      statuses_str = [str(status).split(".")[-1] for status in statuses]
-      # Don't wait for terminated processes
-      if all([status == target or status == target_next or\
-          status == AutoscalingStatus.TERMINATED for status in statuses]):
-        log_fn("... barrier reached! %s" % statuses_str)
-        return True
-      log_fn("... barrier not reached: %s" % statuses_str)
-      if soft:
-        return False
+      if all([status in acceptable_statuses for status in statuses]):
+        log_fn("... barrier reached! %s" % format_statuses(statuses))
+        return statuses
+      log_fn("... barrier not reached: %s" % format_statuses(statuses))
       time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
 
   def server_is_ready(self):
@@ -205,6 +207,7 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
     Check if cluster membership changed. If so, update server def accordingly.
     """
     log_fn("On restart")
+    self.status = AutoscalingStatus.RESTARTING
     self.status_barrier(AutoscalingStatus.RESTARTING)
     with self.pending_cluster_spec_lock:
       if self.pending_cluster_spec is not None:
@@ -225,40 +228,42 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
     self.sync_cluster_spec()
     self.status_barrier(AutoscalingStatus.SETTING_UP)
     self.status = AutoscalingStatus.RUNNING
+    self.status_barrier(AutoscalingStatus.RUNNING)
 
   def do_after_run(self, run_context, run_values):
     """
     Listen for changes in cluster membership and react by restarting the server.
     """
     log_fn("After run")
-    if not self.server_is_ready():
-      return
-    # If there is a pending cluster spec, then it means cluster membership changed
-    # When this happens, update our server def and request a restart
+    server_is_ready = self.server_is_ready()
+    # Check if cluster membership has changed
     with self.pending_cluster_spec_lock:
-      if self.pending_cluster_spec is not None:
-        # Make sure we're ready to sync
-        if self.status != AutoscalingStatus.READY_TO_RESTART:
-          log_fn("Changing cluster membership: %s" % self.pending_cluster_spec)
-          self.status_barrier(AutoscalingStatus.RUNNING)
-          self.status = AutoscalingStatus.READY_TO_RESTART
-        # Once everyone is READY_TO_RESTART, we can go ahead and restart
-        # Note: we can't just block here because other processes may rely on us to make progress
-        # Therefore, we need to keep running the benchmark until everyone is READY_TO_SYNC
-        if self.status == AutoscalingStatus.READY_TO_RESTART:
-          if self.status_barrier(AutoscalingStatus.READY_TO_RESTART, soft=True):
-            # If we're not in the new cluster spec, then that means we were removed
-            # Otherwise, we should save our variables and restart
-            if self.host_port not in self.pending_cluster_spec["worker"]:
-              log_fn("Received signal to terminate")
-              self.status = AutoscalingStatus.TERMINATED
-            else:
-              log_fn("Received signal to restart server")
-              self.status = AutoscalingStatus.RESTARTING
-              # TODO: save variables if we're rebuilding the graph
-            run_context.request_stop()
-          else:
-            log_fn("Not restarting because not everyone is READY_TO_SYNC yet")
+      if self.pending_cluster_spec is not None and server_is_ready:
+        self.status = AutoscalingStatus.PENDING_RESTART
+      else:
+        self.status = AutoscalingStatus.NOT_PENDING_RESTART
+    # Check if everyone has seen the cluster membership change
+    statuses = self.status_barrier(\
+      [AutoscalingStatus.PENDING_RESTART, AutoscalingStatus.NOT_PENDING_RESTART])
+    if AutoscalingStatus.NOT_PENDING_RESTART in statuses:
+      self.status = AutoscalingStatus.NOT_READY_TO_RESTART
+    else:
+      self.status = AutoscalingStatus.READY_TO_RESTART
+    # Check if everyone is ready to restart
+    statuses = self.status_barrier(\
+      [AutoscalingStatus.READY_TO_RESTART, AutoscalingStatus.NOT_READY_TO_RESTART])
+    if AutoscalingStatus.NOT_READY_TO_RESTART in statuses:
+      log_fn("Not restarting because not everyone is ready yet")
+      self.status = AutoscalingStatus.RUNNING
+    else:
+      # Do restart
+      if self.host_port not in self.pending_cluster_spec["worker"]:
+        log_fn("Received signal to terminate")
+        self.status = AutoscalingStatus.TERMINATED
+      else:
+        log_fn("Received signal to restart server")
+        # TODO: save variables if we're rebuilding the graph
+      run_context.request_stop()
 
   def begin(self):
     self.log_exception(self.do_begin)
