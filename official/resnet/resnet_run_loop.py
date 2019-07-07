@@ -663,13 +663,42 @@ def resnet_main(
         max_steps=flags_obj.max_train_steps)
     eval_spec = tf.estimator.EvalSpec(input_fn=input_fn_eval)
     tf.compat.v1.logging.info('Starting to train and evaluate.')
+
+    # HACK
+    #import time
+    #from tensorflow.python.eager import context
+    #from tensorflow.python.training.server_lib import _make_server_def
+    #time.sleep(5)
+    #server_def = _make_server_def(
+    #  autoscaling_hook.cluster_spec, autoscaling_hook.task_type, autoscaling_hook.task_index, "grpc", None)
+    #tf.compat.v1.logging.info("!!! Setting server def to %s" % server_def)
+    #context.context().set_server_def(server_def)
+    #tf.compat.v1.logging.info("!!! Server def was set!")
+    #tf.compat.v1.logging.info("!!! Eager mode?! %s" % context.executing_eagerly())
+    #tf.compat.v1.logging.info("Trying to create a session")
+    #sess = tf.Session("grpc://localhost:2222")
+    #tf.compat.v1.logging.info("Session created, running something...")
+    #tf.compat.v1.logging.info(sess.run(tf.constant(1)))
+    #tf.compat.v1.logging.info("!!! Ran constant through session !!!")
+    #with context.eager_mode(): tf.compat.v1.logging.info(tf.constant(1))
+    #tf.compat.v1.logging.info("!!! Ran constant through eager mode!!!")
+
+    #os.environ["DISTRIBUTE_COORDINATOR_SKIP_START_SERVER"] = "true"
+
     while True:
       try:
         tf.estimator.train_and_evaluate(classifier, train_spec, eval_spec)
-        tf.compat.v1.logging.info("Train and evaluate exited, but we're gonna do it again")
         if autoscaling_hook.status == AutoscalingStatus.TERMINATED:
           break
+        tf.compat.v1.logging.info("Train and evaluate exited, but we're gonna do it again")
         autoscaling_hook.on_restart()
+
+        # HACK
+        tf.compat.v1.logging.info("Clearing the dict")
+        from tensorflow.python.distribute import distribute_coordinator as dc
+        dc._thread_local.__dict__.clear()
+        tf.compat.v1.logging.info("Cleared the dict")
+
       except Exception as e:
         import traceback
         log_fn("ERROR: %s (%s)" % (e, e.__class__.__name__))
@@ -743,40 +772,6 @@ def resnet_main(
   stats['train_hooks'] = train_hooks
 
   return stats
-
-def add_sync_queues(name_prefix, autoscaling_hook, enqueue_after_list=[]):
-  """Adds ops to enqueue on all worker queues.
-
-  Args:
-    name_prefix: prefixed for the shared_name of ops.
-    enqueue_after_list: control dependency from ops.
-
-  Returns:
-    An op that should be used as control dependency before starting next step.
-  """
-  # TODO: rebuild graph if num_workers exceeds MAX_WORKERS
-  MAX_WORKERS = 100
-  tf.compat.v1.logging.info("Adding sync queue %s" % name_prefix)
-  with tf.device("/job:worker/replica:0/task:0/cpu:0"):
-    sync_queues = [
-        tf.FIFOQueue(MAX_WORKERS, [tf.bool], shapes=[[]],
-                     shared_name='%s%s' % (name_prefix, i))
-        for i in range(MAX_WORKERS)]
-    queue_ops = []
-    # For each other worker, add an entry in a queue, signaling that it can
-    # finish this step.
-    token = tf.constant(False)
-    with tf.control_dependencies(enqueue_after_list):
-      for i, q in enumerate(sync_queues):
-        if i == autoscaling_hook.task_index:
-          queue_ops.append(tf.no_op())
-        else:
-          queue_ops.append(q.enqueue(token))
-    # Drain tokens off queue for this worker, one for each other worker.
-    num_workers = len(autoscaling_hook.client.worker_hosts)
-    queue_ops.append(
-        sync_queues[autoscaling_hook.task_index].dequeue_many(len(num_workers) - 1))
-    return tf.group(*queue_ops)
 
 def define_resnet_flags(resnet_size_choices=None, dynamic_loss_scale=False,
                         fp16_implementation=False):

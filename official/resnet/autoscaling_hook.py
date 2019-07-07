@@ -211,12 +211,16 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
     self.status_barrier(AutoscalingStatus.RESTARTING)
     with self.pending_cluster_spec_lock:
       if self.pending_cluster_spec is not None:
-        server_def = _make_server_def(
-          self.pending_cluster_spec, self.task_type, self.task_index, "grpc", None)
-        log_fn("Setting server def to %s" % server_def)
-        context.context().set_server_def(server_def)
-        log_fn("Server def was set!")
+        #server_def = _make_server_def(
+        #  self.pending_cluster_spec, self.task_type, self.task_index, "grpc", None)
+        #log_fn("Setting server def to %s" % server_def)
+        #context.context().set_server_def(server_def)
+        #log_fn("Server def was set!")
         self.apply_cluster_spec(self.pending_cluster_spec)
+        log_fn("Setting TF_CONFIG!")
+        os.environ["TF_CONFIG"] = json.dumps(\
+          {"cluster": self.cluster_spec, "task": {"type": self.task_type, "index": self.task_index}})
+        log_fn("Just set TF_CONFIG to %s" % os.environ["TF_CONFIG"])
         self.pending_cluster_spec = None
     self.status = AutoscalingStatus.READY_TO_SYNC
 
