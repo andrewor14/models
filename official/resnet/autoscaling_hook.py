@@ -6,8 +6,7 @@ import threading
 import time
 
 import tensorflow as tf
-from tensorflow.python.eager import context
-from tensorflow.python.training.server_lib import _make_server_def
+from tensorflow.python.distribute import distribute_coordinator
 
 from autoscaling_client import convert_port, AutoscalingClient
 from autoscaling_service import listen_for_autoscaling_requests
@@ -36,7 +35,6 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
   def __init__(self, estimator):
     self.estimator = estimator
     self.server = None
-    self.global_batch_size = None
 
     # Status to synchronize cluster membership changes
     # Accesses must be guarded by `self._status_lock`
@@ -140,13 +138,7 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
     tasks = cluster_spec[self.task_type]
     if self.host_port in tasks:
       self.task_index = tasks.index(self.host_port)
-    ## Calculate new per device batch size from old global batch size
-    ## If we're joining an existing cluster, just get it from the master
-    #if self.global_batch_size is None:
-    #  self.global_batch_size = self.client.master_server.get_global_batch_size()
-    #if self.global_batch_size is not None:
-    #  per_device_batch_size = int(self.global_batch_size * 1.0 / len(worker_hosts) / self.num_gpus)
-    #  self.params = self.params._replace(batch_size=per_device_batch_size)
+    # TODO: actually update global batch size
 
   def status_barrier(self, target):
     """
@@ -211,12 +203,22 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
     self.status_barrier(AutoscalingStatus.RESTARTING)
     with self.pending_cluster_spec_lock:
       if self.pending_cluster_spec is not None:
-        server_def = _make_server_def(
-          self.pending_cluster_spec, self.task_type, self.task_index, "grpc", None)
-        log_fn("Setting server def to %s" % server_def)
-        context.context().set_server_def(server_def)
-        log_fn("Server def was set!")
+        # TODO: do this through set_server_def instead (currently hangs)
+        # from tensorflow.python.eager import context
+        # from tensorflow.python.training.server_lib import _make_server_def
+        # server_def = _make_server_def(
+        #   self.pending_cluster_spec, self.task_type, self.task_index, "grpc", None)
+        # context.context().set_server_def(server_def)
         self.apply_cluster_spec(self.pending_cluster_spec)
+        new_tf_config = {"cluster": self.cluster_spec,\
+          "task": {"type": self.task_type, "index": self.task_index}}
+        os.environ["TF_CONFIG"] = json.dumps(new_tf_config)
+        log_fn("Restarting training with new TF_CONFIG = %s" % new_tf_config)
+        # Note: tensorflow maintains a thread local variable to keep track of the existing server
+        # If such a server exists, then tensorflow will simply reuse it. Here we clear this variable
+        # to avoid this behavior, because we *do* want it to start a new server with a different
+        # server def.
+        distribute_coordinator._thread_local.__dict__.clear()
         self.pending_cluster_spec = None
     self.status = AutoscalingStatus.READY_TO_SYNC
 

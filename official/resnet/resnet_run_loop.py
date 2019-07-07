@@ -663,12 +663,13 @@ def resnet_main(
         max_steps=flags_obj.max_train_steps)
     eval_spec = tf.estimator.EvalSpec(input_fn=input_fn_eval)
     tf.compat.v1.logging.info('Starting to train and evaluate.')
+
     while True:
       try:
         tf.estimator.train_and_evaluate(classifier, train_spec, eval_spec)
-        tf.compat.v1.logging.info("Train and evaluate exited, but we're gonna do it again")
         if autoscaling_hook.status == AutoscalingStatus.TERMINATED:
           break
+        tf.compat.v1.logging.info("Train and evaluate exited, but we're gonna do it again")
         autoscaling_hook.on_restart()
       except Exception as e:
         import traceback
@@ -743,40 +744,6 @@ def resnet_main(
   stats['train_hooks'] = train_hooks
 
   return stats
-
-def add_sync_queues(name_prefix, autoscaling_hook, enqueue_after_list=[]):
-  """Adds ops to enqueue on all worker queues.
-
-  Args:
-    name_prefix: prefixed for the shared_name of ops.
-    enqueue_after_list: control dependency from ops.
-
-  Returns:
-    An op that should be used as control dependency before starting next step.
-  """
-  # TODO: rebuild graph if num_workers exceeds MAX_WORKERS
-  MAX_WORKERS = 100
-  tf.compat.v1.logging.info("Adding sync queue %s" % name_prefix)
-  with tf.device("/job:worker/replica:0/task:0/cpu:0"):
-    sync_queues = [
-        tf.FIFOQueue(MAX_WORKERS, [tf.bool], shapes=[[]],
-                     shared_name='%s%s' % (name_prefix, i))
-        for i in range(MAX_WORKERS)]
-    queue_ops = []
-    # For each other worker, add an entry in a queue, signaling that it can
-    # finish this step.
-    token = tf.constant(False)
-    with tf.control_dependencies(enqueue_after_list):
-      for i, q in enumerate(sync_queues):
-        if i == autoscaling_hook.task_index:
-          queue_ops.append(tf.no_op())
-        else:
-          queue_ops.append(q.enqueue(token))
-    # Drain tokens off queue for this worker, one for each other worker.
-    num_workers = len(autoscaling_hook.client.worker_hosts)
-    queue_ops.append(
-        sync_queues[autoscaling_hook.task_index].dequeue_many(len(num_workers) - 1))
-    return tf.group(*queue_ops)
 
 def define_resnet_flags(resnet_size_choices=None, dynamic_loss_scale=False,
                         fp16_implementation=False):
