@@ -4,6 +4,7 @@ import os
 import json
 import threading
 import time
+import traceback
 
 import tensorflow as tf
 from tensorflow.python.distribute import distribute_coordinator
@@ -32,10 +33,7 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
   A `SessionRunHook` that keeps track of autoscaling state for this process.
   """
 
-  def __init__(self, estimator):
-    self.estimator = estimator
-    self.server = None
-
+  def __init__(self):
     # Status to synchronize cluster membership changes
     # Accesses must be guarded by `self._status_lock`
     self._status = AutoscalingStatus.READY_TO_SYNC
@@ -89,16 +87,43 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
         log_fn("Changing status from %s to %s" % (self._status, s))
       self._status = s
 
+  def initialize(self):
+    """
+    Ensure everyone sees the same cluster spec, then set TF_CONFIG accordingly.
+    This should be called on start up and after every time we restart.
+    """
+    log_fn("Initializing")
+    # Check if cluster membership changed. If so, update cluster spec accordingly.
+    with self.pending_cluster_spec_lock:
+      if self.pending_cluster_spec is not None:
+        self.apply_cluster_spec(self.pending_cluster_spec)
+        self.pending_cluster_spec = None
+    self.status = AutoscalingStatus.READY_TO_SYNC
+    self.sync_cluster_spec()
+    # TODO: do this through set_server_def instead (currently hangs)
+    # from tensorflow.python.eager import context
+    # from tensorflow.python.training.server_lib import _make_server_def
+    # server_def = _make_server_def(
+    #   self.pending_cluster_spec, self.task_type, self.task_index, "grpc", None)
+    # context.context().set_server_def(server_def)
+    new_tf_config = {"cluster": self.cluster_spec,\
+      "task": {"type": self.task_type, "index": self.task_index}}
+    os.environ["TF_CONFIG"] = json.dumps(new_tf_config)
+    log_fn("Setting TF_CONFIG = %s" % new_tf_config)
+    # Note: tensorflow maintains a thread local variable to keep track of the existing server
+    # If such a server exists, then tensorflow will simply reuse it. Here we clear this variable
+    # to avoid this behavior, because we *do* want it to start a new server with a different
+    # server def.
+    distribute_coordinator._thread_local.__dict__.clear()
+
   def sync_cluster_spec(self):
     """
     Retry until all the following are true
       (1) Our cluster spec contains our host name
       (2) We have the same cluster spec as everyone else
-      (3) Everyone's status is SYNCED or SETTING_UP
+      (3) Everyone is SYNCED
 
-    Our status must be READY_TO_SYNC before we call this method, and SETTING_UP when we return.
-
-    Return the cluster spec that was synced in dictionary form.
+    Our status must be READY_TO_SYNC before we call this method, and RUNNING when we return.
     """
     log_fn("Attempting to sync cluster spec with everyone")
     self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
@@ -121,8 +146,9 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
         log_fn("... cluster spec synced: %s" % my_cluster_spec)
         self.status = AutoscalingStatus.SYNCED
         self.status_barrier(AutoscalingStatus.SYNCED)
-        self.status = AutoscalingStatus.SETTING_UP
-        return json.loads(my_cluster_spec)
+        self.status = AutoscalingStatus.RUNNING
+        self.status_barrier(AutoscalingStatus.RUNNING)
+        return
       # On failure, reset client with cluster spec from the master autoscaling server
       log_fn("%s, trying again in %s second(s)" %\
         (failure_message, AUTOSCALING_RETRY_INTERVAL_SECONDS))
@@ -140,7 +166,7 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
       self.task_index = tasks.index(self.host_port)
     # TODO: actually update global batch size
 
-  def status_barrier(self, target):
+  def status_barrier(self, target, quiet=False):
     """
     Wait until everyone has reached the target autoscaling status(es).
 
@@ -149,6 +175,7 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
     Return the list of everyone's status once the target is reached.
     """
     targets = [target] if not isinstance(target, list) else target
+    log_fn = lambda _: None if quiet else log_fn
     # Check if we have reached the target ourselves
     my_status = self.status
     if my_status not in targets:
@@ -169,93 +196,41 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
       log_fn("... barrier not reached: %s" % format_statuses(statuses))
       time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
 
-  def server_is_ready(self):
+  def after_run(self, run_context, run_values):
     """
-    Return whether the server is ready.
-    We get a pointer to the server through the estimator object.
-    If the `server` field exists, then we consider the server to be ready.
-    """
-    if "server" not in dir(self.estimator):
-      return False
-    if self.server is None:
-      self.server = self.estimator.server
-      log_fn("Server is ready: %s" % self.server.target)
-    return True
-
-  def log_exception(self, closure):
-    """
-    Stop swallowing exceptions guys.
+    A version of `do_after_run` that does not swallow exceptions.
     """
     try:
-      closure()
+      self.do_after_run(run_context, run_values)
     except Exception as e:
-      import traceback
-      log_fn("ERROR: %s (%s)" % (e, e.__class__.__name__))
+      log_fn("Error in after_run: %s (%s)" % (e, e.__class__.__name__))
       traceback.print_exc()
       raise e
-
-  def on_restart(self):
-    """
-    Check if cluster membership changed. If so, update server def accordingly.
-    """
-    log_fn("On restart")
-    self.status = AutoscalingStatus.RESTARTING
-    self.status_barrier(AutoscalingStatus.RESTARTING)
-    with self.pending_cluster_spec_lock:
-      if self.pending_cluster_spec is not None:
-        # TODO: do this through set_server_def instead (currently hangs)
-        # from tensorflow.python.eager import context
-        # from tensorflow.python.training.server_lib import _make_server_def
-        # server_def = _make_server_def(
-        #   self.pending_cluster_spec, self.task_type, self.task_index, "grpc", None)
-        # context.context().set_server_def(server_def)
-        self.apply_cluster_spec(self.pending_cluster_spec)
-        new_tf_config = {"cluster": self.cluster_spec,\
-          "task": {"type": self.task_type, "index": self.task_index}}
-        os.environ["TF_CONFIG"] = json.dumps(new_tf_config)
-        log_fn("Restarting training with new TF_CONFIG = %s" % new_tf_config)
-        # Note: tensorflow maintains a thread local variable to keep track of the existing server
-        # If such a server exists, then tensorflow will simply reuse it. Here we clear this variable
-        # to avoid this behavior, because we *do* want it to start a new server with a different
-        # server def.
-        distribute_coordinator._thread_local.__dict__.clear()
-        self.pending_cluster_spec = None
-    self.status = AutoscalingStatus.READY_TO_SYNC
-
-  def do_begin(self):
-    """
-    Make sure everyone has the same cluster membership information, then transition to RUNNING.
-    """
-    log_fn("Begin")
-    self.sync_cluster_spec()
-    self.status_barrier(AutoscalingStatus.SETTING_UP)
-    self.status = AutoscalingStatus.RUNNING
-    self.status_barrier(AutoscalingStatus.RUNNING)
 
   def do_after_run(self, run_context, run_values):
     """
     Listen for changes in cluster membership and react by restarting the server.
     """
     log_fn("After run")
-    server_is_ready = self.server_is_ready()
     # Check if cluster membership has changed
     with self.pending_cluster_spec_lock:
-      if self.pending_cluster_spec is not None and server_is_ready:
+      if self.pending_cluster_spec is not None:
         self.status = AutoscalingStatus.PENDING_RESTART
       else:
         self.status = AutoscalingStatus.NOT_PENDING_RESTART
     # Check if everyone has seen the cluster membership change
     statuses = self.status_barrier(\
-      [AutoscalingStatus.PENDING_RESTART, AutoscalingStatus.NOT_PENDING_RESTART])
+      [AutoscalingStatus.PENDING_RESTART, AutoscalingStatus.NOT_PENDING_RESTART],
+      quiet=True)
     if AutoscalingStatus.NOT_PENDING_RESTART in statuses:
       self.status = AutoscalingStatus.NOT_READY_TO_RESTART
     else:
       self.status = AutoscalingStatus.READY_TO_RESTART
     # Check if everyone is ready to restart
     statuses = self.status_barrier(\
-      [AutoscalingStatus.READY_TO_RESTART, AutoscalingStatus.NOT_READY_TO_RESTART])
+      [AutoscalingStatus.READY_TO_RESTART, AutoscalingStatus.NOT_READY_TO_RESTART],
+      quiet=True)
     if AutoscalingStatus.NOT_READY_TO_RESTART in statuses:
-      log_fn("Not restarting because not everyone is ready yet")
       self.status = AutoscalingStatus.RUNNING
     else:
       # Do restart
@@ -266,10 +241,4 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
         log_fn("Received signal to restart server")
         # TODO: save variables if we're rebuilding the graph
       run_context.request_stop()
-
-  def begin(self):
-    self.log_exception(self.do_begin)
-
-  def after_run(self, run_context, run_values):
-    self.log_exception(lambda: self.do_after_run(run_context, run_values))
 

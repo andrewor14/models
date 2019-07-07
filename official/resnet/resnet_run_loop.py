@@ -27,23 +27,22 @@ import functools
 import math
 import multiprocessing
 import os
-
+import traceback
 
 # pylint: disable=g-bad-import-order
 from absl import flags
+from autoscaling_hook import AutoscalingHook
+from autoscaling_params import AutoscalingStatus
+from slurm.tensorflow_on_slurm import running_through_slurm, set_tf_config
 import tensorflow as tf
 
 from official.resnet import resnet_model
-from official.resnet.autoscaling_hook import AutoscalingHook
 from official.utils.flags import core as flags_core
 from official.utils.export import export
 from official.utils.logs import hooks_helper, logger
 from official.resnet import imagenet_preprocessing
 from official.utils.misc import distribution_utils
 from official.utils.misc import model_helpers
-from slurm.tensorflow_on_slurm import running_through_slurm, set_tf_config
-
-from autoscaling_params import *
 
 
 ################################################################################
@@ -523,9 +522,33 @@ def resnet_model_fn(features, labels, mode, model_class,
       train_op=train_op,
       eval_metric_ops=metrics)
 
-
 def resnet_main(
     flags_obj, model_function, input_function, dataset_name, shape=None):
+  """
+  Wrapper around main loop for ResNet models that handles changes in cluster membership.
+  """
+  # If we're running through slurm, set TF_CONFIG according to slurm environment variables
+  if running_through_slurm() and "TF_CONFIG" not in os.environ:
+    num_ps = int(os.getenv("NUM_PARAMETER_SERVERS", "1"))
+    set_tf_config(num_ps)
+
+  # Keep track of cluster membership changes through an autoscaling hook
+  autoscaling_hook = AutoscalingHook()
+
+  while autoscaling_hook.status != AutoscalingStatus.TERMINATED:
+    try:
+      autoscaling_hook.initialize()
+      result = do_resnet_main(flags_obj, model_function,\
+        input_function, dataset_name, shape, autoscaling_hook)
+    except Exception as e:
+      tf.compat.v1.logging.error("Exception in resnet_main: %s (%s)" %\
+        (e, e.__class__.__name__))
+      traceback.print_exc()
+      raise e
+  return result
+
+def do_resnet_main(
+    flags_obj, model_function, input_function, dataset_name, shape=None, autoscaling_hook=None):
   """Shared main loop for ResNet Models.
 
   Args:
@@ -548,11 +571,6 @@ def resnet_main(
   """
 
   model_helpers.apply_clean(flags.FLAGS)
-
-  # If we're running through slurm, set TF_CONFIG according to slurm environment variables
-  if running_through_slurm() and 'TF_CONFIG' not in os.environ:
-    num_ps = int(os.getenv("NUM_PARAMETER_SERVERS") or 1)
-    set_tf_config(num_ps)
 
   # Ensures flag override logic is only executed if explicitly triggered.
   if flags_obj.tf_gpu_thread_mode:
@@ -626,10 +644,9 @@ def resnet_main(
       flags_obj.hooks,
       model_dir=flags_obj.model_dir,
       batch_size=flags_obj.batch_size)
-
-  tf.compat.v1.logging.info("Adding autoscaling hook")
-  autoscaling_hook = AutoscalingHook(classifier)
-  train_hooks.append(autoscaling_hook)
+  if autoscaling_hook is not None:
+    tf.compat.v1.logging.info("Adding autoscaling hook")
+    train_hooks.append(autoscaling_hook)
 
   def input_fn_train(num_epochs, input_context=None):
     return input_function(
@@ -662,22 +679,9 @@ def resnet_main(
         hooks=train_hooks,
         max_steps=flags_obj.max_train_steps)
     eval_spec = tf.estimator.EvalSpec(input_fn=input_fn_eval)
-    tf.compat.v1.logging.info('Starting to train and evaluate.')
-
-    while True:
-      try:
-        tf.estimator.train_and_evaluate(classifier, train_spec, eval_spec)
-        if autoscaling_hook.status == AutoscalingStatus.TERMINATED:
-          break
-        tf.compat.v1.logging.info("Train and evaluate exited, but we're gonna do it again")
-        autoscaling_hook.on_restart()
-      except Exception as e:
-        import traceback
-        log_fn("ERROR: %s (%s)" % (e, e.__class__.__name__))
-        traceback.print_exc()
-        raise e
-    # tf.estimator.train_and_evalute doesn't return anything in multi-worker
-    # case.
+    tf.compat.v1.logging.info("Calling train_and_evaluate.")
+    tf.estimator.train_and_evaluate(classifier, train_spec, eval_spec)
+    # tf.estimator.train_and_evalute doesn't return anything in multi-worker case.
     eval_results = {}
   else:
     if train_epochs == 0:
