@@ -8,6 +8,7 @@ import traceback
 
 import tensorflow as tf
 from tensorflow.python.distribute import distribute_coordinator
+from tensorflow.python.distribute import cross_device_utils
 
 from autoscaling_client import convert_port, AutoscalingClient
 from autoscaling_service import listen_for_autoscaling_requests
@@ -115,6 +116,10 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
     # to avoid this behavior, because we *do* want it to start a new server with a different
     # server def.
     distribute_coordinator._thread_local.__dict__.clear()
+    # Note: tensorflow maintains a thread local variable to keep track of collective ops.
+    # If we don't clear this, then tensorflow will reuse the old op, which has a wrong number
+    # of workers, and hang without any error messages.
+    cross_device_utils._thread_local.__dict__.clear()
 
   def sync_cluster_spec(self):
     """
