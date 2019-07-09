@@ -21,6 +21,7 @@ export NUM_PARAMETER_SERVERS="0"
 export NUM_GPUS_PER_WORKER="0"
 export RESNET_SIZE="56"
 export BATCH_SIZE="32"
+export LOG_EVERY_N_STEPS="1"
 
 # Autoscaling flags
 export AUTOSCALING_DISABLE_WRITE_GRAPH="true"

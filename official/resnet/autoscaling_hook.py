@@ -84,8 +84,6 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
     with self._status_lock:
       if not isinstance(s, AutoscalingStatus):
         raise ValueError("'%s' is not an AutoscalingStatus" % s)
-      if self._status != s:
-        log_fn("Changing status from %s to %s" % (self._status, s))
       self._status = s
 
   def initialize(self):
@@ -216,7 +214,6 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
     """
     Listen for changes in cluster membership and react by restarting the server.
     """
-    log_fn("After run")
     # Check if cluster membership has changed
     with self.pending_cluster_spec_lock:
       if self.pending_cluster_spec is not None:

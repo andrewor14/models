@@ -32,6 +32,7 @@ RESNET_SIZE="${RESNET_SIZE:=56}"
 BATCH_SIZE="${BATCH_SIZE:=32}"
 EPOCHS_BETWEEN_EVALS="${EPOCHS_BETWEEN_EVALS:=10}"
 DISTRIBUTION_STRATEGY="${DISTRIBUTION_STRATEGY:=multi_worker_mirrored}"
+LOG_EVERY_N_STEPS="${LOG_EVERY_N_STEPS:=100}"
 
 # Only allow positive number of parameter servers if we're running in parameter_server mode
 if [[ "$DISTRIBUTION_STRATEGY" != "parameter_server" ]] && [[ "$NUM_PARAMETER_SERVERS" != "0" ]]; then
@@ -70,5 +71,6 @@ fi
   --resnet_size="$RESNET_SIZE"\
   --batch_size="$BATCH_SIZE"\
   --epochs_between_evals="$EPOCHS_BETWEEN_EVALS"\
-  --distribution_strategy="$DISTRIBUTION_STRATEGY"
+  --distribution_strategy="$DISTRIBUTION_STRATEGY"\
+  --log_every_n_steps="$LOG_EVERY_N_STEPS"
 

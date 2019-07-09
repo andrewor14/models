@@ -442,6 +442,10 @@ def resnet_model_fn(features, labels, mode, model_class,
   if mode == tf.estimator.ModeKeys.TRAIN:
     global_step = tf.compat.v1.train.get_or_create_global_step()
 
+    # Create a tensor named step for logging purposes
+    tf.identity(global_step, name='step')
+    tf.compat.v1.summary.scalar('step', global_step)
+
     learning_rate = learning_rate_fn(global_step)
 
     # Create a tensor named learning_rate for logging purposes
@@ -600,7 +604,8 @@ def do_resnet_main(
       train_distribute=distribution_strategy,
       session_config=session_config,
       save_checkpoints_secs=60*60*24,
-      save_checkpoints_steps=None)
+      save_checkpoints_steps=None,
+      log_step_count_steps=None)
 
   # Initializes model with all but the dense layer from pretrained ResNet.
   if flags_obj.pretrained_model_checkpoint_path is not None:
@@ -643,7 +648,8 @@ def do_resnet_main(
   train_hooks = hooks_helper.get_train_hooks(
       flags_obj.hooks,
       model_dir=flags_obj.model_dir,
-      batch_size=flags_obj.batch_size)
+      batch_size=flags_obj.batch_size,
+      every_n_iter=flags_obj.log_every_n_steps)
   if autoscaling_hook is not None:
     tf.compat.v1.logging.info("Adding autoscaling hook")
     train_hooks.append(autoscaling_hook)
@@ -807,6 +813,9 @@ def define_resnet_flags(resnet_size_choices=None, dynamic_loss_scale=False,
       name='task_index', default=-1,
       help=flags_core.help_wrap('If multi-worker training, the task_index of '
                                 'this worker.'))
+  flags.DEFINE_integer(
+      name='log_every_n_steps', default=100,
+      help=flags_core.help_wrap('How often to log progress.'))
   flags.DEFINE_bool(
       name='enable_lars', default=False,
       help=flags_core.help_wrap(
