@@ -104,18 +104,13 @@ def run(flags_obj):
 
   # Keep track of cluster membership changes through an autoscaling hook
   autoscaling_agent = AutoscalingAgent()
+  autoscaling_agent.set_global_batch_size(flags_obj.batch_size)
   autoscaling_callback = AutoscalingCallback(autoscaling_agent)
-
-  # Fix global batch size
-  num_workers = len(autoscaling_agent.cluster_spec["worker"])
-  global_batch_size = num_workers * flags_obj.batch_size
 
   while autoscaling_agent.status != AutoscalingStatus.TERMINATED:
     try:
       autoscaling_agent.initialize()
-      num_workers = len(autoscaling_agent.cluster_spec["worker"])
-      local_batch_size = int(global_batch_size * 1.0 / num_workers)
-      flags_obj.batch_size = local_batch_size
+      flags_obj.batch_size = autoscaling_agent.local_batch_size
       result = do_run(flags_obj, autoscaling_callback)
     except Exception as e:
       tf.compat.v1.logging.error("Exception in resnet_main: %s (%s)" %\

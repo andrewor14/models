@@ -14,7 +14,7 @@ def log_fn(msg):
   msg = "[Autoscaling service]: %s" % msg
   tf.compat.v1.logging.info(msg)
 
-def listen_for_autoscaling_requests(hook, host_port):
+def listen_for_autoscaling_requests(agent, host_port):
   '''
   Start a server listening for autoscaling requests
 
@@ -27,7 +27,7 @@ def listen_for_autoscaling_requests(hook, host_port):
     (split[0], int(split[1])), logRequests=False, allow_none=True)
   server.register_introspection_functions()
   server.register_multicall_functions()
-  server.register_instance(AutoscalingService(hook))
+  server.register_instance(AutoscalingService(agent))
   threading.Thread(target=server.serve_forever).start()
 
 
@@ -35,17 +35,17 @@ class AutoscalingService:
   '''
   A service for handling autoscaling requests.
   '''
-  def __init__(self, hook):
-    self.hook = hook
+  def __init__(self, agent):
+    self.agent = agent
 
   def get_status(self):
-    return self.hook.status.value
+    return self.agent.status.value
 
   def get_cluster_spec(self):
-    return self.hook.cluster_spec
+    return self.agent.cluster_spec
 
   def get_global_batch_size(self):
-    return self.hook.global_batch_size
+    return self.agent.global_batch_size
 
   def join_cluster(self, host_port):
     '''
@@ -59,7 +59,7 @@ class AutoscalingService:
     is_new_worker = host_port not in hosts
     if is_new_worker:
       # Wait until client is ready
-      while self.hook.client is None:
+      while self.agent.client is None:
         log_fn("... autoscaling client is not ready yet, waiting %s second(s)" %\
           AUTOSCALING_RETRY_INTERVAL_SECONDS)
         time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
@@ -67,7 +67,7 @@ class AutoscalingService:
       # Note: Calling client.add_worker directly will hang because this server
       # is single threaded and so cannot process the add_workers request asynchronously.
       # Thus, we need to treat the master server (ourselves) separately.
-      client = self.hook.client
+      client = self.agent.client
       for server in client.servers:
         if server != client.master_server:
           server.add_workers([host_port])
@@ -75,10 +75,10 @@ class AutoscalingService:
       # Note: There may be pending workers that are not part of the autoscaling client yet.
       # Here we manually tell them to add this new worker. In the future there may be a
       # cleaner way to do this.
-      with self.hook.pending_cluster_spec_lock:
-        if self.hook.pending_cluster_spec is not None:
+      with self.agent.pending_cluster_spec_lock:
+        if self.agent.pending_cluster_spec is not None:
           from autoscaling_client import convert_port, connect
-          pending_workers = self.hook.pending_cluster_spec["worker"]
+          pending_workers = self.agent.pending_cluster_spec["worker"]
           pending_workers = list(set(pending_workers) - set(self.get_cluster_spec()["worker"]))
           if host_port in pending_workers:
             pending_workers.remove(host_port)
@@ -91,21 +91,21 @@ class AutoscalingService:
   def _get_or_create_pending_cluster_spec(self):
     '''
     Return the existing pending cluster spec or create a new one.
-    The caller must hold `self.hook.pending_cluster_spec_lock`.
+    The caller must hold `self.agent.pending_cluster_spec_lock`.
     '''
-    if self.hook.pending_cluster_spec is None:
-      self.hook.pending_cluster_spec = self.get_cluster_spec()
-    return self.hook.pending_cluster_spec
+    if self.agent.pending_cluster_spec is None:
+      self.agent.pending_cluster_spec = self.get_cluster_spec()
+    return self.agent.pending_cluster_spec
 
   def add_workers(self, host_ports):
     log_fn("Handling add_workers request: %s" % host_ports)
-    with self.hook.pending_cluster_spec_lock:
+    with self.agent.pending_cluster_spec_lock:
       cluster_spec = self._get_or_create_pending_cluster_spec()
       cluster_spec["worker"].extend(host_ports)
 
   def remove_workers(self, host_ports):
     log_fn("Handling remove_workers request: %s" % host_ports)
-    with self.hook.pending_cluster_spec_lock:
+    with self.agent.pending_cluster_spec_lock:
       cluster_spec = self._get_or_create_pending_cluster_spec()
       for hp in host_ports:
         cluster_spec["worker"].remove(hp)
