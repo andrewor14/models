@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import copy
 import json
 import time
 import threading
@@ -42,7 +43,7 @@ class AutoscalingService:
     return self.agent.status.value
 
   def get_cluster_spec(self):
-    return self.agent.cluster_spec
+    return copy.deepcopy(self.agent.cluster_spec)
 
   def get_global_batch_size(self):
     return self.agent.global_batch_size
