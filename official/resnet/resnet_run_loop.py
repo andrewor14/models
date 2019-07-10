@@ -31,6 +31,7 @@ import traceback
 
 # pylint: disable=g-bad-import-order
 from absl import flags
+from autoscaling_agent import AutoscalingAgent
 from autoscaling_hook import AutoscalingHook
 from autoscaling_params import AutoscalingStatus
 from slurm.tensorflow_on_slurm import running_through_slurm, set_tf_config
@@ -536,16 +537,17 @@ def resnet_main(flags_obj, model_function, input_function, dataset_name, shape=N
     set_tf_config(num_ps)
 
   # Keep track of cluster membership changes through an autoscaling hook
-  autoscaling_hook = AutoscalingHook()
+  autoscaling_agent = AutoscalingAgent()
+  autoscaling_hook = AutoscalingHook(autoscaling_agent)
 
   # Fix global batch size
-  num_workers = len(autoscaling_hook.cluster_spec["worker"])
+  num_workers = len(autoscaling_agent.cluster_spec["worker"])
   global_batch_size = num_workers * flags_obj.batch_size
 
-  while autoscaling_hook.status != AutoscalingStatus.TERMINATED:
+  while autoscaling_agent.status != AutoscalingStatus.TERMINATED:
     try:
-      autoscaling_hook.initialize()
-      num_workers = len(autoscaling_hook.cluster_spec["worker"])
+      autoscaling_agent.initialize()
+      num_workers = len(autoscaling_agent.cluster_spec["worker"])
       local_batch_size = int(global_batch_size * 1.0 / num_workers)
       result = do_resnet_main(flags_obj, model_function, input_function,\
         dataset_name, shape, local_batch_size, autoscaling_hook)
