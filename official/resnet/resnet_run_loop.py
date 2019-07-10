@@ -297,13 +297,13 @@ def learning_rate_with_decay(
     """
 
     # Learning rate schedule for LARS polynomial schedule
-    if flags.FLAGS.batch_size < 8192:
+    if batch_size < 8192:
       plr = 5.0
       w_epochs = 5
-    elif flags.FLAGS.batch_size < 16384:
+    elif batch_size < 16384:
       plr = 10.0
       w_epochs = 5
-    elif flags.FLAGS.batch_size < 32768:
+    elif batch_size < 32768:
       plr = 25.0
       w_epochs = 5
     else:
@@ -526,8 +526,7 @@ def resnet_model_fn(features, labels, mode, model_class,
       train_op=train_op,
       eval_metric_ops=metrics)
 
-def resnet_main(
-    flags_obj, model_function, input_function, dataset_name, shape=None):
+def resnet_main(flags_obj, model_function, input_function, dataset_name, shape=None):
   """
   Wrapper around main loop for ResNet models that handles changes in cluster membership.
   """
@@ -539,11 +538,17 @@ def resnet_main(
   # Keep track of cluster membership changes through an autoscaling hook
   autoscaling_hook = AutoscalingHook()
 
+  # Fix global batch size
+  num_workers = len(autoscaling_hook.cluster_spec["worker"])
+  global_batch_size = num_workers * flags_obj.batch_size
+
   while autoscaling_hook.status != AutoscalingStatus.TERMINATED:
     try:
       autoscaling_hook.initialize()
-      result = do_resnet_main(flags_obj, model_function,\
-        input_function, dataset_name, shape, autoscaling_hook)
+      num_workers = len(autoscaling_hook.cluster_spec["worker"])
+      local_batch_size = int(global_batch_size * 1.0 / num_workers)
+      result = do_resnet_main(flags_obj, model_function, input_function,\
+        dataset_name, shape, local_batch_size, autoscaling_hook)
     except Exception as e:
       tf.compat.v1.logging.error("Exception in resnet_main: %s (%s)" %\
         (e, e.__class__.__name__))
@@ -552,7 +557,13 @@ def resnet_main(
   return result
 
 def do_resnet_main(
-    flags_obj, model_function, input_function, dataset_name, shape, autoscaling_hook):
+    flags_obj,
+    model_function,
+    input_function,
+    dataset_name,
+    shape,
+    batch_size,
+    autoscaling_hook):
   """Shared main loop for ResNet Models.
 
   Args:
@@ -620,7 +631,7 @@ def do_resnet_main(
       warm_start_from=warm_start_settings, params={
           'resnet_size': int(flags_obj.resnet_size),
           'data_format': flags_obj.data_format,
-          'batch_size': flags_obj.batch_size,
+          'batch_size': batch_size,
           'resnet_version': int(flags_obj.resnet_version),
           'loss_scale': flags_core.get_loss_scale(flags_obj,
                                                   default_for_fp16=128),
@@ -630,7 +641,7 @@ def do_resnet_main(
       })
 
   run_params = {
-      'batch_size': flags_obj.batch_size,
+      'batch_size': batch_size,
       'dtype': flags_core.get_tf_dtype(flags_obj),
       'resnet_size': flags_obj.resnet_size,
       'resnet_version': flags_obj.resnet_version,
@@ -638,6 +649,7 @@ def do_resnet_main(
       'train_epochs': flags_obj.train_epochs,
       'num_workers': num_workers,
   }
+
   if flags_obj.use_synthetic_data:
     dataset_name = dataset_name + '-synthetic'
 
@@ -648,7 +660,7 @@ def do_resnet_main(
   train_hooks = hooks_helper.get_train_hooks(
       flags_obj.hooks,
       model_dir=flags_obj.model_dir,
-      batch_size=flags_obj.batch_size,
+      batch_size=batch_size,
       every_n_iter=flags_obj.log_every_n_steps)
   if autoscaling_hook is not None:
     tf.compat.v1.logging.info("Adding autoscaling hook")
@@ -659,7 +671,7 @@ def do_resnet_main(
         is_training=True,
         data_dir=flags_obj.data_dir,
         batch_size=distribution_utils.per_replica_batch_size(
-            flags_obj.batch_size, flags_core.get_num_gpus(flags_obj)),
+          batch_size, flags_core.get_num_gpus(flags_obj)),
         num_epochs=num_epochs,
         dtype=flags_core.get_tf_dtype(flags_obj),
         datasets_num_private_threads=flags_obj.datasets_num_private_threads,
@@ -670,7 +682,7 @@ def do_resnet_main(
         is_training=False,
         data_dir=flags_obj.data_dir,
         batch_size=distribution_utils.per_replica_batch_size(
-            flags_obj.batch_size, flags_core.get_num_gpus(flags_obj)),
+          batch_size, flags_core.get_num_gpus(flags_obj)),
         num_epochs=1,
         dtype=flags_core.get_tf_dtype(flags_obj))
 
@@ -745,7 +757,7 @@ def do_resnet_main(
           image_bytes_serving_input_fn, shape, dtype=export_dtype)
     else:
       input_receiver_fn = export.build_tensor_serving_input_receiver_fn(
-          shape, batch_size=flags_obj.batch_size, dtype=export_dtype)
+          shape, batch_size=batch_size, dtype=export_dtype)
     classifier.export_savedmodel(flags_obj.export_dir, input_receiver_fn,
                                  strip_default_attrs=True)
 
