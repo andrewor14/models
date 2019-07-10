@@ -18,17 +18,23 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+
 from absl import app as absl_app
 from absl import flags
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 
 from official.resnet import cifar10_main as cifar_main
+from official.resnet.autoscaling_agent import AutoscalingAgent
+from official.resnet.autoscaling_params import AutoscalingStatus
 from official.resnet.keras import keras_common
 from official.resnet.keras import resnet_cifar_model
+from official.resnet.keras.autoscaling_callback import AutoscalingCallback
 from official.utils.flags import core as flags_core
 from official.utils.logs import logger
 from official.utils.misc import distribution_utils
 from official.utils.misc import keras_utils
+from slurm.tensorflow_on_slurm import running_through_slurm, set_tf_config
 
 
 LR_SCHEDULE = [  # (multiplier, epoch to start) tuples
@@ -88,6 +94,38 @@ def parse_record_keras(raw_record, is_training, dtype):
 
 
 def run(flags_obj):
+  """
+  Wrapper around main loop for ResNet models that handles changes in cluster membership.
+  """
+  # If we're running through slurm, set TF_CONFIG according to slurm environment variables
+  if running_through_slurm() and "TF_CONFIG" not in os.environ:
+    num_ps = int(os.getenv("NUM_PARAMETER_SERVERS", "1"))
+    set_tf_config(num_ps)
+
+  # Keep track of cluster membership changes through an autoscaling hook
+  autoscaling_agent = AutoscalingAgent()
+  autoscaling_callback = AutoscalingCallback(autoscaling_agent)
+
+  # Fix global batch size
+  num_workers = len(autoscaling_agent.cluster_spec["worker"])
+  global_batch_size = num_workers * flags_obj.batch_size
+
+  while autoscaling_agent.status != AutoscalingStatus.TERMINATED:
+    try:
+      autoscaling_agent.initialize()
+      num_workers = len(autoscaling_agent.cluster_spec["worker"])
+      local_batch_size = int(global_batch_size * 1.0 / num_workers)
+      flags_obj.batch_size = local_batch_size
+      result = do_run(flags_obj, autoscaling_callback)
+    except Exception as e:
+      tf.compat.v1.logging.error("Exception in resnet_main: %s (%s)" %\
+        (e, e.__class__.__name__))
+      traceback.print_exc()
+      raise e
+  return result
+
+
+def do_run(flags_obj, autoscaling_callback):
   """Run ResNet Cifar-10 training and eval loop using native Keras APIs.
 
   Args:
@@ -156,6 +194,9 @@ def run(flags_obj):
 
   callbacks = keras_common.get_callbacks(
       learning_rate_schedule, cifar_main.NUM_IMAGES['train'])
+  if autoscaling_callback is not None:
+    tf.compat.v1.logging.info("Adding autoscaling callback")
+    callbacks.append(autoscaling_callback)
 
   train_steps = cifar_main.NUM_IMAGES['train'] // flags_obj.batch_size
   train_epochs = flags_obj.train_epochs

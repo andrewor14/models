@@ -7,7 +7,7 @@ import xmlrpc.server
 
 import tensorflow as tf
 
-from autoscaling_params import *
+from official.resnet.autoscaling_params import *
 
 
 def log_fn(msg):

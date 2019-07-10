@@ -28,11 +28,18 @@ fi
 # General configs
 NUM_GPUS_PER_WORKER="${NUM_GPUS_PER_WORKER:=$DEFAULT_NUM_GPUS_PER_WORKER}"
 NUM_EPOCHS="${NUM_EPOCHS:=100}"
-RESNET_SIZE="${RESNET_SIZE:=56}"
 BATCH_SIZE="${BATCH_SIZE:=32}"
 EPOCHS_BETWEEN_EVALS="${EPOCHS_BETWEEN_EVALS:=10}"
 DISTRIBUTION_STRATEGY="${DISTRIBUTION_STRATEGY:=multi_worker_mirrored}"
-LOG_EVERY_N_STEPS="${LOG_EVERY_N_STEPS:=100}"
+if [[ "$USE_KERAS" == "true" ]]; then
+  echo "Running keras API"
+  RUN_SCRIPT="$MODELS_DIR/official/resnet/keras/keras_cifar_main.py"
+  SKIP_EVAL="${SKIP_EVAL:=true}"
+else
+  RUN_SCRIPT="$MODELS_DIR/official/resnet/cifar10_main.py"
+  RESNET_SIZE="${RESNET_SIZE:=56}"
+  LOG_EVERY_N_STEPS="${LOG_EVERY_N_STEPS:=100}"
+fi
 
 # Only allow positive number of parameter servers if we're running in parameter_server mode
 if [[ "$DISTRIBUTION_STRATEGY" != "parameter_server" ]] && [[ "$NUM_PARAMETER_SERVERS" != "0" ]]; then
@@ -63,14 +70,26 @@ if [[ "$SINGLE_PROCESS_MODE" == "true" ]]; then
   unset SLURM_JOB_NODELIST
 fi
 
-"$PYTHON_COMMAND" $MODELS_DIR/official/resnet/cifar10_main.py\
-  --data_dir="$CIFAR10_DATA_DIR"\
-  --model_dir="$TRAIN_DIR"\
-  --num_gpus="$NUM_GPUS_PER_WORKER"\
-  --train_epochs="$NUM_EPOCHS"\
-  --resnet_size="$RESNET_SIZE"\
-  --batch_size="$BATCH_SIZE"\
-  --epochs_between_evals="$EPOCHS_BETWEEN_EVALS"\
-  --distribution_strategy="$DISTRIBUTION_STRATEGY"\
-  --log_every_n_steps="$LOG_EVERY_N_STEPS"
+# Build flags
+COMMON_FLAGS=""\
+" --data_dir=$CIFAR10_DATA_DIR"\
+" --model_dir=$TRAIN_DIR"\
+" --num_gpus=$NUM_GPUS_PER_WORKER"\
+" --train_epochs=$NUM_EPOCHS"\
+" --batch_size=$BATCH_SIZE"\
+" --epochs_between_evals=$EPOCHS_BETWEEN_EVALS"\
+" --distribution_strategy=$DISTRIBUTION_STRATEGY"
+
+if [[ "$USE_KERAS" == "true" ]]; then
+  FLAGS="$COMMON_FLAGS"\
+" --skip_eval=$SKIP_EVAL"
+else
+  FLAGS="$COMMON_FLAGS"\
+" --log_every_n_steps=$LOG_EVERY_N_STEPS"\
+" --resnet_size=$RESNET_SIZE"
+fi
+
+# Run it
+echo "Running $RUN_SCRIPT with the following flags: $FLAGS"
+"$PYTHON_COMMAND" "$RUN_SCRIPT" $FLAGS
 

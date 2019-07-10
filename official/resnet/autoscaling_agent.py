@@ -10,9 +10,9 @@ import tensorflow as tf
 from tensorflow.python.distribute import distribute_coordinator
 from tensorflow.python.distribute import cross_device_utils
 
-from autoscaling_client import convert_port, AutoscalingClient
-from autoscaling_service import listen_for_autoscaling_requests
-from autoscaling_params import *
+from official.resnet.autoscaling_client import convert_port, AutoscalingClient
+from official.resnet.autoscaling_service import listen_for_autoscaling_requests
+from official.resnet.autoscaling_params import *
 
 
 class AutoscalingAgent:

@@ -17,11 +17,16 @@ else
 fi
 
 # Models flags
+export USE_KERAS="false"
 export NUM_PARAMETER_SERVERS="0"
 export NUM_GPUS_PER_WORKER="0"
-export RESNET_SIZE="56"
 export BATCH_SIZE="32"
-export LOG_EVERY_N_STEPS="1"
+if [[ "$USE_KERAS" == "true" ]]; then
+  export SKIP_EVAL="true"
+else
+  export RESNET_SIZE="56"
+  export LOG_EVERY_N_STEPS="1"
+fi
 
 # Autoscaling flags
 export AUTOSCALING_DISABLE_WRITE_GRAPH="true"
