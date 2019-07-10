@@ -35,6 +35,8 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
   """
 
   def __init__(self):
+    self.saved_variables = None
+
     # Status to synchronize cluster membership changes
     # Accesses must be guarded by `self._status_lock`
     self._status = AutoscalingStatus.READY_TO_SYNC
@@ -199,6 +201,63 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
       log_fn("... barrier not reached: %s" % format_statuses(statuses))
       time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
 
+  def get_trainable_variables(self):
+    """
+    Return a list of trainable variables.
+    """
+    return tf.global_variables()
+
+  def save_variables(self, sess):
+    """
+    Save the values of savable variables to memory.
+    """
+    sess.graph._finalized = False
+    trainable_variables = self.get_trainable_variables()
+    save_start = time.time()
+    values = sess.run(trainable_variables)
+    save_end = time.time()
+    self.saved_variables = {}
+    for i, v in enumerate(trainable_variables):
+      self.saved_variables[v.name] = values[i]
+    log_fn("Saved %s variables in memory, took %s seconds" %\
+      (len(self.saved_variables), save_end - save_start))
+
+  def restore_variables(self, sess):
+    """
+    Restore the values of saved variables from memory, if any.
+    This assumes `saved_variables` is not None.
+    """
+    try:
+      sess.graph._finalized = False
+      trainable_variables = self.get_trainable_variables()
+      if len(self.saved_variables) != len(trainable_variables):
+        raise ValueError("Number of saved variables (%s) differ from number of trainable variables (%s)" %\
+          (len(self.saved_variables), len(trainable_variables)))
+      log_fn("Restoring %s variables from memory" % len(trainable_variables))
+      restore_ops = []
+      restore_start = time.time()
+      for var in trainable_variables:
+        val = self.saved_variables[var.name]
+        update_fn = lambda var, val: var.assign(val)
+        restore_ops.append(tf.distribute.get_strategy().extended.update(var, update_fn, args=(val,)))
+      sess.run(restore_ops)
+      restore_end = time.time()
+      log_fn("Restored %s variables from memory, took %s seconds" %\
+        (len(trainable_variables), restore_end - restore_start))
+    finally:
+      self.saved_variables = None
+
+  def before_run(self, run_context):
+    """
+    A version of `do_before_run` that does not swallow exceptions.
+    """
+    try:
+      self.do_before_run(run_context)
+    except Exception as e:
+      log_fn("Error in after_run: %s (%s)" % (e, e.__class__.__name__))
+      traceback.print_exc()
+      raise e
+
   def after_run(self, run_context, run_values):
     """
     A version of `do_after_run` that does not swallow exceptions.
@@ -209,6 +268,13 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
       log_fn("Error in after_run: %s (%s)" % (e, e.__class__.__name__))
       traceback.print_exc()
       raise e
+
+  def do_before_run(self, run_context):
+    """
+    Restore saved variables from memory, if any, before running the first step.
+    """
+    if self.saved_variables is not None:
+      self.restore_variables(run_context.session)
 
   def do_after_run(self, run_context, run_values):
     """
@@ -241,6 +307,6 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
         self.status = AutoscalingStatus.TERMINATED
       else:
         log_fn("Received signal to restart server")
-        # TODO: save variables if we're rebuilding the graph
+        self.save_variables(run_context.session)
       run_context.request_stop()
 

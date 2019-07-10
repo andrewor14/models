@@ -552,7 +552,7 @@ def resnet_main(
   return result
 
 def do_resnet_main(
-    flags_obj, model_function, input_function, dataset_name, shape=None, autoscaling_hook=None):
+    flags_obj, model_function, input_function, dataset_name, shape, autoscaling_hook):
   """Shared main loop for ResNet Models.
 
   Args:
