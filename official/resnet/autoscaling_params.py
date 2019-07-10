@@ -14,6 +14,7 @@ class AutoscalingStatus(Enum):
   NOT_PENDING_RESTART = 5.2
   READY_TO_RESTART = 6.1
   NOT_READY_TO_RESTART = 6.2
+  RESTARTING = 7
   TERMINATED = -1
 
 def get_next_statuses(status):
@@ -27,7 +28,9 @@ def get_next_statuses(status):
   if status in maybe_pending_restart:
     return maybe_ready_to_restart
   if status in maybe_ready_to_restart:
-    return [AutoscalingStatus.RUNNING, AutoscalingStatus.READY_TO_SYNC]
+    return [AutoscalingStatus.RUNNING, AutoscalingStatus.RESTARTING, AutoscalingStatus.TERMINATED]
+  if status == AutoscalingStatus.RESTARTING:
+    return [AutoscalingStatus.READY_TO_SYNC]
   if status == AutoscalingStatus.TERMINATED:
     return [status]
   return [AutoscalingStatus(status.value + 1)]

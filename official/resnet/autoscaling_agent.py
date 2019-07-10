@@ -269,22 +269,21 @@ class AutoscalingAgent:
     """
     Listen for changes in cluster membership and react by restarting the server.
 
-    This method is called at the end of each step. Each process undergoes two
+    This method is called at the end of each step. Each process undergoes three
     state changes:
       (1) From RUNNING to [NOT_]PENDING_RESTART, which specifies whether
           this process has observed the cluster membership change, and
       (2) From that to [NOT_]READY_TO_RESTART, which specifies whether
           this process has observed that *everyone* is pending restart.
+      (3) From that to either RUNNING, RESTARTING, or TERMINATED
 
     Each of these state changes are followed by a synchronization barrier to
-    ensure that the processes either all restart or keep running.
+    ensure that the processes either all restart or keep running. The only
+    exception is TERMINATED, which happens when a process realizes that he is
+    actually not in the new cluster configuration. When this happens, the caller
+    of this method should exit the training loop for this process.
 
-    There is a third potential state change, TERMINATED, which happens when
-    a process realizes that he is actually not in the new cluster configuration.
-    When this happens, the caller of this method should exit the training loop
-    for this process.
-
-    Return whether this process is restarting.
+    Return whether this process is restarting or terminating.
     """
     # Check if cluster membership has changed
     with self.pending_cluster_spec_lock:
@@ -313,6 +312,8 @@ class AutoscalingAgent:
         self.status = AutoscalingStatus.TERMINATED
       else:
         log_fn("Received signal to restart server")
+        self.status = AutoscalingStatus.RESTARTING
+        self.status_barrier(AutoscalingStatus.RESTARTING, quiet=True)
       return True
 
 
