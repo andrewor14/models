@@ -17,7 +17,7 @@ else
 fi
 
 # Models flags
-export USE_KERAS="false"
+export USE_KERAS="true"
 export NUM_PARAMETER_SERVERS="0"
 export NUM_GPUS_PER_WORKER="0"
 export BATCH_SIZE="32"

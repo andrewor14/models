@@ -8,6 +8,7 @@ import xmlrpc.server
 
 import tensorflow as tf
 
+from official.resnet.autoscaling_client import convert_port, connect
 from official.resnet.autoscaling_params import *
 
 
@@ -78,7 +79,6 @@ class AutoscalingService:
       # cleaner way to do this.
       with self.agent.pending_cluster_spec_lock:
         if self.agent.pending_cluster_spec is not None:
-          from autoscaling_client import convert_port, connect
           pending_workers = self.agent.pending_cluster_spec["worker"]
           pending_workers = list(set(pending_workers) - set(self.get_cluster_spec()["worker"]))
           if host_port in pending_workers:
