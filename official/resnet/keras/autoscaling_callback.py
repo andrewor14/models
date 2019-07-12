@@ -20,6 +20,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
     """
     Restore saved variables from memory, if any, before running the first step.
     """
+    log_fn("on batch begin")
     if self.agent.saved_variables is not None:
       # TODO: restore variables
       pass
@@ -28,7 +29,6 @@ class AutoscalingCallback(keras.callbacks.Callback):
     """
     Listen for changes in cluster membership and react by restarting the server.
     """
-    log_fn("on batch end")
     restarting = self.agent.step_end()
     if restarting:
       self.model.stop_training = True

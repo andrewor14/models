@@ -124,6 +124,7 @@ def conv_building_block(input_tensor,
   the first conv layer at main path is with strides=(2, 2)
   And the shortcut should have strides=(2, 2) as well
   """
+  #tf.compat.v1.logging.info("conv1")
   filters1, filters2 = filters
   if tf.keras.backend.image_data_format() == 'channels_last':
     bn_axis = 3
@@ -132,6 +133,7 @@ def conv_building_block(input_tensor,
   conv_name_base = 'res' + str(stage) + block + '_branch'
   bn_name_base = 'bn' + str(stage) + block + '_branch'
 
+  #tf.compat.v1.logging.info("conv2")
   x = tf.keras.layers.Conv2D(filters1, kernel_size, strides=strides,
                              padding='same',
                              kernel_initializer='he_normal',
@@ -140,13 +142,17 @@ def conv_building_block(input_tensor,
                              bias_regularizer=
                              tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
                              name=conv_name_base + '2a')(input_tensor)
-  x = tf.keras.layers.BatchNormalization(axis=bn_axis,
+  #tf.compat.v1.logging.info("conv3")
+  y = tf.keras.layers.BatchNormalization(axis=bn_axis,
                                          name=bn_name_base + '2a',
                                          momentum=BATCH_NORM_DECAY,
-                                         epsilon=BATCH_NORM_EPSILON)(
-                                             x, training=training)
+                                         epsilon=BATCH_NORM_EPSILON)
+  tf.compat.v1.logging.info("conv3.1")
+  x = y(x, training=training)
+  tf.compat.v1.logging.info("conv4")
   x = tf.keras.layers.Activation('relu')(x)
 
+  #tf.compat.v1.logging.info("conv5")
   x = tf.keras.layers.Conv2D(filters2, kernel_size, padding='same',
                              kernel_initializer='he_normal',
                              kernel_regularizer=
@@ -154,12 +160,14 @@ def conv_building_block(input_tensor,
                              bias_regularizer=
                              tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
                              name=conv_name_base + '2b')(x)
+  #tf.compat.v1.logging.info("conv6")
   x = tf.keras.layers.BatchNormalization(axis=bn_axis,
                                          name=bn_name_base + '2b',
                                          momentum=BATCH_NORM_DECAY,
                                          epsilon=BATCH_NORM_EPSILON)(
                                              x, training=training)
 
+  #tf.compat.v1.logging.info("conv7")
   shortcut = tf.keras.layers.Conv2D(filters2, (1, 1), strides=strides,
                                     kernel_initializer='he_normal',
                                     kernel_regularizer=
@@ -167,13 +175,17 @@ def conv_building_block(input_tensor,
                                     bias_regularizer=
                                     tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
                                     name=conv_name_base + '1')(input_tensor)
+  #tf.compat.v1.logging.info("conv8")
   shortcut = tf.keras.layers.BatchNormalization(
       axis=bn_axis, name=bn_name_base + '1',
       momentum=BATCH_NORM_DECAY, epsilon=BATCH_NORM_EPSILON)(
           shortcut, training=training)
 
+  #tf.compat.v1.logging.info("conv9")
   x = tf.keras.layers.add([x, shortcut])
+  #tf.compat.v1.logging.info("conv10")
   x = tf.keras.layers.Activation('relu')(x)
+  #tf.compat.v1.logging.info("conv11")
   return x
 
 
@@ -228,18 +240,24 @@ def resnet(num_blocks, classes=10, training=None):
     A Keras model instance.
   """
 
+  #tf.compat.v1.logging.info("1")
   input_shape = (32, 32, 3)
   img_input = layers.Input(shape=input_shape)
+  #tf.compat.v1.logging.info("2")
 
   if backend.image_data_format() == 'channels_first':
+    #tf.compat.v1.logging.info("3")
     x = layers.Lambda(lambda x: backend.permute_dimensions(x, (0, 3, 1, 2)),
                       name='transpose')(img_input)
     bn_axis = 1
   else:  # channel_last
+    #tf.compat.v1.logging.info("3b")
     x = img_input
     bn_axis = 3
 
+  #tf.compat.v1.logging.info("4")
   x = tf.keras.layers.ZeroPadding2D(padding=(1, 1), name='conv1_pad')(x)
+  #tf.compat.v1.logging.info("5")
   x = tf.keras.layers.Conv2D(16, (3, 3),
                              strides=(1, 1),
                              padding='valid',
@@ -249,14 +267,23 @@ def resnet(num_blocks, classes=10, training=None):
                              bias_regularizer=
                              tf.keras.regularizers.l2(L2_WEIGHT_DECAY),
                              name='conv1')(x)
-  x = tf.keras.layers.BatchNormalization(axis=bn_axis, name='bn_conv1',
+  #tf.compat.v1.logging.info("5.1")
+  #x = tf.keras.layers.BatchNormalization(axis=bn_axis, name='bn_conv1',
+  #                                       momentum=BATCH_NORM_DECAY,
+  #                                       epsilon=BATCH_NORM_EPSILON)(
+  #                                           x, training=training)
+  y = tf.keras.layers.BatchNormalization(axis=bn_axis, name='bn_conv1',
                                          momentum=BATCH_NORM_DECAY,
-                                         epsilon=BATCH_NORM_EPSILON)(
-                                             x, training=training)
+                                         epsilon=BATCH_NORM_EPSILON)
+  tf.compat.v1.logging.info("5.11")
+  x = y(x, training=training)
+  tf.compat.v1.logging.info("5.2")
   x = tf.keras.layers.Activation('relu')(x)
+  #tf.compat.v1.logging.info("6")
 
   x = resnet_block(x, size=num_blocks, kernel_size=3, filters=[16, 16],
                    stage=2, conv_strides=(1, 1), training=training)
+  #tf.compat.v1.logging.info("7")
 
   x = resnet_block(x, size=num_blocks, kernel_size=3, filters=[32, 32],
                    stage=3, conv_strides=(2, 2), training=training)
@@ -275,7 +302,9 @@ def resnet(num_blocks, classes=10, training=None):
 
   inputs = img_input
   # Create model.
+  #tf.compat.v1.logging.info("8")
   model = tf.keras.models.Model(inputs, x, name='resnet56')
+  #tf.compat.v1.logging.info("9")
 
   return model
 

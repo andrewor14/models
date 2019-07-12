@@ -112,6 +112,30 @@ def run(flags_obj):
       autoscaling_agent.initialize()
       flags_obj.batch_size = autoscaling_agent.local_batch_size
       result = do_run(flags_obj, autoscaling_callback)
+      # HACK
+      from tensorflow.python.eager import context
+      tf.compat.v1.logging.info("Resetting context")
+      context.context().reset()
+      tf.compat.v1.logging.info("Context was reset")
+      #from tensorflow.python.distribute import distribute_lib, distribute_coordinator_context
+      from tensorflow.python.keras import backend
+      #from tensorflow.python.keras.engine import base_layer_utils
+      #distribute_lib._update_device.__dict__.clear()
+      #tf.compat.v1.logging.info("Cleared distribute_lib thread local")
+      #distribute_coordinator_context._worker_context.__dict__.clear()
+      #tf.compat.v1.logging.info("Cleared distribute_coordinator_context thread local")
+      backend._SESSION.__dict__.clear()
+      backend._DUMMY_EAGER_GRAPH.__dict__.clear()
+      backend._GRAPH_LEARNING_PHASES.clear()
+      backend._FREEZABLE_VARS.clear()
+      backend._GRAPH_VARIABLES.clear()
+      backend._GRAPH_TF_OPTIMIZERS.clear()
+      backend._GRAPH = None
+      backend._CURRENT_SCRATCH_GRAPH = None
+      backend._LOCAL_DEVICES = None
+      tf.compat.v1.logging.info("Cleared keras.backend stuff")
+      #base_layer_utils._call_context.__dict__.clear()
+      #tf.compat.v1.logging.info("Cleared base_layer_utils thread local")
     except Exception as e:
       tf.compat.v1.logging.error("Exception in resnet_main: %s (%s)" %\
         (e, e.__class__.__name__))
@@ -150,7 +174,30 @@ def do_run(flags_obj, autoscaling_callback):
       distribution_strategy=flags_obj.distribution_strategy,
       num_gpus=flags_obj.num_gpus)
 
+  tf.compat.v1.logging.info("Done creating strategy")
+
+  #cross_device_ops = strategy.extended._get_cross_device_ops()
+
+  #tf.compat.v1.logging.info("Got cross device ops = %s, class name is %s" %\
+  #  (cross_device_ops, cross_device_ops.__class__.__name__))
+
+  #collective_keys = cross_device_ops._collective_keys
+
+  #tf.compat.v1.logging.info("Got collective keys")
+
+  #tf.compat.v1.logging.info("collective_keys._group_key_table = %s" % collective_keys._group_key_table)
+  #tf.compat.v1.logging.info("collective_keys._instance_key_id_to_key_table = %s" % collective_keys._instance_key_id_to_key_table)
+
+  #collective_keys._group_key_table = {}
+  #collective_keys._instance_key_id_to_key_table = {}
+
+  #tf.compat.v1.logging.info("Just cleared them")
+  #tf.compat.v1.logging.info("collective_keys._group_key_table = %s" % collective_keys._group_key_table)
+  #tf.compat.v1.logging.info("collective_keys._instance_key_id_to_key_table = %s" % collective_keys._instance_key_id_to_key_table)
+
   strategy_scope = distribution_utils.get_strategy_scope(strategy)
+
+  tf.compat.v1.logging.info("Done creating strategy scope")
 
   if flags_obj.use_synthetic_data:
     distribution_utils.set_up_synthetic_data()
@@ -178,14 +225,26 @@ def do_run(flags_obj, autoscaling_callback):
       num_epochs=flags_obj.train_epochs,
       parse_record_fn=parse_record_keras)
 
+  tf.compat.v1.logging.info("About to go into strategy scope")
+
   with strategy_scope:
+    tf.compat.v1.logging.info("In strategy scope now")
     optimizer = keras_common.get_optimizer()
-    model = resnet_cifar_model.resnet56(classes=cifar_main.NUM_CLASSES)
+    tf.compat.v1.logging.info("Got the optimizer")
+    try:
+      model = resnet_cifar_model.resnet56(classes=cifar_main.NUM_CLASSES)
+    except Exception as e:
+      tf.compat.v1.logging.error("EXCEPTION WHILE BUILDING MODEL: %s (%s)" % (e, e.__class__.__name__))
+      import traceback
+      traceback.print_exc()
+      raise e
+    tf.compat.v1.logging.info("Made the model")
 
     model.compile(loss='categorical_crossentropy',
                   optimizer=optimizer,
                   run_eagerly=flags_obj.run_eagerly,
                   metrics=['categorical_accuracy'])
+    tf.compat.v1.logging.info("Compiled the model")
 
   callbacks = keras_common.get_callbacks(
       learning_rate_schedule, cifar_main.NUM_IMAGES['train'])
@@ -218,6 +277,7 @@ def do_run(flags_obj, autoscaling_callback):
     no_dist_strat_device = tf.device('/device:GPU:0')
     no_dist_strat_device.__enter__()
 
+  tf.compat.v1.logging.info("Fitting now")
   history = model.fit(train_input_dataset,
                       epochs=train_epochs,
                       steps_per_epoch=train_steps,
@@ -226,6 +286,7 @@ def do_run(flags_obj, autoscaling_callback):
                       validation_data=validation_data,
                       validation_freq=flags_obj.epochs_between_evals,
                       verbose=2)
+  tf.compat.v1.logging.info("Done fitting")
   eval_output = None
   if not flags_obj.skip_eval:
     eval_output = model.evaluate(eval_input_dataset,

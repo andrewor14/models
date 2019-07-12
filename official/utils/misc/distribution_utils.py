@@ -121,7 +121,8 @@ def get_distribution_strategy(distribution_strategy="default",
     return None
 
   if distribution_strategy == "parameter_server":
-    return tf.distribute.experimental.ParameterServerStrategy()
+    return tf.distribute.experimental.ParameterServerStrategy(
+      tf.distribute.cluster_resolver.TFConfigClusterResolver())
 
   if distribution_strategy == "multi_worker_mirrored" or num_workers > 1:
     return tf.distribute.experimental.MultiWorkerMirroredStrategy(
