@@ -7,8 +7,8 @@ import time
 import traceback
 
 import tensorflow as tf
-from tensorflow.python.distribute import distribute_coordinator
-from tensorflow.python.distribute import cross_device_utils
+from tensorflow.python.distribute import cross_device_utils, distribute_coordinator
+from tensorflow.python.eager import context
 
 from official.resnet.autoscaling_client import convert_port, AutoscalingClient
 from official.resnet.autoscaling_service import listen_for_autoscaling_requests
@@ -122,16 +122,17 @@ class AutoscalingAgent:
         self.pending_cluster_spec = None
     self.status = AutoscalingStatus.READY_TO_SYNC
     self.sync_cluster_spec()
-    # TODO: do this through set_server_def instead (currently hangs)
-    # from tensorflow.python.eager import context
-    # from tensorflow.python.training.server_lib import _make_server_def
-    # server_def = _make_server_def(
-    #   self.pending_cluster_spec, self.task_type, self.task_index, "grpc", None)
-    # context.context().set_server_def(server_def)
-    new_tf_config = {"cluster": self.cluster_spec,\
-      "task": {"type": self.task_type, "index": self.task_index}}
-    os.environ["TF_CONFIG"] = json.dumps(new_tf_config)
+    # Set TF_CONFIG based on the synced cluster spec
+    new_tf_config = json.dumps({"cluster": self.cluster_spec,\
+      "task": {"type": self.task_type, "index": self.task_index}})
     log_fn("Setting TF_CONFIG = %s" % new_tf_config)
+    os.environ["TF_CONFIG"] = new_tf_config
+
+  def on_restart(self):
+    """
+    Reset internal state in tensorflow on restart.
+    """
+    log_fn("Resetting internal tensorflow state")
     # Note: tensorflow maintains a thread local variable to keep track of the existing server
     # If such a server exists, then tensorflow will simply reuse it. Here we clear this variable
     # to avoid this behavior, because we *do* want it to start a new server with a different
@@ -141,6 +142,13 @@ class AutoscalingAgent:
     # If we don't clear this, then tensorflow will reuse the old op, which has a wrong number
     # of workers, and hang without any error messages.
     cross_device_utils._thread_local.__dict__.clear()
+    # Destroy the existing graph used internally by keras, otherwise adding workers hangs
+    # when calling the batch normalization layer. This is caused by a mismatch in the instance
+    # keys used in collective ops between old and new workers in the cluster. Resetting the
+    # global variables used by keras solves this problem.
+    tf.keras.backend.clear_session()
+    # Finally, reset all other internal state stored in the context
+    context.context().reset()
 
   def sync_cluster_spec(self):
     """

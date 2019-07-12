@@ -112,6 +112,7 @@ def run(flags_obj):
       autoscaling_agent.initialize()
       flags_obj.batch_size = autoscaling_agent.local_batch_size
       result = do_run(flags_obj, autoscaling_callback)
+      autoscaling_agent.on_restart()
     except Exception as e:
       tf.compat.v1.logging.error("Exception in resnet_main: %s (%s)" %\
         (e, e.__class__.__name__))
