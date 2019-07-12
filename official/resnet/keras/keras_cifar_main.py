@@ -112,6 +112,22 @@ def run(flags_obj):
       autoscaling_agent.initialize()
       flags_obj.batch_size = autoscaling_agent.local_batch_size
       result = do_run(flags_obj, autoscaling_callback)
+      # HACK
+      from tensorflow.python.eager import context
+      tf.compat.v1.logging.info("Resetting context")
+      context.context().reset()
+      tf.compat.v1.logging.info("Context was reset")
+      from tensorflow.python.keras import backend
+      backend._SESSION.__dict__.clear()
+      backend._DUMMY_EAGER_GRAPH.__dict__.clear()
+      backend._GRAPH_LEARNING_PHASES.clear()
+      backend._FREEZABLE_VARS.clear()
+      backend._GRAPH_VARIABLES.clear()
+      backend._GRAPH_TF_OPTIMIZERS.clear()
+      backend._GRAPH = None
+      backend._CURRENT_SCRATCH_GRAPH = None
+      backend._LOCAL_DEVICES = None
+      tf.compat.v1.logging.info("Cleared keras.backend stuff")
     except Exception as e:
       tf.compat.v1.logging.error("Exception in resnet_main: %s (%s)" %\
         (e, e.__class__.__name__))

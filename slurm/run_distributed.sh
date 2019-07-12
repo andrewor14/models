@@ -23,6 +23,7 @@ export NUM_GPUS_PER_WORKER="0"
 export BATCH_SIZE="32"
 if [[ "$USE_KERAS" == "true" ]]; then
   export SKIP_EVAL="true"
+  export ENABLE_EAGER="true"
 else
   export RESNET_SIZE="56"
   export LOG_EVERY_N_STEPS="1"
