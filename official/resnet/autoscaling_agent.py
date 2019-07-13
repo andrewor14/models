@@ -30,7 +30,6 @@ class AutoscalingAgent:
 
   def __init__(self):
     self.saved_variables = None
-    self.global_batch_size = None
 
     # Status to synchronize cluster membership changes
     # Accesses must be guarded by `self._status_lock`
@@ -82,32 +81,6 @@ class AutoscalingAgent:
       if not isinstance(s, AutoscalingStatus):
         raise ValueError("'%s' is not an AutoscalingStatus" % s)
       self._status = s
-
-  def set_global_batch_size(self, initial_local_batch_size):
-    """
-    Set the global batch size, which is fixed throughout training.
-
-    We first try to get the global batch size from the master autoscaling server.
-    If the master doesn't have it yet, e.g. because we're bootstrapping the initial set
-    of workers, then we simply set it ourselves based on our cluster spec.
-
-    This must be called before the first step.
-    """
-    if self.global_batch_size is None:
-      self.global_batch_size = self.client.master_server.get_global_batch_size()
-    if self.global_batch_size is None:
-      num_workers = len(self.cluster_spec["worker"])
-      self.global_batch_size = initial_local_batch_size * num_workers
-
-  @property
-  def local_batch_size(self):
-    """
-    Return the local (per worker) batch size.
-    This changes every time the number of workers changes.
-    """
-    if self.global_batch_size is None:
-      raise ValueError("Global batch size must be set before accessing local batch size")
-    return int(self.global_batch_size * 1.0 / len(self.cluster_spec["worker"]))
 
   def initialize(self):
     """

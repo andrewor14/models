@@ -46,9 +46,6 @@ class AutoscalingService:
   def get_cluster_spec(self):
     return copy.deepcopy(self.agent.cluster_spec)
 
-  def get_global_batch_size(self):
-    return self.agent.global_batch_size
-
   def join_cluster(self, host_port):
     '''
     Handle a join request, only called on the master server.

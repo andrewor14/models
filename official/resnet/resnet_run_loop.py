@@ -539,13 +539,11 @@ def resnet_main(flags_obj, model_function, input_function, dataset_name, shape=N
 
   # Keep track of cluster membership changes through an autoscaling agent
   autoscaling_agent = AutoscalingAgent()
-  autoscaling_agent.set_global_batch_size(flags_obj.batch_size)
   autoscaling_hook = AutoscalingHook(autoscaling_agent)
 
   while autoscaling_agent.status != AutoscalingStatus.TERMINATED:
     try:
       autoscaling_agent.initialize()
-      flags_obj.batch_size = autoscaling_agent.local_batch_size
       result = do_resnet_main(flags_obj, model_function,\
         input_function, dataset_name, shape, autoscaling_hook)
     except Exception as e:

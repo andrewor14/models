@@ -104,13 +104,11 @@ def run(flags_obj):
 
   # Keep track of cluster membership changes through an autoscaling hook
   autoscaling_agent = AutoscalingAgent()
-  autoscaling_agent.set_global_batch_size(flags_obj.batch_size)
   autoscaling_callback = AutoscalingCallback(autoscaling_agent)
 
   while autoscaling_agent.status != AutoscalingStatus.TERMINATED:
     try:
       autoscaling_agent.initialize()
-      flags_obj.batch_size = autoscaling_agent.local_batch_size
       result = do_run(flags_obj, autoscaling_callback)
       autoscaling_agent.on_restart()
       autoscaling_callback.reset()
@@ -134,8 +132,6 @@ def do_run(flags_obj, autoscaling_callback):
   Returns:
     Dictionary of training and eval stats.
   """
-  tf.compat.v1.logging.info("batch_size = %s" % flags_obj.batch_size)
-
   keras_utils.set_session_config(enable_eager=flags_obj.enable_eager,
                                  enable_xla=flags_obj.enable_xla)
 
