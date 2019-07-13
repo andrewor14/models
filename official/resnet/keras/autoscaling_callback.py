@@ -13,16 +13,22 @@ class AutoscalingCallback(keras.callbacks.Callback):
   """
   def __init__(self, agent):
     self.agent = agent
+    self.model = None
     # Run this callback on all the workers
     self._chief_worker_only = False
+
+  def set_model(self, model):
+    self.model = model
+
+  def reset(self):
+    self.model = None
 
   def do_on_batch_begin(self, batch, logs):
     """
     Restore saved variables from memory, if any, before running the first step.
     """
     if self.agent.saved_variables is not None:
-      # TODO: restore variables
-      pass
+      self.agent.restore_variables(self.get_trainable_variables())
 
   def do_on_batch_end(self, batch, logs):
     """
@@ -33,8 +39,15 @@ class AutoscalingCallback(keras.callbacks.Callback):
       self.model.stop_training = True
       if self.agent.status != AutoscalingStatus.TERMINATED:
         # If we are still training, save our variables for the next restart
-        # TODO: save variables
-        pass
+        self.agent.save_variables(self.get_trainable_variables())
+
+  def get_trainable_variables(self):
+    """
+    Return a list of trainable variables.
+    """
+    if self.model is None:
+      raise ValueError("Model must be set before the first step.")
+    return self.model.trainable_variables
 
   # ================== HELPER METHODS ==================
 

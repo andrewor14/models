@@ -113,6 +113,7 @@ def run(flags_obj):
       flags_obj.batch_size = autoscaling_agent.local_batch_size
       result = do_run(flags_obj, autoscaling_callback)
       autoscaling_agent.on_restart()
+      autoscaling_callback.reset()
     except Exception as e:
       tf.compat.v1.logging.error("Exception in resnet_main: %s (%s)" %\
         (e, e.__class__.__name__))
@@ -194,6 +195,7 @@ def do_run(flags_obj, autoscaling_callback):
       learning_rate_schedule, cifar_main.NUM_IMAGES['train'])
   if autoscaling_callback is not None:
     tf.compat.v1.logging.info("Adding autoscaling callback")
+    autoscaling_callback.set_model(model)
     callbacks.append(autoscaling_callback)
 
   train_steps = cifar_main.NUM_IMAGES['train'] // flags_obj.batch_size

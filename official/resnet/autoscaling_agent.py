@@ -229,47 +229,55 @@ class AutoscalingAgent:
       log_fn("... barrier not reached: %s" % format_statuses(statuses))
       time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
 
-  def get_trainable_variables(self):
+  def save_variables(self, variables, session=None):
     """
-    Return a list of trainable variables.
-    """
-    return tf.global_variables()
+    Save the values of the given variables to memory.
 
-  def save_variables(self, sess):
+    If `session` is provided, use it to compute the value of the variables.
+    Otherwise, we assume this is running in eager mode, in which case we can
+    just directly access the values of the variables.
     """
-    Save the values of savable variables to memory.
-    """
-    trainable_variables = self.get_trainable_variables()
     save_start = time.time()
-    values = sess.run(trainable_variables)
+    if session is not None:
+      session.graph._finalized = False
+      values = session.run(variables)
+    else:
+      # We're running in eager mode
+      values = [v.value() for v in variables]
     save_end = time.time()
     self.saved_variables = {}
-    for i, v in enumerate(trainable_variables):
+    for i, v in enumerate(variables):
       self.saved_variables[v.name] = values[i]
     log_fn("Saved %s variables in memory, took %s seconds" %\
       (len(self.saved_variables), save_end - save_start))
 
-  def restore_variables(self, sess):
+  def restore_variables(self, variables, session=None):
     """
     Restore the values of saved variables from memory, if any.
     This assumes `saved_variables` is not None.
+
+    If `session` is provided, use it to restore the values of the variables.
+    Otherwise, we assume this is running in eager mode, in which case we can
+    just directly update the variables.
     """
     try:
-      trainable_variables = self.get_trainable_variables()
-      if len(self.saved_variables) != len(trainable_variables):
-        raise ValueError("Number of saved variables (%s) differ from number of trainable variables (%s)" %\
-          (len(self.saved_variables), len(trainable_variables)))
-      log_fn("Restoring %s variables from memory" % len(trainable_variables))
+      if len(self.saved_variables) != len(variables):
+        raise ValueError("Number of saved variables (%s) != number of variables provided (%s)" %\
+          (len(self.saved_variables), len(variables)))
+      log_fn("Restoring %s variables from memory" % len(variables))
       restore_ops = []
       restore_start = time.time()
-      for var in trainable_variables:
+      for var in variables:
         val = self.saved_variables[var.name]
         update_fn = lambda var, val: var.assign(val)
-        restore_ops.append(tf.distribute.get_strategy().extended.update(var, update_fn, args=(val,)))
-      sess.run(restore_ops)
+        restore_ops.append(
+          tf.distribute.get_strategy().extended.update(var, update_fn, args=(val,)))
+      if session is not None:
+        session.graph._finalized = False
+        session.run(restore_ops)
       restore_end = time.time()
       log_fn("Restored %s variables from memory, took %s seconds" %\
-        (len(trainable_variables), restore_end - restore_start))
+        (len(variables), restore_end - restore_start))
     finally:
       self.saved_variables = None
 

@@ -18,8 +18,7 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
     Restore saved variables from memory, if any, before running the first step.
     """
     if self.agent.saved_variables is not None:
-      run_context.session.graph._finalized = False
-      self.agent.restore_variables(run_context.session)
+      self.agent.restore_variables(self.get_trainable_variables(), run_context.session)
 
   def do_after_run(self, run_context, run_values):
     """
@@ -30,10 +29,15 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
       run_context.request_stop()
       if self.agent.status != AutoscalingStatus.TERMINATED:
         # If we are still training, save our variables for the next restart
-        run_context.session.graph._finalized = False
-        self.agent.save_variables(run_context.session)
+        self.agent.save_variables(self.get_trainable_variables(), run_context.session)
 
-  # ================== HELPER METHODS ==================
+  def get_trainable_variables(self):
+    """
+    Return a list of trainable variables.
+    """
+    return tf.global_variables()
+
+# ================== HELPER METHODS ==================
 
   def before_run(self, run_context):
     log_exceptions(lambda: self.do_before_run(run_context))
