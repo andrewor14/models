@@ -133,6 +133,8 @@ def do_run(flags_obj, autoscaling_callback):
   Returns:
     Dictionary of training and eval stats.
   """
+  tf.compat.v1.logging.info("batch_size = %s" % flags_obj.batch_size)
+
   keras_utils.set_session_config(enable_eager=flags_obj.enable_eager,
                                  enable_xla=flags_obj.enable_xla)
 
