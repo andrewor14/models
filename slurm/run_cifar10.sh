@@ -36,6 +36,7 @@ if [[ "$USE_KERAS" == "true" ]]; then
   RUN_SCRIPT="$MODELS_DIR/official/resnet/keras/keras_cifar_main.py"
   SKIP_EVAL="${SKIP_EVAL:=true}"
   ENABLE_EAGER="${ENABLE_EAGER:=true}"
+  LOG_STEPS="${LOG_STEPS:=100}"
 else
   RUN_SCRIPT="$MODELS_DIR/official/resnet/cifar10_main.py"
   RESNET_SIZE="${RESNET_SIZE:=56}"
@@ -84,7 +85,8 @@ COMMON_FLAGS=""\
 if [[ "$USE_KERAS" == "true" ]]; then
   FLAGS="$COMMON_FLAGS"\
 " --skip_eval=$SKIP_EVAL"\
-" --enable_eager=$ENABLE_EAGER"
+" --enable_eager=$ENABLE_EAGER"\
+" --log_steps=$LOG_STEPS"
 else
   FLAGS="$COMMON_FLAGS"\
 " --log_every_n_steps=$LOG_EVERY_N_STEPS"\

@@ -24,6 +24,7 @@ export BATCH_SIZE="32"
 if [[ "$USE_KERAS" == "true" ]]; then
   export SKIP_EVAL="true"
   export ENABLE_EAGER="true"
+  export LOG_STEPS="1"
 else
   export RESNET_SIZE="56"
   export LOG_EVERY_N_STEPS="1"

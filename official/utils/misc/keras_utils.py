@@ -77,11 +77,15 @@ class TimeHistory(tf.keras.callbacks.Callback):
       if batch != 0:
         self.record_batch = True
         self.timestamp_log.append(BatchTimestamp(batch, timestamp))
-        tf.compat.v1.logging.info(
-            "BenchmarkMetric: {'num_batches':%d, 'time_taken': %f,"
-            "'examples_per_second': %f}" %
-            (batch, elapsed_time, examples_per_second))
-
+        log_str = "step = %d, time_taken = %f, examples_per_second = %f" %\
+          (batch, elapsed_time, examples_per_second)
+        if logs is not None:
+          for metric in self.params['metrics']:
+            if metric in logs:
+              value = logs[metric]
+              metric = metric.replace("categorical_", "")
+              log_str += ", %s = %f" % (metric, value)
+        tf.compat.v1.logging.info(log_str)
 
 def get_profiler_callback(model_dir, profile_steps, enable_tensorboard):
   """Validate profile_steps flag value and return profiler callback."""
