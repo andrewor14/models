@@ -30,6 +30,10 @@ class AutoscalingAgent:
 
   def __init__(self):
     self.saved_variables = None
+    # A lambda that returns a 2-tuple of
+    #   (1) Number of batches processed in this epoch so far, and
+    #   (2) Number of epochs processed so far.
+    self.get_progress_method = None
 
     # Status to synchronize cluster membership changes
     # Accesses must be guarded by `self._status_lock`

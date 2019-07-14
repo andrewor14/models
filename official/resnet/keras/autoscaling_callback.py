@@ -18,12 +18,42 @@ class AutoscalingCallback(keras.callbacks.Callback):
     self.num_epochs_processed = 0
     # Run this callback on all the workers
     self._chief_worker_only = False
+    # Expose our progress method to the autoscaling service through our agent
+    self.agent.get_progress_method = self.get_progress
+    self.bootstrap_progress()
 
   def set_model(self, model):
     self.model = model
 
   def reset(self):
     self.model = None
+
+  def get_progress(self):
+    """
+    Return a 2-tuple of
+      (1) Number of batches processed in this epoch so far, and
+      (2) Number of epochs processed so far.
+    """
+    return (self.num_batches_processed_this_epoch, self.num_epochs_processed)
+
+  def bootstrap_progress(self):
+    """
+    Bootstrap this worker so it can start on the same step as everyone else.
+
+    We do this by fetching the progress from the master autoscaling server.
+    Note: we must do this after the master is READY_TO_SYNC, otherwise the
+    progress may be wrong if the master is still running.
+    """
+    self.agent.status_barrier(AutoscalingStatus.READY_TO_SYNC)
+    num_batches_processed_this_epoch, num_epochs_processed =\
+      self.agent.client.master_server.get_progress()
+    if num_batches_processed_this_epoch is not None and num_epochs_processed is not None:
+      log_fn("Fetched progress from master server = (%s steps, %s epochs)" %\
+        (num_batches_processed_this_epoch, num_epochs_processed))
+      self.num_batches_processed_this_epoch = num_batches_processed_this_epoch
+      self.num_epochs_processed = num_epochs_processed
+    else:
+      log_fn("Warning: unable to fetch progress from master server")
 
   def do_on_batch_begin(self, batch, logs):
     """

@@ -46,6 +46,16 @@ class AutoscalingService:
   def get_cluster_spec(self):
     return copy.deepcopy(self.agent.cluster_spec)
 
+  def get_progress(self):
+    '''
+    Return a 2-tuple of
+      (1) Number of batches processed in this epoch so far, and
+      (2) Number of epochs processed so far.
+    '''
+    if self.agent.get_progress_method is not None:
+      return self.agent.get_progress_method()
+    return (None, None)
+
   def join_cluster(self, host_port):
     '''
     Handle a join request, only called on the master server.
