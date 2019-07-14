@@ -14,6 +14,8 @@ class AutoscalingCallback(keras.callbacks.Callback):
   def __init__(self, agent):
     self.agent = agent
     self.model = None
+    self.num_batches_processed_this_epoch = 0
+    self.num_epochs_processed = 0
     # Run this callback on all the workers
     self._chief_worker_only = False
 
@@ -34,12 +36,22 @@ class AutoscalingCallback(keras.callbacks.Callback):
     """
     Listen for changes in cluster membership and react by restarting the server.
     """
+    self.num_batches_processed_this_epoch += 1
     restarting = self.agent.step_end()
     if restarting:
       self.model.stop_training = True
       if self.agent.status != AutoscalingStatus.TERMINATED:
         # If we are still training, save our variables for the next restart
         self.agent.save_variables(self.get_trainable_variables())
+
+  def do_on_epoch_end(self, epoch, logs):
+    """
+    Record the number of epochs processed so far.
+    """
+    # This is still called when we're restarting, but that shouldn't count as an epoch end
+    if self.agent.status == AutoscalingStatus.RUNNING:
+      self.num_epochs_processed += 1
+      self.num_batches_processed_this_epoch = 0
 
   def get_trainable_variables(self):
     """
@@ -57,6 +69,8 @@ class AutoscalingCallback(keras.callbacks.Callback):
   def on_batch_end(self, batch, logs=None):
     log_exceptions(lambda: self.do_on_batch_end(batch, logs))
 
+  def on_epoch_end(self, epoch, logs=None):
+    log_exceptions(lambda: self.do_on_epoch_end(epoch, logs))
 
 def log_fn(msg):
   msg = "[Autoscaling callback] %s" % msg

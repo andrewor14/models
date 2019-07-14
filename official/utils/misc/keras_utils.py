@@ -40,7 +40,7 @@ class BatchTimestamp(object):
 class TimeHistory(tf.keras.callbacks.Callback):
   """Callback for Keras models."""
 
-  def __init__(self, batch_size, log_steps):
+  def __init__(self, batch_size, log_steps, starting_batch=0):
     """Callback for logging performance (# examples/second).
 
     Args:
@@ -51,6 +51,7 @@ class TimeHistory(tf.keras.callbacks.Callback):
     self.batch_size = batch_size
     super(TimeHistory, self).__init__()
     self.log_steps = log_steps
+    self.starting_batch = starting_batch
 
     # Logs start of step 0 then end of each step based on log_steps interval.
     self.timestamp_log = []
@@ -77,15 +78,16 @@ class TimeHistory(tf.keras.callbacks.Callback):
       if batch != 0:
         self.record_batch = True
         self.timestamp_log.append(BatchTimestamp(batch, timestamp))
-        log_str = "step = %d, time_taken = %f, examples_per_second = %f" %\
-          (batch, elapsed_time, examples_per_second)
-        if logs is not None:
-          for metric in self.params['metrics']:
-            if metric in logs:
-              value = logs[metric]
-              metric = metric.replace("categorical_", "")
-              log_str += ", %s = %f" % (metric, value)
-        tf.compat.v1.logging.info(log_str)
+      # Log stats
+      log_str = "step = %d, time_taken = %f, examples_per_second = %f" %\
+        (batch + self.starting_batch, elapsed_time, examples_per_second)
+      if logs is not None:
+        for metric in self.params['metrics']:
+          if metric in logs:
+            value = logs[metric]
+            metric = metric.replace("categorical_", "")
+            log_str += ", %s = %f" % (metric, value)
+      tf.compat.v1.logging.info(log_str)
 
 def get_profiler_callback(model_dir, profile_steps, enable_tensorboard):
   """Validate profile_steps flag value and return profiler callback."""

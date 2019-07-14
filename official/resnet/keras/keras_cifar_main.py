@@ -181,18 +181,17 @@ def do_run(flags_obj, autoscaling_callback):
   with strategy_scope:
     optimizer = keras_common.get_optimizer()
     model = resnet_cifar_model.resnet56(classes=cifar_main.NUM_CLASSES)
-
     model.compile(loss='categorical_crossentropy',
                   optimizer=optimizer,
                   run_eagerly=flags_obj.run_eagerly,
                   metrics=['categorical_accuracy'])
+    autoscaling_callback.set_model(model)
 
   callbacks = keras_common.get_callbacks(
-      learning_rate_schedule, cifar_main.NUM_IMAGES['train'])
-  if autoscaling_callback is not None:
-    tf.compat.v1.logging.info("Adding autoscaling callback")
-    autoscaling_callback.set_model(model)
-    callbacks.append(autoscaling_callback)
+      learning_rate_schedule,
+      cifar_main.NUM_IMAGES['train'],
+      autoscaling_callback.num_batches_processed_this_epoch)
+  callbacks.append(autoscaling_callback)
 
   train_steps = cifar_main.NUM_IMAGES['train'] // flags_obj.batch_size
   train_epochs = flags_obj.train_epochs
@@ -200,6 +199,22 @@ def do_run(flags_obj, autoscaling_callback):
   if flags_obj.train_steps:
     train_steps = min(flags_obj.train_steps, train_steps)
     train_epochs = 1
+
+  original_train_steps = train_steps
+  original_train_epochs = train_epochs
+
+  # If we restarted in the middle of an epoch, finish the rest of the batches in the
+  # epoch first, then restart again with the original number of batches in an epoch
+  if autoscaling_callback.num_batches_processed_this_epoch > 0:
+    train_steps -= autoscaling_callback.num_batches_processed_this_epoch
+    tf.compat.v1.logging.info("There are %s/%s batches left in this epoch" %\
+      (train_steps, original_train_steps))
+    train_epochs = 1
+  else:
+    # Otherwise, just finish the remaining epochs
+    train_epochs -= autoscaling_callback.num_epochs_processed
+    tf.compat.v1.logging.info("There are %s/%s epochs left" %\
+      (train_epochs, original_train_epochs))
 
   num_eval_steps = (cifar_main.NUM_IMAGES['validation'] //
                     flags_obj.batch_size)
@@ -227,6 +242,11 @@ def do_run(flags_obj, autoscaling_callback):
                       validation_data=validation_data,
                       validation_freq=flags_obj.epochs_between_evals,
                       verbose=2)
+
+  # If we finished all the epochs already, then signal to above that we're terminating
+  if autoscaling_callback.num_epochs_processed == original_train_epochs:
+    autoscaling_callback.agent.status = AutoscalingStatus.TERMINATED
+
   eval_output = None
   if not flags_obj.skip_eval:
     eval_output = model.evaluate(eval_input_dataset,
