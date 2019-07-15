@@ -89,7 +89,7 @@ if [[ "$ENVIRONMENT" = "tigergpu" ]]; then
 fi
 
 # Set run command, either 'srun' or 'mpirun'
-if [[ "$SERVER_PROTOCOL" == *"mpi"* ]]; then
+if [[ "$USE_HOROVOD" == "true" ]]; then
   RUN_COMMAND="mpirun --output-filename $LOG_DIR/$JOB_NAME $RUN_PATH $SCRIPT_NAME"
 else
   RUN_COMMAND="srun --output=$LOG_DIR/$JOB_NAME-%n.out $RUN_PATH $SCRIPT_NAME"

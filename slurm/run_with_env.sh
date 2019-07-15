@@ -15,11 +15,12 @@ source common_configs.sh
 export PYTHONPATH="$PYTHONPATH:$MODELS_DIR"
 
 if [[ "$ENVIRONMENT" = "tigergpu" ]]; then
+  MY_MPI_HOME="$MPI_HOME"
   module load anaconda3/5.2.0
   module load cudnn/cuda-9.2/7.3.1
   module load openmpi/gcc/3.0.0/64
   # Use our custom Open MPI library, which just points to the one we just loaded
-  export MPI_HOME="/home/andrewor/lib/openmpi"
+  export MPI_HOME="$MY_MPI_HOME"
 fi
 
 # Make sure we're running our custom version of tensorflow

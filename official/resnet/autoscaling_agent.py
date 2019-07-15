@@ -89,7 +89,10 @@ class AutoscalingAgent:
   def initialize(self):
     """
     Ensure everyone sees the same cluster spec, then set TF_CONFIG accordingly.
+
     This should be called on start up and after every time we restart.
+    Note: In cases where TF_CONFIG was not set to begin with (e.g. when using horovod),
+    we will leave TF_CONFIG unset to preserve the semantics intended by the caller.
     """
     log_fn("Initializing")
     # Check if cluster membership changed. If so, update cluster spec accordingly.
@@ -99,11 +102,12 @@ class AutoscalingAgent:
         self.pending_cluster_spec = None
     self.status = AutoscalingStatus.READY_TO_SYNC
     self.sync_cluster_spec()
-    # Set TF_CONFIG based on the synced cluster spec
-    new_tf_config = json.dumps({"cluster": self.cluster_spec,\
-      "task": {"type": self.task_type, "index": self.task_index}})
-    log_fn("Setting TF_CONFIG = %s" % new_tf_config)
-    os.environ["TF_CONFIG"] = new_tf_config
+    # Overwrite existing TF_CONFIG using the synced cluster spec
+    if "TF_CONFIG" in os.environ:
+      new_tf_config = json.dumps({"cluster": self.cluster_spec,\
+        "task": {"type": self.task_type, "index": self.task_index}})
+      log_fn("Setting TF_CONFIG = %s" % new_tf_config)
+      os.environ["TF_CONFIG"] = new_tf_config
 
   def on_restart(self):
     """

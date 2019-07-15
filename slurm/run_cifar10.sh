@@ -36,11 +36,18 @@ if [[ "$USE_KERAS" == "true" ]]; then
   RUN_SCRIPT="$MODELS_DIR/official/resnet/keras/keras_cifar_main.py"
   SKIP_EVAL="${SKIP_EVAL:=true}"
   ENABLE_EAGER="${ENABLE_EAGER:=true}"
+  USE_HOROVOD="${USE_HOROVOD:=false}"
   LOG_STEPS="${LOG_STEPS:=100}"
 else
   RUN_SCRIPT="$MODELS_DIR/official/resnet/cifar10_main.py"
   RESNET_SIZE="${RESNET_SIZE:=56}"
   LOG_EVERY_N_STEPS="${LOG_EVERY_N_STEPS:=100}"
+fi
+
+# If we're running horovod, tell tensorflow we're running in a single machine and instead
+# let horovod take care of the synchronization
+if [[ "$USE_HOROVOD" == "true" ]]; then
+  DISTRIBUTION_STRATEGY="mirrored"
 fi
 
 # Only allow positive number of parameter servers if we're running in parameter_server mode
@@ -86,6 +93,7 @@ if [[ "$USE_KERAS" == "true" ]]; then
   FLAGS="$COMMON_FLAGS"\
 " --skip_eval=$SKIP_EVAL"\
 " --enable_eager=$ENABLE_EAGER"\
+" --use_horovod=$USE_HOROVOD"\
 " --log_steps=$LOG_STEPS"
 else
   FLAGS="$COMMON_FLAGS"\

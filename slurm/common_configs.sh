@@ -26,6 +26,7 @@ if [[ "$ENVIRONMENT" = "tigergpu" ]]; then
   export DEFAULT_NUM_GPUS_PER_NODE="4"
   export DEFAULT_NUM_CPUS_PER_NODE="28"
   export DEFAULT_MEMORY_PER_NODE="64G"
+  export MPI_HOME="/home/andrewor/lib/openmpi"
 elif [[ "$ENVIRONMENT" = "visiongpu" ]]; then
   export LOG_DIR="/home/andrewor/workspace/logs"
   export MODELS_DIR="/home/andrewor/workspace/models"
@@ -55,6 +56,7 @@ elif [[ "$ENVIRONMENT" == "ns" ]]; then
   export DEFAULT_MEMORY_PER_NODE="60G"
   # No GPUs on this cluster
   export BYPASS_GPU_TEST="true"
+  export MPI_HOME="/home/andrewor/lib/openmpi"
 elif [[ "$ENVIRONMENT" = "snsgpu" ]]; then
   export LOG_DIR="/home/andrew/Documents/dev/logs"
   export MODELS_DIR="/home/andrew/Documents/dev/models"

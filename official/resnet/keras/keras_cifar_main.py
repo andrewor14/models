@@ -106,6 +106,21 @@ def run(flags_obj):
   autoscaling_agent = AutoscalingAgent()
   autoscaling_callback = AutoscalingCallback(autoscaling_agent)
 
+  if flags_obj.use_horovod:
+    # Note: we force the user to enable eager mode when using horovod to simplify things.
+    # For example, in eager mode, there are no global variables so we don't need to broadcast
+    # them through horovod before training.
+    if not flags_obj.enable_eager:
+      raise ValueError("Eager mode must be enabled when using horovod")
+    tf.compat.v1.logging.info("Using horovod as the underlying synchronization mechanism.")
+    import horovod.tensorflow.keras as hvd
+    hvd.init()
+    # When running with horovod, we tell tensorflow that it's running in single worker mode
+    # and let horovod take care of the synchronization instead. More specifically, we use
+    # TF_CONFIG only in the beginning to set up the AutoscalingAgents so they can talk to
+    # each other, but delete it before we actually start training.
+    del os.environ["TF_CONFIG"]
+
   while autoscaling_agent.status != AutoscalingStatus.TERMINATED:
     try:
       autoscaling_agent.initialize()
@@ -132,8 +147,15 @@ def do_run(flags_obj, autoscaling_callback):
   Returns:
     Dictionary of training and eval stats.
   """
+  if flags_obj.use_horovod:
+    import horovod.tensorflow.keras as hvd
+    horovod_rank = hvd.local_rank()
+  else:
+    horovod_rank = None
+
   keras_utils.set_session_config(enable_eager=flags_obj.enable_eager,
-                                 enable_xla=flags_obj.enable_xla)
+                                 enable_xla=flags_obj.enable_xla,
+                                 horovod_rank=horovod_rank)
 
   dtype = flags_core.get_tf_dtype(flags_obj)
   if dtype == 'fp16':
@@ -180,6 +202,9 @@ def do_run(flags_obj, autoscaling_callback):
 
   with strategy_scope:
     optimizer = keras_common.get_optimizer()
+    if flags_obj.use_horovod:
+      import horovod.tensorflow.keras as hvd
+      optimizer = hvd.DistributedOptimizer(optimizer)
     model = resnet_cifar_model.resnet56(classes=cifar_main.NUM_CLASSES)
     model.compile(loss='categorical_crossentropy',
                   optimizer=optimizer,

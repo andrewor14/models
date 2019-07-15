@@ -323,6 +323,10 @@ def define_keras_flags(dynamic_loss_scale=True):
            'convolutions and batch normalizations, and this flag allows to '
            'disable it.'
   )
+  flags.DEFINE_boolean(
+      name='use_horovod',
+      default=False,
+      help='Whether to use horovod as the underlying communication mechanism.')
 
 def get_synth_input_fn(height, width, num_channels, num_classes,
                        dtype=tf.float32, drop_remainder=True):
