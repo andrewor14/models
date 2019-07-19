@@ -2,6 +2,7 @@
 
 import copy
 import json
+import os
 import time
 import threading
 import xmlrpc.server
@@ -45,6 +46,13 @@ class AutoscalingService:
 
   def get_cluster_spec(self):
     return copy.deepcopy(self.agent.cluster_spec)
+
+  def get_mpi_variables(self):
+    mpi_variables = {}
+    for k, v in os.environ.items():
+      if "MPI" in k:
+        mpi_variables[k] = v
+    return mpi_variables
 
   def get_progress(self):
     '''

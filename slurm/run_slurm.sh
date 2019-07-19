@@ -75,8 +75,7 @@ elif [[ "$SCRIPT_NAME" == "run_multiplex.sh" ]]; then
   NUM_NODES=1
   NUM_PARAMETER_SERVERS="${NUM_PARAMETER_SERVERS:=$DEFAULT_NUM_PARAMETER_SERVERS}"
 else
-  echo "ERROR: Unknown script $SCRIPT_NAME"
-  exit 1
+  echo "Warning: Unknown script $SCRIPT_NAME"
 fi
 
 # Export for downstream scripts
@@ -90,7 +89,14 @@ fi
 
 # Set run command, either 'srun' or 'mpirun'
 if [[ "$USE_HOROVOD" == "true" ]]; then
-  RUN_COMMAND="mpirun --output-filename $LOG_DIR/$JOB_NAME $RUN_PATH $SCRIPT_NAME"
+  RUN_COMMAND="mpirun --output-filename $LOG_DIR/$JOB_NAME "
+  if [[ -n "$OMPI_SERVER" ]]; then
+    RUN_COMMAND="$RUN_COMMAND --ompi-server \"$OMPI_SERVER\" "
+  fi
+  if [[ -n "$REPORT_URI" ]]; then
+    RUN_COMMAND="$RUN_COMMAND --report-uri + "
+  fi
+  RUN_COMMAND="$RUN_COMMAND $RUN_PATH $SCRIPT_NAME"
 else
   RUN_COMMAND="srun --output=$LOG_DIR/$JOB_NAME-%n.out $RUN_PATH $SCRIPT_NAME"
 fi

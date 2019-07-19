@@ -1,0 +1,46 @@
+# server.py
+
+"""
+Server side of the MPI client/server programming model.
+
+Run this with 1 processes like:
+$ mpiexec -n 1 python server.py
+"""
+
+import time
+import numpy as np
+from mpi4py import MPI
+
+
+comm = MPI.COMM_WORLD
+if comm.Get_rank() == 0:
+  service_name = 'compute'
+  # open a port
+  info = MPI.Info.Create()
+  info.Set("ip_port", "8222")
+  port_name = MPI.Open_port()
+  print("PORT NAME = %s" % port_name)
+  #info = MPI.Info.Create()
+  #info.Set("ompi_global_scope", "true")
+  ## bind the opened port to a service_name,
+  ## client can connect to the port by looking-up this service_name
+  #MPI.Publish_name(service_name, port_name, info=info)
+  # wait for client to connect
+  inter_comm = MPI.COMM_SELF.Accept(port_name)
+
+  # receive message from client
+  #recv_obj = inter_comm.recv(source=0, tag=0)
+  #print('Server receives %s from client.' % recv_obj)
+  #send_obj = eval(recv_obj)
+  ## reply the result to the client
+  #print('Server sends %s to client.' % send_obj)
+  #inter_comm.send(send_obj, dest=0, tag=1)
+
+  # unpublish the service_name, close the port and disconnect
+  #MPI.Unpublish_name(service_name, port_name)
+  MPI.Close_port(port_name)
+  inter_comm.Disconnect()
+
+print("all done")
+time.sleep(600)
+

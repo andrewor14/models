@@ -92,8 +92,16 @@ def parse_record_keras(raw_record, is_training, dtype):
   label = tf.compat.v1.sparse_to_dense(label, (cifar_main.NUM_CLASSES,), 1)
   return image, label
 
-
 def run(flags_obj):
+  from official.resnet.test_mpi import test_mpi
+  import traceback
+  try:
+    test_mpi.main()
+  except Exception as e:
+    tf.compat.v1.logging.info("%s: %s\n%s" % (e.__class__.__name__, e, traceback.format_exc()))
+    raise e
+
+def run2(flags_obj):
   """
   Wrapper around main loop for ResNet models that handles changes in cluster membership.
   """
