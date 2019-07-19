@@ -5,7 +5,7 @@
 #
 #  The caller should set the following environment variables:
 #  NUM_CPUS_PER_NODE, NUM_GPUS_PER_NODE, MEMORY_PER_NODE,
-#  TIME_LIMIT_HOURS, SCRIPT_NAME, NUM_NODES, NUM_WORKERS,
+#  TIME_LIMIT_HOURS, LAUNCH_SCRIPT_NAME, NUM_NODES, NUM_WORKERS,
 #  and NUM_PARAMETER_SERVERS
 # ============================================================
 
@@ -14,7 +14,7 @@ source common_configs.sh
 
 # Run configs
 RUN_PATH="$MODELS_DIR/slurm/run_with_env.sh"
-SCRIPT_NAME="${SCRIPT_NAME:=run_cifar10.sh}"
+export LAUNCH_SCRIPT_NAME="${LAUNCH_SCRIPT_NAME:=run_cifar10.sh}"
 if [[ -z "$JOB_NAME" ]]; then
   SUBMIT_TIMESTAMP="$(get_submit_timestamp)"
   RUN_TAG="${RUN_TAG:=models}"
@@ -31,7 +31,7 @@ MEMORY_PER_NODE="${MEMORY_PER_NODE:=$DEFAULT_MEMORY_PER_NODE}"
 TIME_LIMIT_HOURS="${TIME_LIMIT_HOURS:=144}"
 
 # In non-multiplex mode, NUM_GPUS_PER_NODE and NUM_GPUS_PER_WORKER should be the same.
-if [[ "$SCRIPT_NAME" == "run_cifar10.sh" ]] &&\
+if [[ "$LAUNCH_SCRIPT_NAME" != "run_multiplex.sh" ]] &&\
     [[ -n "$NUM_GPUS_PER_WORKER" ]] &&\
     [[ "$NUM_GPUS_PER_NODE" != "$NUM_GPUS_PER_WORKER" ]]; then
   echo "ERROR: In non-multiplex mode, NUM_GPUS_PER_WORKER ($NUM_GPUS_PER_WORKER)"\
@@ -42,7 +42,7 @@ fi
 # Set NUM_WORKERS, NUM_PARAMETER_SERVERS and NUM_NODES
 # In non-multiplex mode, set these variables based on each other while
 # preserving NUM_WORKERS + NUM_PARAMETER_SERVERS = NUM_NODES
-if [[ "$SCRIPT_NAME" == "run_cifar10.sh" ]]; then
+if [[ "$LAUNCH_SCRIPT_NAME" != "run_multiplex.sh" ]]; then
   # If NUM_NODES is missing, either fill it in with the other variables,
   # or default if we're missing information
   if [[ -z "$NUM_NODES" ]]; then
@@ -67,16 +67,13 @@ if [[ "$SCRIPT_NAME" == "run_cifar10.sh" ]]; then
   fi
 # In multiplex mode, NUM_NODES should always be 1, while NUM_WORKERS is
 # expected to be provided by the caller
-elif [[ "$SCRIPT_NAME" == "run_multiplex.sh" ]]; then
+else
   if [[ -n "$NUM_NODES" ]] && [[ "$NUM_NODES" != "1" ]]; then
     echo "ERROR: NUM_NODES must be 1 in multiplex mode."
     exit 1
   fi
   NUM_NODES=1
   NUM_PARAMETER_SERVERS="${NUM_PARAMETER_SERVERS:=$DEFAULT_NUM_PARAMETER_SERVERS}"
-else
-  echo "ERROR: Unknown script $SCRIPT_NAME"
-  exit 1
 fi
 
 # Export for downstream scripts
@@ -88,24 +85,38 @@ if [[ "$ENVIRONMENT" = "tigergpu" ]]; then
   module load openmpi/gcc/3.0.0/64
 fi
 
-# Set run command, either 'srun' or 'mpirun'
-if [[ "$USE_HOROVOD" == "true" ]]; then
-  RUN_COMMAND="mpirun --output-filename $LOG_DIR/$JOB_NAME $RUN_PATH $SCRIPT_NAME"
+# For normal operations (not using MPI), just run standard `sbatch` with `srun`
+if [[ "$USE_HOROVOD" != "true" ]]; then
+  sbatch\
+    --nodes="$NUM_NODES"\
+    --ntasks="$NUM_NODES"\
+    --ntasks-per-node="$NUM_TASKS_PER_NODE"\
+    --cpus-per-task="$NUM_CPUS_PER_NODE"\
+    --mem="$MEMORY_PER_NODE"\
+    --gres="gpu:$NUM_GPUS_PER_NODE"\
+    --time="$TIME_LIMIT_HOURS:00:00"\
+    --job-name="$JOB_NAME"\
+    --mail-type="begin"\
+    --mail-type="end"\
+    --mail-user="$EMAIL"\
+    --wrap "srun --output=$LOG_DIR/$JOB_NAME-%n.out $RUN_PATH $LAUNCH_SCRIPT_NAME"
 else
-  RUN_COMMAND="srun --output=$LOG_DIR/$JOB_NAME-%n.out $RUN_PATH $SCRIPT_NAME"
-fi
+  # Otherwise, we're running horovod, so we use `mpirun`.
+  # Note: we do not wrap `mpirun` in slurm in order to support autoscaling.
+  # An autoscaling application will dynamically spawn processes on remote nodes.
+  # However, this requires the original slurm allocation to expand as well.
+  # In many environments, the user does not have authorization to do this.
 
-sbatch\
-  --nodes="$NUM_NODES"\
-  --ntasks="$NUM_NODES"\
-  --ntasks-per-node="$NUM_TASKS_PER_NODE"\
-  --cpus-per-task="$NUM_CPUS_PER_NODE"\
-  --mem="$MEMORY_PER_NODE"\
-  --gres="gpu:$NUM_GPUS_PER_NODE"\
-  --time="$TIME_LIMIT_HOURS:00:00"\
-  --job-name="$JOB_NAME"\
-  --mail-type="begin"\
-  --mail-type="end"\
-  --mail-user="$EMAIL"\
-  --wrap "$RUN_COMMAND"
+  # Therefore, here we simply use `sinfo` to find the idle nodes in the
+  # cluster and pass those in to `mpirun` through the `--hosts` option.
+  # We need to check with `sinfo` again every time before we spawn a new node.
+  # TODO: export all environment variables
+  HOSTS="$(sinfo -N --state=idle | tail -n +2 | awk '{print $1}' | tr '\n' ',' | sed 's/,$/\n/')"
+  mpirun\
+    -x "LAUNCH_SCRIPT_NAME" -x "JOB_NAME" -x "NUM_WORKERS" -x "NUM_PARAMETER_SERVERS"\
+    --np "$NUM_NODES"\
+    --host "$HOSTS"\
+    --output-filename "$LOG_DIR/$JOB_NAME"\
+    "$RUN_PATH" "$LAUNCH_SCRIPT_NAME"
+fi
 

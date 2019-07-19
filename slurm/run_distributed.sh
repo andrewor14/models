@@ -39,7 +39,7 @@ if [[ -n "$AUTOSCALING_MASTER_HOST_PORT" ]]; then
   export NUM_WORKERS=1
   export RUN_TAG="$RUN_TAG-added"
 else
-  export NUM_WORKERS=4
+  export NUM_WORKERS="${NUM_WORKERS:=4}"
 fi
 
 ./run_slurm.sh
