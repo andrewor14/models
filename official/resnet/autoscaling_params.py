@@ -35,6 +35,13 @@ def get_next_statuses(status):
     return [status]
   return [AutoscalingStatus(status.value + 1)]
 
+def is_running(status):
+  """
+  Return whether the given status represents one that is running and not pending to restart.
+  """
+  return status in [\
+    AutoscalingStatus.RUNNING, AutoscalingStatus.NOT_PENDING_RESTART, AutoscalingStatus.NOT_READY_TO_RESTART]
+
 def format_statuses(statuses):
   """
   Format the given list of statuses in a nice string.

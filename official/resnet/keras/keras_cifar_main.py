@@ -24,7 +24,7 @@ from absl import app as absl_app
 from absl import flags
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 
-from official.resnet import cifar10_main as cifar_main
+from official.resnet import mpi_helper, cifar10_main as cifar_main
 from official.resnet.autoscaling_agent import AutoscalingAgent
 from official.resnet.autoscaling_params import AutoscalingStatus
 from official.resnet.keras import keras_common
@@ -34,7 +34,7 @@ from official.utils.flags import core as flags_core
 from official.utils.logs import logger
 from official.utils.misc import distribution_utils
 from official.utils.misc import keras_utils
-from slurm.tensorflow_on_slurm import running_through_slurm, set_tf_config
+from slurm import slurm_helper
 
 
 LR_SCHEDULE = [  # (multiplier, epoch to start) tuples
@@ -97,29 +97,17 @@ def run(flags_obj):
   """
   Wrapper around main loop for ResNet models that handles changes in cluster membership.
   """
-  # If we're running through slurm, set TF_CONFIG according to slurm environment variables
-  if running_through_slurm() and "TF_CONFIG" not in os.environ:
-    num_ps = int(os.getenv("NUM_PARAMETER_SERVERS", "1"))
-    set_tf_config(num_ps)
+  # If TF_CONFIG is not provided, set it based on environment variables from slurm or MPI
+  if "TF_CONFIG" not in os.environ:
+    if slurm_helper.running_through_slurm():
+      num_ps = int(os.getenv("NUM_PARAMETER_SERVERS", "1"))
+      slurm_helper.set_tf_config(num_ps)
+    elif flags_obj.use_horovod:
+      mpi_helper.set_tf_config()
 
   # Keep track of cluster membership changes through an autoscaling hook
   autoscaling_agent = AutoscalingAgent()
   autoscaling_callback = AutoscalingCallback(autoscaling_agent)
-
-  if flags_obj.use_horovod:
-    # Note: we force the user to enable eager mode when using horovod to simplify things.
-    # For example, in eager mode, there are no global variables so we don't need to broadcast
-    # them through horovod before training.
-    if not flags_obj.enable_eager:
-      raise ValueError("Eager mode must be enabled when using horovod")
-    tf.compat.v1.logging.info("Using horovod as the underlying synchronization mechanism.")
-    import horovod.tensorflow.keras as hvd
-    hvd.init()
-    # When running with horovod, we tell tensorflow that it's running in single worker mode
-    # and let horovod take care of the synchronization instead. More specifically, we use
-    # TF_CONFIG only in the beginning to set up the AutoscalingAgents so they can talk to
-    # each other, but delete it before we actually start training.
-    del os.environ["TF_CONFIG"]
 
   while autoscaling_agent.status != AutoscalingStatus.TERMINATED:
     try:
@@ -148,7 +136,13 @@ def do_run(flags_obj, autoscaling_callback):
     Dictionary of training and eval stats.
   """
   if flags_obj.use_horovod:
+    # Note: we force the user to enable eager mode when using horovod to simplify things.
+    # For example, in eager mode, there are no global variables so we don't need to broadcast
+    # them through horovod before training.
+    if not flags_obj.enable_eager:
+      raise ValueError("Eager mode must be enabled when using horovod")
     import horovod.tensorflow.keras as hvd
+    hvd.init(autoscaling_callback.agent.mpi_communicator)
     horovod_rank = hvd.local_rank()
   else:
     horovod_rank = None
@@ -282,6 +276,11 @@ def do_run(flags_obj, autoscaling_callback):
     no_dist_strat_device.__exit__()
 
   stats = keras_common.build_stats(history, eval_output, callbacks)
+
+  if flags_obj.use_horovod:
+    import horovod.tensorflow.keras as hvd
+    hvd.shutdown()
+
   return stats
 
 

@@ -56,6 +56,12 @@ class AutoscalingService:
       return self.agent.get_progress_method()
     return (None, None)
 
+  def get_num_mpi_spawned_processes(self):
+    '''
+    Return number of processes spawned through MPI, only non-zero at the root.
+    '''
+    return len(self.agent.mpi_spawned_communicators)
+
   def join_cluster(self, host_port):
     '''
     Handle a join request, only called on the master server.
@@ -117,4 +123,8 @@ class AutoscalingService:
       cluster_spec = self._get_or_create_pending_cluster_spec()
       for hp in host_ports:
         cluster_spec["worker"].remove(hp)
+
+  def spawn_worker(self):
+    log_fn("Handling spawn_worker request")
+    return self.agent.mpi_spawn_worker()
 

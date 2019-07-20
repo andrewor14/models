@@ -10,6 +10,7 @@ import tensorflow as tf
 from tensorflow.python.distribute import cross_device_utils, distribute_coordinator
 from tensorflow.python.eager import context
 
+from official.resnet import mpi_helper
 from official.resnet.autoscaling_client import convert_port, AutoscalingClient
 from official.resnet.autoscaling_service import listen_for_autoscaling_requests
 from official.resnet.autoscaling_params import *
@@ -35,6 +36,27 @@ class AutoscalingAgent:
     #   (2) Number of epochs processed so far.
     self.get_progress_method = None
 
+    # Parse this process' host port from TF_CONFIG
+    tf_config = get_tf_config()
+    self.task_type = tf_config["task"]["type"]
+    self.task_index = tf_config["task"]["index"]
+    self.cluster_spec = tf_config["cluster"]
+    self.host_port = self.cluster_spec[self.task_type][self.task_index]
+
+    # ========= Horovod stuff ==========
+
+    # The MPI communicator that Horovod will use, if any
+    self.mpi_communicator = None
+    if "USE_HOROVOD" in os.environ:
+      from mpi4py import MPI
+      self.mpi_communicator = MPI.COMM_WORLD.Dup()
+
+    # A list of MPI intercommunicators created from spawning worker processes
+    # These communicators will be merged into `self.mpi_communicator` on restart
+    self.mpi_spawned_communicators = []
+
+    # ========= Autoscaling stuff ==========
+
     # Status to synchronize cluster membership changes
     # Accesses must be guarded by `self._status_lock`
     self._status = AutoscalingStatus.READY_TO_SYNC
@@ -47,13 +69,6 @@ class AutoscalingAgent:
     # Accesses must be guarded by `self.pending_cluster_spec_lock`.
     self.pending_cluster_spec = None
     self.pending_cluster_spec_lock = threading.Lock()    
-
-    # Parse this process' host port from TF_CONFIG
-    tf_config = get_tf_config()
-    self.task_type = tf_config["task"]["type"]
-    self.task_index = tf_config["task"]["index"]
-    self.cluster_spec = tf_config["cluster"]
-    self.host_port = self.cluster_spec[self.task_type][self.task_index]
 
     # Start autoscaling server
     listen_for_autoscaling_requests(self, convert_port(self.host_port))
@@ -89,10 +104,7 @@ class AutoscalingAgent:
   def initialize(self):
     """
     Ensure everyone sees the same cluster spec, then set TF_CONFIG accordingly.
-
     This should be called on start up and after every time we restart.
-    Note: In cases where TF_CONFIG was not set to begin with (e.g. when using horovod),
-    we will leave TF_CONFIG unset to preserve the semantics intended by the caller.
     """
     log_fn("Initializing")
     # Check if cluster membership changed. If so, update cluster spec accordingly.
@@ -102,12 +114,66 @@ class AutoscalingAgent:
         self.pending_cluster_spec = None
     self.status = AutoscalingStatus.READY_TO_SYNC
     self.sync_cluster_spec()
-    # Overwrite existing TF_CONFIG using the synced cluster spec
-    if "TF_CONFIG" in os.environ:
+    # If we're not running horovod, set TF_CONFIG using the synced cluster spec
+    if self.mpi_communicator is None:
       new_tf_config = json.dumps({"cluster": self.cluster_spec,\
         "task": {"type": self.task_type, "index": self.task_index}})
       log_fn("Setting TF_CONFIG = %s" % new_tf_config)
       os.environ["TF_CONFIG"] = new_tf_config
+    else:
+      # When running with horovod, we tell tensorflow that it's running in single worker mode
+      # and let horovod take care of the synchronization instead. More specifically, we use
+      # TF_CONFIG only in the beginning to set up the AutoscalingAgents so they can talk to
+      # each other, but delete it before we actually start training.
+      if "TF_CONFIG" in os.environ:
+        del os.environ["TF_CONFIG"]
+      self.maybe_expand_mpi_communicator()
+
+  def maybe_expand_mpi_communicator(self):
+    """
+    Merge newly spawned workers, if any, into our existing communicator.
+    """
+    from mpi4py import MPI
+    # First, figure out our role
+    comm = self.mpi_communicator
+    is_joining = comm.rank == 0 and AUTOSCALING_MASTER_HOST_PORT in os.environ
+    is_root = comm.rank == 0 and not is_joining
+    try:
+      # If we're joining an existing communicator, just expand once
+      if is_joining:
+        comm = mpi_helper.expand(comm, MPI.Comm.Get_parent())
+      elif is_root:
+        # We're the root, so call expand with our spawned communicators
+        for spawned_comm in self.mpi_spawned_communicators:
+          comm = mpi_helper.expand(comm, spawned_comm)
+      else:
+        # Otherwise, ask the master how many times we're supposed to expand
+        num_times_to_expand = self.client.master_server.get_num_mpi_spawned_processes()
+        for i in range(num_times_to_expand):
+          comm = mpi_helper.expand(comm)
+      self.mpi_communicator = comm
+    finally:
+      self.mpi_spawned_communicators = []
+
+  def mpi_spawn_worker(self):
+    """
+    Spawn a worker process through MPI, succeeds only if called while running.
+    The spawned worker, if any, is added to `self.mpi_spawned_communicators`.
+    Return whether a worker was successfully spawned.
+    """
+    if self.mpi_communicator is None:
+      raise ValueError("Spawn worker is only allowed when running with Horovod")
+    if self.mpi_communicator.rank > 0:
+      raise ValueError("Only the root can spawn workers")
+    if not is_running(self.status):
+      log_fn("Not spawning worker because we are initializing")
+      return False
+    new_worker_rank = self.mpi_communicator.size + len(self.mpi_spawned_communicators)
+    env = {AUTOSCALING_MASTER_HOST_PORT: self.client.master_host_port}
+    spawned_communicator = mpi_helper.spawn(new_worker_rank, env=env)
+    self.mpi_spawned_communicators.append(spawned_communicator)
+    log_fn("Spawned new worker through MPI")
+    return True
 
   def on_restart(self):
     """

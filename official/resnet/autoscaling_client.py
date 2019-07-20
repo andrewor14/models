@@ -171,6 +171,7 @@ class AutoscalingClient:
     for hp in known_host_ports:
       self._cluster_spec["worker"].remove(hp)
 
+  # TODO: Currently not used. Merge this with AutoscalingAgent.mpi_spawn_worker.
   def launch_worker(self, args=[], env={}):
     '''
     Launch a worker process with the specified arguments and environment variables.

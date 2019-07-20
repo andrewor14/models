@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import json
 import os
 
 from mpi4py import MPI
@@ -28,6 +29,18 @@ MPI_CURRENT_TAG = 14444
 
 def log_fn(msg):
   tf.compat.v1.logging.info("[MPI helper]: %s" % msg)
+
+def set_tf_config(port=2222):
+  """
+  Set TF_CONFIG based on hostnames of all processes in MPI.COMM_WORLD.
+  This assumes that there is at most one process per host.
+  """
+  my_host = MPI.Get_processor_name()
+  all_hosts = MPI.COMM_WORLD.allgather(my_host)
+  my_index = all_hosts.index(my_host)
+  all_hosts = ["%s:%s" % (host, port) for host in all_hosts]
+  tf_config = {"cluster": {"worker": all_hosts}, "task": {"type": "worker", "index": my_index}}
+  os.environ["TF_CONFIG"] = json.dumps(tf_config)
 
 def expand(intracomm, intercomm=None):
   """
@@ -116,25 +129,12 @@ def test_communication(comm):
   Helper method to make sure basic communication works in the given communicator.
   """
   log_fn("Testing communication in communicator %s (size %s)" % (comm, comm.size))
-
   # Try broadcasting a value
   value = "[root value]" if comm.rank == 0 else None
   value = comm.bcast(value, root=0)
   if comm.rank > 0:
     log_fn("  Received broadcast from root: %s" % value)
-
   # Try doing an allreduce
   value = comm.allreduce(comm.rank, op=MPI.SUM)
   log_fn("  Allreduce result: %s" % value)
-
-  # Try running horovod
-  log_fn("  Starting horovod with communicator of size %s" % comm.size)
-  hvd.init(comm)
-  hvd_rank = hvd.rank()
-  log_fn("  Running horovod allreduce")
-  # TODO: this line hangs after adding the second worker
-  #result = hvd.allreduce(hvd_rank)
-  #log_fn("Horovod allreduce result = %s" % result)
-  log_fn("  Shutting down horovod")
-  hvd.shutdown()
 

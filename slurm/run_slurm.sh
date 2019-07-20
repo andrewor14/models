@@ -110,10 +110,15 @@ else
   # Therefore, here we simply use `sinfo` to find the idle nodes in the
   # cluster and pass those in to `mpirun` through the `--hosts` option.
   # We need to check with `sinfo` again every time before we spawn a new node.
-  # TODO: export all environment variables
   HOSTS="$(sinfo -N --state=idle | tail -n +2 | awk '{print $1}' | tr '\n' ',' | sed 's/,$/\n/')"
+  # Pass all environment variables to mpirun, with some exceptions
+  # The format expected by MPI is "-x ENV_VAR1 -x ENV_VAR2 ..."
+  ALL_ENV_VARS="$(printenv | grep "=" | awk -F "=" '{print $1}')"
+  ALL_ENV_VARS="$(echo "$ALL_ENV_VARS" | grep -v "BASH\|SSH\|HOSTNAME\|TERMCAP\|_$\|^\s")"
+  ENV_FLAG="-x $(echo "$ALL_ENV_VARS" | tr '\n' ',' | sed 's/,$/\n/g' | sed 's/,/ \-x /g')"
+  # TODO: silence this call; it's very noisy
   mpirun\
-    -x "LAUNCH_SCRIPT_NAME" -x "JOB_NAME" -x "NUM_WORKERS" -x "NUM_PARAMETER_SERVERS"\
+    $ENV_FLAG\
     --np "$NUM_NODES"\
     --host "$HOSTS"\
     --output-filename "$LOG_DIR/$JOB_NAME"\
