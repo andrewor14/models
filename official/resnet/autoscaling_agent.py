@@ -118,16 +118,14 @@ class AutoscalingAgent:
     if self.mpi_communicator is None:
       new_tf_config = json.dumps({"cluster": self.cluster_spec,\
         "task": {"type": self.task_type, "index": self.task_index}})
-      log_fn("Setting TF_CONFIG = %s" % new_tf_config)
-      os.environ["TF_CONFIG"] = new_tf_config
     else:
       # When running with horovod, we tell tensorflow that it's running in single worker mode
-      # and let horovod take care of the synchronization instead. More specifically, we use
-      # TF_CONFIG only in the beginning to set up the AutoscalingAgents so they can talk to
-      # each other, but delete it before we actually start training.
-      if "TF_CONFIG" in os.environ:
-        del os.environ["TF_CONFIG"]
+      # and let horovod take care of the synchronization instead.
+      new_tf_config = json.dumps({"cluster":\
+        {"worker": [self.host_port]}, "task": {"type": "worker", "index": 0}})
       self.maybe_expand_mpi_communicator()
+    log_fn("Setting TF_CONFIG = %s" % new_tf_config)
+    os.environ["TF_CONFIG"] = new_tf_config
 
   def maybe_expand_mpi_communicator(self):
     """

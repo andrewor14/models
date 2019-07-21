@@ -44,12 +44,6 @@ else
   LOG_EVERY_N_STEPS="${LOG_EVERY_N_STEPS:=100}"
 fi
 
-# If we're running horovod, tell tensorflow we're running in a single machine and instead
-# let horovod take care of the synchronization
-if [[ "$USE_HOROVOD" == "true" ]]; then
-  DISTRIBUTION_STRATEGY="mirrored"
-fi
-
 # Only allow positive number of parameter servers if we're running in parameter_server mode
 if [[ "$DISTRIBUTION_STRATEGY" != "parameter_server" ]] && [[ "$NUM_PARAMETER_SERVERS" != "0" ]]; then
   echo "ERROR: NUM_PARAMETER_SERVERS must be 0 if we're not using 'parameter_server' distribution strategy"
