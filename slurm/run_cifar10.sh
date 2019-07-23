@@ -44,6 +44,13 @@ else
   LOG_EVERY_N_STEPS="${LOG_EVERY_N_STEPS:=100}"
 fi
 
+# If we're running horovod, then we're just using tensorflow's CollectiveAllReduceStrategy
+# to update the variables, but we actually want to bypass the allreduce implementation in
+# that strategy since we're already doing it in horovod
+if [[ "$USE_HOROVOD" == "true" ]]; then
+  export BYPASS_DISTRIBUTION_STRATEGY_ALLREDUCE="true"
+fi
+
 # Only allow positive number of parameter servers if we're running in parameter_server mode
 if [[ "$DISTRIBUTION_STRATEGY" != "parameter_server" ]] && [[ "$NUM_PARAMETER_SERVERS" != "0" ]]; then
   echo "ERROR: NUM_PARAMETER_SERVERS must be 0 if we're not using 'parameter_server' distribution strategy"

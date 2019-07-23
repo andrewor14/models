@@ -24,7 +24,7 @@ from absl import app as absl_app
 from absl import flags
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 
-from official.resnet import mpi_helper, cifar10_main as cifar_main
+from official.resnet import cifar10_main as cifar_main
 from official.resnet.autoscaling_agent import AutoscalingAgent
 from official.resnet.autoscaling_params import AutoscalingStatus
 from official.resnet.keras import keras_common
@@ -103,6 +103,7 @@ def run(flags_obj):
       num_ps = int(os.getenv("NUM_PARAMETER_SERVERS", "1"))
       slurm_helper.set_tf_config(num_ps)
     elif flags_obj.use_horovod:
+      from official.resnet import mpi_helper
       mpi_helper.set_tf_config()
 
   # Keep track of cluster membership changes through an autoscaling hook

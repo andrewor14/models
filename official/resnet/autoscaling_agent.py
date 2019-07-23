@@ -10,7 +10,6 @@ import tensorflow as tf
 from tensorflow.python.distribute import cross_device_utils, distribute_coordinator
 from tensorflow.python.eager import context
 
-from official.resnet import mpi_helper
 from official.resnet.autoscaling_client import convert_port, AutoscalingClient
 from official.resnet.autoscaling_service import listen_for_autoscaling_requests
 from official.resnet.autoscaling_params import *
@@ -114,16 +113,13 @@ class AutoscalingAgent:
         self.pending_cluster_spec = None
     self.status = AutoscalingStatus.READY_TO_SYNC
     self.sync_cluster_spec()
-    # If we're not running horovod, set TF_CONFIG using the synced cluster spec
-    if self.mpi_communicator is None:
-      new_tf_config = json.dumps({"cluster": self.cluster_spec,\
-        "task": {"type": self.task_type, "index": self.task_index}})
-    else:
-      # When running with horovod, we tell tensorflow that it's running in single worker mode
-      # and let horovod take care of the synchronization instead.
-      new_tf_config = json.dumps({"cluster":\
-        {"worker": [self.host_port]}, "task": {"type": "worker", "index": 0}})
+    new_tf_config = {"cluster": self.cluster_spec,\
+      "task": {"type": self.task_type, "index": self.task_index}}
+    # When using horovod, check if we need to expand our communicator
+    if self.mpi_communicator is not None:
       self.maybe_expand_mpi_communicator()
+    # Set TF_CONFIG using the synced cluster spec
+    new_tf_config = json.dumps(new_tf_config)
     log_fn("Setting TF_CONFIG = %s" % new_tf_config)
     os.environ["TF_CONFIG"] = new_tf_config
 
@@ -132,6 +128,7 @@ class AutoscalingAgent:
     Merge newly spawned workers, if any, into our existing communicator.
     """
     from mpi4py import MPI
+    from official.resnet import mpi_helper
     # First, figure out our role
     comm = self.mpi_communicator
     is_joining = comm.rank == 0 and AUTOSCALING_MASTER_HOST_PORT in os.environ
@@ -159,6 +156,7 @@ class AutoscalingAgent:
     The spawned worker, if any, is added to `self.mpi_spawned_communicators`.
     Return whether a worker was successfully spawned.
     """
+    from official.resnet import mpi_helper
     if self.mpi_communicator is None:
       raise ValueError("Spawn worker is only allowed when running with Horovod")
     if self.mpi_communicator.rank > 0:
