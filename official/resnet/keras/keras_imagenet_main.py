@@ -206,7 +206,7 @@ def do_run(flags_obj, autoscaling_callback):
                   metrics=(['sparse_categorical_accuracy']
                            if flags_obj.report_accuracy_metrics else None),
                   run_eagerly=flags_obj.run_eagerly,
-                  cloning=flags_obj.clone_model_in_keras_dist_strat)
+                  run_distributed=flags_obj.force_v2_in_keras_compile)
     autoscaling_callback.set_model(model)
 
   callbacks = keras_common.get_callbacks(

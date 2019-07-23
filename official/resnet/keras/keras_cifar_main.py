@@ -159,9 +159,10 @@ def do_run(flags_obj, autoscaling_callback):
     model = resnet_cifar_model.resnet56(classes=cifar_main.NUM_CLASSES)
     model.compile(loss='categorical_crossentropy',
                   optimizer=optimizer,
+                  metrics=(['categorical_accuracy']
+                           if flags_obj.report_accuracy_metrics else None),
                   run_eagerly=flags_obj.run_eagerly,
-                  metrics=['categorical_accuracy'])
-    autoscaling_callback.set_model(model)
+                  run_distributed=flags_obj.force_v2_in_keras_compile)
 
   callbacks = keras_common.get_callbacks(
       learning_rate_schedule,
