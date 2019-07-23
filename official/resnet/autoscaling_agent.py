@@ -133,22 +133,24 @@ class AutoscalingAgent:
     comm = self.mpi_communicator
     is_joining = comm.rank == 0 and AUTOSCALING_MASTER_HOST_PORT in os.environ
     is_root = comm.rank == 0 and not is_joining
-    try:
-      # If we're joining an existing communicator, just expand once
-      if is_joining:
-        comm = mpi_helper.expand(comm, MPI.Comm.Get_parent())
-      elif is_root:
-        # We're the root, so call expand with our spawned communicators
-        for spawned_comm in self.mpi_spawned_communicators:
-          comm = mpi_helper.expand(comm, spawned_comm)
+    # If we're joining, then expand once first
+    if is_joining:
+      comm = mpi_helper.expand(comm, MPI.Comm.Get_parent())
+    # Note: MPI only allows us to expand once at a time, so we will do so in a loop.
+    # In each iteration, the root will broadcast whether there are still spawned
+    # communicators waiting to join. If so, all members of the existing communicator
+    # will participate in a round of expansion.
+    while True:
+      should_expand = len(self.mpi_spawned_communicators) > 0 if is_root else False
+      should_expand = comm.bcast(should_expand, root=0)
+      if not should_expand:
+        break
+      if is_root:
+        spawned_comm = self.mpi_spawned_communicators.pop(0)
+        comm = mpi_helper.expand(comm, spawned_comm)
       else:
-        # Otherwise, ask the master how many times we're supposed to expand
-        num_times_to_expand = self.client.master_server.get_num_mpi_spawned_processes()
-        for i in range(num_times_to_expand):
-          comm = mpi_helper.expand(comm)
-      self.mpi_communicator = comm
-    finally:
-      self.mpi_spawned_communicators = []
+        comm = mpi_helper.expand(comm)
+    self.mpi_communicator = comm
 
   def mpi_spawn_worker(self):
     """
