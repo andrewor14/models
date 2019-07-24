@@ -111,7 +111,6 @@ class AutoscalingAgent:
       if self.pending_cluster_spec is not None:
         self.apply_cluster_spec(self.pending_cluster_spec)
         self.pending_cluster_spec = None
-    self.status = AutoscalingStatus.READY_TO_SYNC
     self.sync_cluster_spec()
     new_tf_config = {"cluster": self.cluster_spec,\
       "task": {"type": self.task_type, "index": self.task_index}}
@@ -208,6 +207,7 @@ class AutoscalingAgent:
     Our status must be READY_TO_SYNC before we call this method, and RUNNING when we return.
     """
     log_fn("Attempting to sync cluster spec with everyone")
+    self.status = AutoscalingStatus.READY_TO_SYNC
     self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
     self.status = AutoscalingStatus.SYNCING
     self.status_barrier(AutoscalingStatus.SYNCING)
@@ -367,6 +367,7 @@ class AutoscalingAgent:
       quiet=True)
     if AutoscalingStatus.NOT_READY_TO_RESTART in statuses:
       self.status = AutoscalingStatus.RUNNING
+      self.status_barrier(AutoscalingStatus.RUNNING, quiet=True)
     else:
       # Do restart
       if self.host_port not in self.pending_cluster_spec["worker"]:
@@ -375,7 +376,7 @@ class AutoscalingAgent:
       else:
         log_fn("Received signal to restart server")
         self.status = AutoscalingStatus.RESTARTING
-        self.status_barrier(AutoscalingStatus.RESTARTING, quiet=True)
+        self.status_barrier(AutoscalingStatus.RESTARTING)
       return True
 
 
