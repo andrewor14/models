@@ -46,7 +46,7 @@ class AutoscalingAgent:
 
     # The MPI communicator that Horovod will use, if any
     self.mpi_communicator = None
-    if "USE_HOROVOD" in os.environ:
+    if os.getenv("USE_HOROVOD", "").lower() == "true":
       from mpi4py import MPI
       self.mpi_communicator = MPI.COMM_WORLD.Dup()
 
