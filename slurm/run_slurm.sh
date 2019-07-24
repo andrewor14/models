@@ -117,10 +117,13 @@ else
   ALL_ENV_VARS="$(echo "$ALL_ENV_VARS" | grep -v "BASH\|SSH\|HOSTNAME\|TERMCAP\|_$\|^\s")"
   ENV_FLAG="-x $(echo "$ALL_ENV_VARS" | tr '\n' ',' | sed 's/,$/\n/g' | sed 's/,/ \-x /g')"
   # TODO: silence this call; it's very noisy
+  # Note: setting --bind-to to "none" (default was "core") significantly improves MPI performance
+  # for multi-threaded applications. See https://www.open-mpi.org/doc/v1.8/man1/mpirun.1.php
   mpirun\
     $ENV_FLAG\
     --np "$NUM_NODES"\
     --host "$HOSTS"\
+    --bind-to none\
     --output-filename "$LOG_DIR/$JOB_NAME"\
     "$RUN_PATH" "$LAUNCH_SCRIPT_NAME"
 fi

@@ -117,6 +117,9 @@ def spawn(spawned_rank, launch_script=None, args=[], env={}):
       (MPI.MAX_INFO_VAL, env))
   info = MPI.Info.Create()
   info.Set("env", env)
+  # Setting "bind_to" to "none" (default was "core") significantly improves MPI performance
+  # for multi-threaded applications. See https://www.open-mpi.org/doc/v1.8/man1/mpirun.1.php
+  info.Set("bind_to", "none")
   # Set arguments, assuming the scripts are in the same directory as this file
   launch_script = launch_script or os.environ[LAUNCH_SCRIPT_NAME]
   launch_script = os.path.join(LAUNCH_DIRECTORY, launch_script)

@@ -11,7 +11,7 @@ source common_configs.sh
 export USE_KERAS="true"
 export NUM_PARAMETER_SERVERS="0"
 export NUM_GPUS_PER_WORKER="0"
-export BATCH_SIZE="32"
+export BATCH_SIZE="1024"
 if [[ "$USE_KERAS" == "true" ]]; then
   export SKIP_EVAL="true"
   export ENABLE_EAGER="true"
