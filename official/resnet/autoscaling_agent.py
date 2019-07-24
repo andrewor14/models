@@ -122,6 +122,9 @@ class AutoscalingAgent:
     new_tf_config = json.dumps(new_tf_config)
     log_fn("Setting TF_CONFIG = %s" % new_tf_config)
     os.environ["TF_CONFIG"] = new_tf_config
+    self.status = AutoscalingStatus.RUNNING
+    self.status_barrier(AutoscalingStatus.RUNNING)
+
 
   def maybe_expand_mpi_communicator(self):
     """
@@ -225,8 +228,6 @@ class AutoscalingAgent:
         log_fn("... cluster spec synced: %s" % my_cluster_spec)
         self.status = AutoscalingStatus.SYNCED
         self.status_barrier(AutoscalingStatus.SYNCED)
-        self.status = AutoscalingStatus.RUNNING
-        self.status_barrier(AutoscalingStatus.RUNNING)
         return
       # On failure, reset client with cluster spec from the master autoscaling server
       log_fn("%s, trying again in %s second(s)" %\
