@@ -63,9 +63,9 @@ class TimeHistory(tf.keras.callbacks.Callback):
     self.train_finish_time = time.time()
 
   def on_batch_begin(self, batch, logs=None):
+    timestamp = time.time()
+    self.start_time = timestamp
     if self.record_batch:
-      timestamp = time.time()
-      self.start_time = timestamp
       self.record_batch = False
       if batch == 0:
         self.timestamp_log.append(BatchTimestamp(batch, timestamp))
