@@ -27,10 +27,11 @@ import tensorflow as tf  # pylint: disable=g-bad-import-order
 
 from official.resnet import cifar10_main as cifar_main
 from official.resnet.autoscaling_agent import AutoscalingAgent
-from official.resnet.autoscaling_params import AutoscalingStatus
+from official.resnet.autoscaling_params import *
 from official.resnet.keras import keras_common
 from official.resnet.keras import resnet_cifar_model
 from official.resnet.keras.autoscaling_callback import AutoscalingCallback
+from official.resnet.keras.autoscaling_schedule_callback import PeriodicSpawnScheduleCallback
 from official.utils.flags import core as flags_core
 from official.utils.logs import logger
 from official.utils.misc import distribution_utils
@@ -213,6 +214,17 @@ def do_run(flags_obj, autoscaling_callback):
       cifar_main.NUM_IMAGES['train'],
       autoscaling_callback.num_batches_processed_this_epoch)
   callbacks.append(autoscaling_callback)
+
+  # Add autoscaling schedule
+  autoscaling_spawn_every_n_steps = int(os.getenv(AUTOSCALING_SPAWN_EVERY_N_STEPS, -1))
+  autoscaling_max_workers = int(os.getenv(AUTOSCALING_MAX_WORKERS, -1))
+  if autoscaling_spawn_every_n_steps > 0 and\
+      autoscaling_max_workers > 0 and\
+      autoscaling_callback.agent.task_index == 0:
+    periodic_spawn_callback = PeriodicSpawnScheduleCallback(\
+      autoscaling_callback.agent, autoscaling_spawn_every_n_steps, autoscaling_max_workers)
+    periodic_spawn_callback.step_count = autoscaling_callback.num_batches_processed_this_epoch
+    callbacks.append(periodic_spawn_callback)
 
   train_steps = cifar_main.NUM_IMAGES['train'] // flags_obj.batch_size
   train_epochs = flags_obj.train_epochs
