@@ -20,7 +20,6 @@ if [[ "$ENVIRONMENT" = "tigergpu" ]]; then
   export CIFAR10_DATA_DIR="/tigress/andrewor/dataset/cifar10-dataset/cifar-10-batches-bin"
   export BASE_TRAIN_DIR="/tigress/andrewor/train_logs/"
   export BASE_EVAL_DIR="/tigress/andrewor/eval_logs/"
-  export TF_PKG="/home/andrewor/tensorflow_pkg/tensorflow-1.10.1-cp36-cp36m-linux_x86_64.whl"
   export PYTHON_COMMAND="python3"
   export DEFAULT_NUM_GPUS_PER_WORKER="4"
   export DEFAULT_NUM_GPUS_PER_NODE="4"
@@ -34,7 +33,6 @@ elif [[ "$ENVIRONMENT" = "visiongpu" ]]; then
   export CIFAR10_DATA_DIR="/home/andrewor/workspace/dataset/cifar10/cifar-10-batches-bin"
   export BASE_TRAIN_DIR="/home/andrewor/workspace/train_data"
   export BASE_EVAL_DIR="/home/andrewor/workspace/eval_data"
-  export TF_PKG="/home/andrewor/workspace/tensorflow_pkg/tensorflow-1.12.0rc1-cp35-cp35m-linux_x86_64.whl"
   export PYTHON_COMMAND="python3"
   export DEFAULT_NUM_GPUS_PER_WORKER="2"
   # No slurm on this machine, not used
@@ -48,7 +46,6 @@ elif [[ "$ENVIRONMENT" == "ns" ]]; then
   export CIFAR10_DATA_DIR="/home/andrewor/dataset/cifar10/cifar-10-batches-bin"
   export BASE_TRAIN_DIR="/home/andrewor/train_data"
   export BASE_EVAL_DIR="/home/andrewor/eval_data"
-  export TF_PKG="" # TODO: fill this in
   export PYTHON_COMMAND="/usr/licensed/anaconda3/5.2.0/bin/python3.6"
   export DEFAULT_NUM_GPUS_PER_WORKER="0"
   export DEFAULT_NUM_GPUS_PER_NODE="0"
@@ -64,13 +61,28 @@ elif [[ "$ENVIRONMENT" = "snsgpu" ]]; then
   export CIFAR10_DATA_DIR="/home/andrew/Documents/dev/dataset/cifar10/cifar-10-batches-bin"
   export BASE_TRAIN_DIR="/home/andrew/Documents/dev/train_data"
   export BASE_EVAL_DIR="/home/andrew/Documents/dev/eval_data"
-  export TF_PKG="/home/andrew/Documents/dev/tensorflow_pkg/tensorflow-1.12.0rc1-cp36-cp36m-linux_x86_64.whl"
   export PYTHON_COMMAND="python3"
   export DEFAULT_NUM_GPUS_PER_WORKER="2"
   # No slurm on this machine, not used
   export DEFAULT_NUM_GPUS_PER_NODE=""
   export DEFAULT_NUM_CPUS_PER_NODE=""
   export DEFAULT_MEMORY_PER_NODE=""
+elif [[ -n "$IN_DOCKER_CONTAINER" ]]; then
+  export LOG_DIR="/root/dev/logs"
+  export MODELS_DIR="/root/dev/models"
+  export IMAGENET_DATA_DIR="" # TODO: fill this in
+  export CIFAR10_DATA_DIR="/root/dev/dataset/cifar10/cifar-10-batches-bin"
+  export BASE_TRAIN_DIR="/root/dev/train_data"
+  export BASE_EVAL_DIR="/root/dev/eval_data"
+  export PYTHON_COMMAND="python3"
+  export DEFAULT_NUM_GPUS_PER_WORKER="4"
+  # No slurm on this machine, not used
+  export DEFAULT_NUM_GPUS_PER_NODE=""
+  export DEFAULT_NUM_CPUS_PER_NODE=""
+  export DEFAULT_MEMORY_PER_NODE=""
+  # It's OK to run MPI as root in a container
+  export OMPI_ALLOW_RUN_AS_ROOT=1
+  export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 else
   echo "ERROR: Unknown environment '$ENVIRONMENT'"
   exit 1

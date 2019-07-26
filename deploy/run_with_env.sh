@@ -23,11 +23,6 @@ if [[ "$ENVIRONMENT" = "tigergpu" ]]; then
   export MPI_HOME="$MY_MPI_HOME"
 fi
 
-# Make sure we're running our custom version of tensorflow
-# Note: Do not uncomment this if you're running tensorflow in the mean time!
-#pip uninstall -y tensorflow tensorflow-gpu
-#pip install --user "$TF_PKG"
-
 # If we're not using GPUs, don't do the GPU test
 NUM_GPUS_PER_WORKER="${NUM_GPUS_PER_WORKER:=$DEFAULT_NUM_GPUS_PER_WORKER}"
 if [[ "$NUM_GPUS_PER_WORKER" != 0 ]] && [[ "$BYPASS_GPU_TEST" != "true" ]]; then

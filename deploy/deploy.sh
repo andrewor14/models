@@ -30,15 +30,6 @@ NUM_GPUS_PER_NODE="${NUM_GPUS_PER_NODE:=$DEFAULT_NUM_GPUS_PER_NODE}"
 MEMORY_PER_NODE="${MEMORY_PER_NODE:=$DEFAULT_MEMORY_PER_NODE}"
 TIME_LIMIT_HOURS="${TIME_LIMIT_HOURS:=144}"
 
-# In non-multiplex mode, NUM_GPUS_PER_NODE and NUM_GPUS_PER_WORKER should be the same.
-if [[ "$LAUNCH_SCRIPT_NAME" != "run_multiplex.sh" ]] &&\
-    [[ -n "$NUM_GPUS_PER_WORKER" ]] &&\
-    [[ "$NUM_GPUS_PER_NODE" != "$NUM_GPUS_PER_WORKER" ]]; then
-  echo "ERROR: In non-multiplex mode, NUM_GPUS_PER_WORKER ($NUM_GPUS_PER_WORKER)"\
-    "must match NUM_GPUS_PER_NODE ($NUM_GPUS_PER_NODE)."
-  exit 1
-fi
-
 # Set NUM_WORKERS, NUM_PARAMETER_SERVERS and NUM_NODES
 # In non-multiplex mode, set these variables based on each other while
 # preserving NUM_WORKERS + NUM_PARAMETER_SERVERS = NUM_NODES
@@ -121,6 +112,7 @@ else
   # for multi-threaded applications. See https://www.open-mpi.org/doc/v1.8/man1/mpirun.1.php
   mpirun\
     $ENV_FLAG\
+    --allow-run-as-root\
     --np "$NUM_NODES"\
     --host "$HOSTS"\
     --bind-to none\
