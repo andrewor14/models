@@ -43,7 +43,7 @@ from official.utils.logs import hooks_helper, logger
 from official.resnet import imagenet_preprocessing
 from official.utils.misc import distribution_utils
 from official.utils.misc import model_helpers
-from slurm.slurm_helper import running_through_slurm, set_tf_config
+from deploy.slurm_helper import running_through_slurm, set_tf_config
 
 
 ################################################################################

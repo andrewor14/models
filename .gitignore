@@ -100,8 +100,7 @@ tutorials/embedding/questions-words.txt
 
 samples/outreach/blogs/segmentation_blogpost/carvana-image-masking-challenge/
 
-# Slurm
-slurm/*.out
-slurm/__pycache__
-
+# Other
+deploy/*.out
+deploy/__pycache__
 *.swp

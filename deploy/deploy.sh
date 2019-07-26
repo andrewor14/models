@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ============================================================
-#  Entry point for submitting a job through slurm
+#  Entry point for submitting a job through slurm or MPI
 #
 #  The caller should set the following environment variables:
 #  NUM_CPUS_PER_NODE, NUM_GPUS_PER_NODE, MEMORY_PER_NODE,
@@ -13,7 +13,7 @@
 source common_configs.sh
 
 # Run configs
-RUN_PATH="$MODELS_DIR/slurm/run_with_env.sh"
+RUN_PATH="$MODELS_DIR/deploy/run_with_env.sh"
 export LAUNCH_SCRIPT_NAME="${LAUNCH_SCRIPT_NAME:=run_cifar10.sh}"
 if [[ -z "$JOB_NAME" ]]; then
   SUBMIT_TIMESTAMP="$(get_submit_timestamp)"

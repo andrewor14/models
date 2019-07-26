@@ -36,7 +36,7 @@ from official.utils.flags import core as flags_core
 from official.utils.logs import logger
 from official.utils.misc import distribution_utils
 from official.utils.misc import keras_utils
-from slurm import slurm_helper
+from deploy import slurm_helper
 
 
 LR_SCHEDULE = [  # (multiplier, epoch to start) tuples

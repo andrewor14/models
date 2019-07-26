@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# =================================================
-#  Example script for running models through slurm
-# =================================================
+# ================================================
+#  Example script for running models in a cluster
+# ================================================
 
 # Set common configs
 source common_configs.sh
@@ -44,5 +44,5 @@ else
   export NUM_WORKERS="${NUM_WORKERS:=4}"
 fi
 
-./run_slurm.sh
+./deploy.sh
 
