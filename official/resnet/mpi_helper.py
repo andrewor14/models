@@ -30,16 +30,23 @@ MPI_CURRENT_TAG = 14444
 def log_fn(msg):
   tf.compat.v1.logging.info("[MPI helper]: %s" % msg)
 
-def set_tf_config(port=2222):
+def set_tf_config(base_port=2222):
   """
   Set TF_CONFIG based on hostnames of all processes in MPI.COMM_WORLD.
   This assumes that there is at most one process per host.
   """
   my_host = MPI.Get_processor_name()
   all_hosts = MPI.COMM_WORLD.allgather(my_host)
-  my_index = all_hosts.index(my_host)
-  all_hosts = ["%s:%s" % (host, port) for host in all_hosts]
-  tf_config = {"cluster": {"worker": all_hosts}, "task": {"type": "worker", "index": my_index}}
+  my_index = MPI.COMM_WORLD.rank
+  # Populate host ports, incrementing port from `base_port` for each host collision
+  host_ports = []
+  host_counts = {}
+  for host in all_hosts:
+    if host not in host_counts:
+      host_counts[host] = 0
+    host_ports.append("%s:%s" % (host, base_port + host_counts[host]))
+    host_counts[host] += 1
+  tf_config = {"cluster": {"worker": host_ports}, "task": {"type": "worker", "index": my_index}}
   os.environ["TF_CONFIG"] = json.dumps(tf_config)
 
 def expand(intracomm, intercomm=None):

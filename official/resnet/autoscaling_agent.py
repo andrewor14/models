@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
+import errno
 import os
 import json
+import socket
 import threading
 import time
 import traceback
@@ -41,6 +43,7 @@ class AutoscalingAgent:
     self.task_index = tf_config["task"]["index"]
     self.cluster_spec = tf_config["cluster"]
     self.host_port = self.cluster_spec[self.task_type][self.task_index]
+    self.host_port = find_available_port(self.host_port)
 
     # ========= Horovod stuff ==========
 
@@ -80,6 +83,7 @@ class AutoscalingAgent:
     self.client = AutoscalingClient(first_worker)
 
     # Request to join the cluster
+    log_fn("Joining cluster as %s" % self.host_port)
     self.client.master_server.join_cluster(self.host_port)
 
   @property
@@ -123,7 +127,6 @@ class AutoscalingAgent:
     os.environ["TF_CONFIG"] = new_tf_config
     self.status = AutoscalingStatus.RUNNING
     self.status_barrier(AutoscalingStatus.RUNNING)
-
 
   def maybe_expand_mpi_communicator(self):
     """
@@ -405,4 +408,30 @@ def log_exceptions(fn):
     log_fn("%s (%s)" % (e, e.__class__.__name__))
     traceback.print_exc()
     raise e
+
+def find_available_port(host_port, max_retries=10):
+  """
+  Find smallest port larger than or equal to `base_port` that is not in use.
+  Return new host port with a potentially modified port.
+  """
+  split = host_port.split(":")
+  host = split[0]
+  base_port = int(split[1])
+  sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  try:
+    offset = 0
+    while offset <= max_retries:
+      target_port = base_port + offset
+      try:
+        sock.bind(("localhost", target_port))
+        return "%s:%s" % (host, target_port)
+      except socket.error as e:
+        if e.errno == errno.EADDRINUSE:
+          log_fn("Warning: Attempted to bind to port %s, but it was already in use" %\
+            target_port)
+      offset += 1
+    raise Exception("All ports in range [%s-%s] are already in use!" %\
+      (base_port, base_port + max_retries))
+  finally:
+    sock.close()
 
