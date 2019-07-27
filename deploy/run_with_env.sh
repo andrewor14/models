@@ -26,6 +26,10 @@ fi
 # If we're not using GPUs, don't do the GPU test
 NUM_GPUS_PER_WORKER="${NUM_GPUS_PER_WORKER:=$DEFAULT_NUM_GPUS_PER_WORKER}"
 if [[ "$NUM_GPUS_PER_WORKER" != 0 ]] && [[ "$BYPASS_GPU_TEST" != "true" ]]; then
+  if [[ -z "$CUDA_VISIBLE_DEVICES" ]]; then
+    echo "Must specify CUDA_VISIBLE_DEVICES if NUM_GPUS_PER_WORKER > 0"
+    exit 1
+  fi
   "$PYTHON_COMMAND" test_gpu_support.py
   if [[ "$?" -ne 0 ]]; then
     echo "GPU test failed. Exiting."

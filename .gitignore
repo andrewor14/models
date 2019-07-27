@@ -104,3 +104,4 @@ samples/outreach/blogs/segmentation_blogpost/carvana-image-masking-challenge/
 deploy/*.out
 deploy/__pycache__
 *.swp
+hosts.txt

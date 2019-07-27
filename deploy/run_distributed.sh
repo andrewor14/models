@@ -10,7 +10,6 @@ source common_configs.sh
 # Models flags
 export USE_KERAS="true"
 export NUM_PARAMETER_SERVERS="0"
-export NUM_GPUS_PER_WORKER="0"
 export BATCH_SIZE="1024"
 if [[ "$USE_KERAS" == "true" ]]; then
   export SKIP_EVAL="true"
@@ -21,6 +20,15 @@ else
   export RESNET_SIZE="56"
   export LOG_EVERY_N_STEPS="1"
 fi
+
+# Set number of GPUs per worker based on CUDA_VISIBLE_DEVICES
+if [[ -n "$CUDA_VISIBLE_DEVICES" ]]; then
+  export NUM_GPUS_PER_WORKER="$(echo "$CUDA_VISIBLE_DEVICES" | sed 's/,/\n/g' | wc -l)"
+else
+  export NUM_GPUS_PER_WORKER="0"
+fi
+
+echo "$NUM_GPUS_PER_WORKER"
 
 # Autoscaling flags
 export AUTOSCALING_DISABLE_WRITE_GRAPH="true"

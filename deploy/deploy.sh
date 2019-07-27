@@ -93,15 +93,20 @@ if [[ "$USE_HOROVOD" != "true" ]]; then
     --wrap "srun --output=$LOG_DIR/$JOB_NAME-%n.out $RUN_PATH $LAUNCH_SCRIPT_NAME"
 else
   # Otherwise, we're running horovod, so we use `mpirun`.
-  # Note: we do not wrap `mpirun` in slurm in order to support autoscaling.
-  # An autoscaling application will dynamically spawn processes on remote nodes.
-  # However, this requires the original slurm allocation to expand as well.
-  # In many environments, the user does not have authorization to do this.
-
-  # Therefore, here we simply use `sinfo` to find the idle nodes in the
-  # cluster and pass those in to `mpirun` through the `--hosts` option.
-  # We need to check with `sinfo` again every time before we spawn a new node.
-  HOSTS="$(sinfo -N --state=idle | tail -n +2 | awk '{print $1}' | tr '\n' ',' | sed 's/,$/\n/')"
+  # Note: slurm has an API for dynamically expanding a job's allocation, but it is often
+  # not accessible due to permission issues. Therefore, we avoid using slurm here at all.
+  HOST_FILE="${HOST_FILE:=hosts.txt}"
+  if [[ -f "$HOST_FILE" ]]; then
+    HOST_FLAG="--hostfile $HOST_FILE"
+  elif [[ -n "$(command -v sinfo)" ]]; then
+    # If there is no host file then try to get the hosts from slurm
+    HOSTS="$(sinfo -N --state=idle | tail -n +2 | awk '{print $1}' | tr '\n' ',' | sed 's/,$/\n/')"
+    HOST_FLAG="--host $HOSTS"
+  else
+    # Otherwise, assume we're running single node
+    HOST_FLAG="--host localhost"
+  fi
+  echo "$HOST_FLAG"
   # Pass all environment variables to mpirun, with some exceptions
   # The format expected by MPI is "-x ENV_VAR1 -x ENV_VAR2 ..."
   ALL_ENV_VARS="$(printenv | grep "=" | awk -F "=" '{print $1}')"
@@ -112,9 +117,9 @@ else
   # for multi-threaded applications. See https://www.open-mpi.org/doc/v1.8/man1/mpirun.1.php
   mpirun\
     $ENV_FLAG\
+    $HOST_FLAG\
     --allow-run-as-root\
     --np "$NUM_NODES"\
-    --host "$HOSTS"\
     --bind-to none\
     --output-filename "$LOG_DIR/$JOB_NAME"\
     "$RUN_PATH" "$LAUNCH_SCRIPT_NAME"
