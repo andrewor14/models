@@ -21,13 +21,6 @@ else
   export LOG_EVERY_N_STEPS="1"
 fi
 
-# Set number of GPUs per worker based on CUDA_VISIBLE_DEVICES
-if [[ -n "$CUDA_VISIBLE_DEVICES" ]]; then
-  export NUM_GPUS_PER_WORKER="$(echo "$CUDA_VISIBLE_DEVICES" | sed 's/,/\n/g' | wc -l)"
-else
-  export NUM_GPUS_PER_WORKER="0"
-fi
-
 # Autoscaling flags
 export AUTOSCALING_DISABLE_WRITE_GRAPH="true"
 export AUTOSCALING_DISABLE_CHECKPOINTS="true"

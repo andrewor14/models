@@ -104,9 +104,12 @@ def run(flags_obj):
     if slurm_helper.running_through_slurm():
       num_ps = int(os.getenv("NUM_PARAMETER_SERVERS", "1"))
       slurm_helper.set_tf_config(num_ps)
+      # TODO: divide CUDA_VISIBLE_DEVICES across workers sharing the same machine for slurm too
     elif flags_obj.use_horovod:
       from official.resnet import mpi_helper
       mpi_helper.set_tf_config()
+      if flags_obj.num_gpus > 0:
+        mpi_helper.set_cuda_visible_devices(flags_obj.num_gpus)
 
   # Keep track of cluster membership changes through an autoscaling hook
   autoscaling_agent = AutoscalingAgent()

@@ -4,8 +4,8 @@
 #  Entry point for submitting a job through slurm or MPI
 #
 #  The caller should set the following environment variables:
-#  NUM_CPUS_PER_NODE, NUM_GPUS_PER_NODE, MEMORY_PER_NODE,
-#  TIME_LIMIT_HOURS, LAUNCH_SCRIPT_NAME, NUM_NODES, NUM_WORKERS,
+#  NUM_CPUS_PER_NODE, MEMORY_PER_NODE, TIME_LIMIT_HOURS,
+#  LAUNCH_SCRIPT_NAME, NUM_NODES, NUM_WORKERS,
 #  and NUM_PARAMETER_SERVERS
 # ============================================================
 
@@ -26,12 +26,24 @@ fi
 # launches multiple python processes, but there is still only one task.
 NUM_TASKS_PER_NODE="1"
 NUM_CPUS_PER_NODE="${NUM_CPUS_PER_NODE:=$DEFAULT_NUM_CPUS_PER_NODE}"
-NUM_GPUS_PER_NODE="${NUM_GPUS_PER_NODE:=$DEFAULT_NUM_GPUS_PER_NODE}"
 MEMORY_PER_NODE="${MEMORY_PER_NODE:=$DEFAULT_MEMORY_PER_NODE}"
 TIME_LIMIT_HOURS="${TIME_LIMIT_HOURS:=144}"
 
-# TODO: divide CUDA_VISIBLE_DEVICES among workers on the same machine
-NUM_WORKERS_PER_NODE="${NUM_WORKERS_PER_NODE:=$DEFAULT_NUM_WORKERS_PER_NODE}"
+# Assign GPUs based on CUDA_VISIBLE_DEVICES and how many workers are sharing one node.
+# For example, if CUDA_VISIBLE_DEVICES = 0,1,2,3,4,5,6,7 and NUM_WORKERS_PER_NODE = 2,
+# then NUM_GPUS_PER_WORKER = 4. If the number of devices does not divide, throw an error.
+if [[ -n "$CUDA_VISIBLE_DEVICES" ]]; then
+  export NUM_GPUS_PER_NODE="$(echo "$CUDA_VISIBLE_DEVICES" | sed 's/,/\n/g' | wc -l)"
+else
+  export NUM_GPUS_PER_NODE="0"
+fi
+export NUM_WORKERS_PER_NODE="${NUM_WORKERS_PER_NODE:=$DEFAULT_NUM_WORKERS_PER_NODE}"
+export NUM_GPUS_PER_WORKER="$((NUM_GPUS_PER_NODE / NUM_WORKERS_PER_NODE))"
+if [[ "$((NUM_GPUS_PER_WORKER * NUM_WORKERS_PER_NODE))" != "$NUM_GPUS_PER_NODE" ]]; then
+  echo "ERROR: CUDA_VISIBLE_DEVICES ($CUDA_VISIBLE_DEVICES) did not divide cleanly"\
+    "among $NUM_WORKERS_PER_NODE workers"
+  exit 1
+fi
 
 # Set NUM_WORKERS, NUM_PARAMETER_SERVERS and NUM_NODES
 # In non-multiplex mode, set these variables based on each other while

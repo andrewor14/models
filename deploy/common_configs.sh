@@ -22,8 +22,6 @@ if [[ "$ENVIRONMENT" = "tigergpu" ]]; then
   export BASE_TRAIN_DIR="/tigress/andrewor/train_logs/"
   export BASE_EVAL_DIR="/tigress/andrewor/eval_logs/"
   export PYTHON_COMMAND="python3"
-  export DEFAULT_NUM_GPUS_PER_WORKER="4"
-  export DEFAULT_NUM_GPUS_PER_NODE="4"
   export DEFAULT_NUM_CPUS_PER_NODE="28"
   export DEFAULT_MEMORY_PER_NODE="64G"
   export MPI_HOME="/home/andrewor/lib/openmpi"
@@ -35,9 +33,7 @@ elif [[ "$ENVIRONMENT" = "visiongpu" ]]; then
   export BASE_TRAIN_DIR="/home/andrewor/workspace/train_data"
   export BASE_EVAL_DIR="/home/andrewor/workspace/eval_data"
   export PYTHON_COMMAND="python3"
-  export DEFAULT_NUM_GPUS_PER_WORKER="2"
   # No slurm on this machine, not used
-  export DEFAULT_NUM_GPUS_PER_NODE=""
   export DEFAULT_NUM_CPUS_PER_NODE=""
   export DEFAULT_MEMORY_PER_NODE=""
 elif [[ "$ENVIRONMENT" == "ns" ]]; then
@@ -48,8 +44,6 @@ elif [[ "$ENVIRONMENT" == "ns" ]]; then
   export BASE_TRAIN_DIR="/home/andrewor/train_data"
   export BASE_EVAL_DIR="/home/andrewor/eval_data"
   export PYTHON_COMMAND="/usr/licensed/anaconda3/5.2.0/bin/python3.6"
-  export DEFAULT_NUM_GPUS_PER_WORKER="0"
-  export DEFAULT_NUM_GPUS_PER_NODE="0"
   export DEFAULT_NUM_CPUS_PER_NODE="16"
   export DEFAULT_MEMORY_PER_NODE="60G"
   # No GPUs on this cluster
@@ -63,9 +57,7 @@ elif [[ "$ENVIRONMENT" = "snsgpu" ]]; then
   export BASE_TRAIN_DIR="/home/andrew/Documents/dev/train_data"
   export BASE_EVAL_DIR="/home/andrew/Documents/dev/eval_data"
   export PYTHON_COMMAND="python3"
-  export DEFAULT_NUM_GPUS_PER_WORKER="2"
   # No slurm on this machine, not used
-  export DEFAULT_NUM_GPUS_PER_NODE=""
   export DEFAULT_NUM_CPUS_PER_NODE=""
   export DEFAULT_MEMORY_PER_NODE=""
 elif [[ -n "$IN_DOCKER_CONTAINER" ]]; then
@@ -76,9 +68,7 @@ elif [[ -n "$IN_DOCKER_CONTAINER" ]]; then
   export BASE_TRAIN_DIR="/root/dev/train_data"
   export BASE_EVAL_DIR="/root/dev/eval_data"
   export PYTHON_COMMAND="python3"
-  export DEFAULT_NUM_GPUS_PER_WORKER="4"
   # No slurm on this machine, not used
-  export DEFAULT_NUM_GPUS_PER_NODE=""
   export DEFAULT_NUM_CPUS_PER_NODE=""
   export DEFAULT_MEMORY_PER_NODE=""
   # It's OK to run MPI as root in a container
