@@ -138,16 +138,21 @@ else
   ALL_ENV_VARS="$(echo "$ALL_ENV_VARS" | grep -v "BASH\|SSH\|HOSTNAME\|TERMCAP\|_$\|^\s")"
   ENV_FLAG="-x $(echo "$ALL_ENV_VARS" | tr '\n' ',' | sed 's/,$/\n/g' | sed 's/,/ \-x /g')"
 
+  # Horovod flags: see https://github.com/horovod/horovod/blob/master/docs/mpirun.rst
+  ENV_FLAG="$ENV_FLAG -x NCCL_DEBUG=INFO -x NCCL_SOCKET_IFNAME=^lo,docker0"
+  HOROVOD_FLAGS="-mca pml ob1 -mca btl ^openib -mca btl_tcp_if_exclude lo,docker0 "
+  HOROVOD_FLAGS="$HOROVOD_FLAGS --bind-to none --map-by slot "
+
   # TODO: silence this call; it's very noisy
   # Note: setting --bind-to to "none" (default was "core") significantly improves MPI performance
   # for multi-threaded applications. See https://www.open-mpi.org/doc/v1.8/man1/mpirun.1.php
   mpirun\
     $ENV_FLAG\
     $HOST_FLAG\
+    $HOROVOD_FLAGS\
     --allow-run-as-root\
     --nooversubscribe\
     --np "$NUM_NODES"\
-    --bind-to none\
     --output-filename "$LOG_DIR/$JOB_NAME"\
     "$RUN_PATH" "$LAUNCH_SCRIPT_NAME"
 fi
