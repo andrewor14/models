@@ -149,13 +149,9 @@ def do_run(flags_obj, autoscaling_callback):
       raise ValueError("Eager mode must be enabled when using horovod")
     import horovod.tensorflow.keras as hvd
     hvd.init(autoscaling_callback.agent.mpi_communicator)
-    horovod_rank = hvd.local_rank()
-  else:
-    horovod_rank = None
 
   keras_utils.set_session_config(enable_eager=flags_obj.enable_eager,
-                                 enable_xla=flags_obj.enable_xla,
-                                 horovod_rank=horovod_rank)
+                                 enable_xla=flags_obj.enable_xla)
 
   dtype = flags_core.get_tf_dtype(flags_obj)
   if dtype == 'fp16':

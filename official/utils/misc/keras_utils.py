@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 import time
 
 import tensorflow as tf
@@ -139,19 +140,16 @@ class ProfilerCallback(tf.keras.callbacks.Callback):
 
 def set_session_config(enable_eager=False,
                        enable_xla=False,
-                       enable_grappler_layout_optimizer=True,
-                       horovod_rank=None):
+                       enable_grappler_layout_optimizer=True):
   """Sets the session config."""
   if is_v2_0():
     set_config_v2(
         enable_xla=enable_xla,
-        enable_grappler_layout_optimizer=enable_grappler_layout_optimizer,
-        horovod_rank=horovod_rank)
+        enable_grappler_layout_optimizer=enable_grappler_layout_optimizer)
   else:
     config = get_config_proto_v1(
         enable_xla=enable_xla,
-        enable_grappler_layout_optimizer=enable_grappler_layout_optimizer,
-        horovod_rank=horovod_rank)
+        enable_grappler_layout_optimizer=enable_grappler_layout_optimizer)
     if enable_eager:
       tf.compat.v1.enable_eager_execution(config=config)
     else:
@@ -159,9 +157,7 @@ def set_session_config(enable_eager=False,
       tf.keras.backend.set_session(sess)
 
 
-def get_config_proto_v1(enable_xla=False,
-                        enable_grappler_layout_optimizer=True,
-                        horovod_rank=None):
+def get_config_proto_v1(enable_xla=False, enable_grappler_layout_optimizer=True):
   """Return config proto according to flag settings, or None to use default."""
   config = None
   if enable_xla:
@@ -181,17 +177,15 @@ def get_config_proto_v1(enable_xla=False,
     # normalizations.
     config.graph_options.rewrite_options.layout_optimizer = (
         rewriter_config_pb2.RewriterConfig.OFF)
-  if horovod_rank is not None:
-    if config is None:
-      config = tf.compat.v1.ConfigProto()
-    config.gpu_options.allow_growth = True
-    config.gpu_options.visible_device_list = str(horovod_rank)
+  # Note: no need to set visible_device_list here because we assume
+  # this is already taken care of by CUDA_VISIBLE_DEVICES
+  if config is None:
+    config = tf.compat.v1.ConfigProto()
+  config.gpu_options.allow_growth = True
   return config
 
 
-def set_config_v2(enable_xla=False,
-                  enable_grappler_layout_optimizer=False,
-                  horovod_rank=None):
+def set_config_v2(enable_xla=False, enable_grappler_layout_optimizer=False):
   """Config eager context according to flag values using TF 2.0 API."""
   if enable_xla:
     tf.config.optimizer.set_jit(True)
@@ -208,10 +202,10 @@ def set_config_v2(enable_xla=False,
     tf.config.optimizer.set_experimental_options(
         {'layout_optimizer': False}
     )
-  if horovod_rank is not None:
-    raise NotImplementedError("TF 2.0 does not currently have an API "
-      "to set visible GPUs, which is needed by horovod. For more detail, "
-      "see https://github.com/tensorflow/tensorflow/issues/25446")
+  # Note: no need to set visible_device_list here because we assume
+  # this is already taken care of by CUDA_VISIBLE_DEVICES
+  for device in tf.config.experimental.list_physical_devices("GPU"):
+    tf.config.experimental.set_memory_growth(device, True)
 
 def is_v2_0():
   """Returns true if using tf 2.0."""
