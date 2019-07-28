@@ -8,6 +8,7 @@ export ENVIRONMENT="$(hostname | awk -F '[.-]' '{print $1}' | sed 's/[0-9]//g')"
 export SLURM_EMAIL="andrewor@princeton.edu"
 export DEFAULT_NUM_NODES="4"
 export DEFAULT_NUM_PARAMETER_SERVERS="1"
+export DEFAULT_NUM_WORKERS_PER_NODE="2"
 
 if [[ "$ENVIRONMENT" = "tiger" ]]; then
   export ENVIRONMENT="tigergpu"

@@ -28,8 +28,6 @@ else
   export NUM_GPUS_PER_WORKER="0"
 fi
 
-echo "$NUM_GPUS_PER_WORKER"
-
 # Autoscaling flags
 export AUTOSCALING_DISABLE_WRITE_GRAPH="true"
 export AUTOSCALING_DISABLE_CHECKPOINTS="true"

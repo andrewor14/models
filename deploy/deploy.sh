@@ -30,6 +30,9 @@ NUM_GPUS_PER_NODE="${NUM_GPUS_PER_NODE:=$DEFAULT_NUM_GPUS_PER_NODE}"
 MEMORY_PER_NODE="${MEMORY_PER_NODE:=$DEFAULT_MEMORY_PER_NODE}"
 TIME_LIMIT_HOURS="${TIME_LIMIT_HOURS:=144}"
 
+# TODO: divide CUDA_VISIBLE_DEVICES among workers on the same machine
+NUM_WORKERS_PER_NODE="${NUM_WORKERS_PER_NODE:=$DEFAULT_NUM_WORKERS_PER_NODE}"
+
 # Set NUM_WORKERS, NUM_PARAMETER_SERVERS and NUM_NODES
 # In non-multiplex mode, set these variables based on each other while
 # preserving NUM_WORKERS + NUM_PARAMETER_SERVERS = NUM_NODES
@@ -95,23 +98,34 @@ else
   # Otherwise, we're running horovod, so we use `mpirun`.
   # Note: slurm has an API for dynamically expanding a job's allocation, but it is often
   # not accessible due to permission issues. Therefore, we avoid using slurm here at all.
+
+  # Tell MPI which hosts to use
   HOST_FILE="${HOST_FILE:=hosts.txt}"
   if [[ -f "$HOST_FILE" ]]; then
-    HOST_FLAG="--hostfile $HOST_FILE"
+    if [[ -n "$(grep 'slots' $HOST_FILE)" ]]; then
+      # User already specified slots in the host file, so we just use those slot assignments
+      HOST_FLAG="--hostfile $HOST_FILE"
+    else
+      # Otherwise, assign the default number of slots per host to each host
+      HOSTS="$(cat hosts.txt | sed s/$/:$NUM_WORKERS_PER_NODE/g | tr '\n' ',' | sed 's/,$/\n/')"
+      HOST_FLAG="--host $HOSTS"
+    fi
   elif [[ -n "$(command -v sinfo)" ]]; then
     # If there is no host file then try to get the hosts from slurm
-    HOSTS="$(sinfo -N --state=idle | tail -n +2 | awk '{print $1}' | tr '\n' ',' | sed 's/,$/\n/')"
+    SLURM_HOSTS="$(sinfo -N --state=idle | tail -n +2 | awk '{print $1}')"
+    HOSTS="$(echo "$SLURM_HOSTS" | sed s/$/:$NUM_WORKERS_PER_NODE/g | tr '\n' ',' | sed 's/,$/\n/')"
     HOST_FLAG="--host $HOSTS"
   else
     # Otherwise, assume we're running single node
-    HOST_FLAG="--host localhost"
+    HOST_FLAG="--host localhost:$NUM_WORKERS_PER_NODE"
   fi
-  echo "$HOST_FLAG"
+
   # Pass all environment variables to mpirun, with some exceptions
   # The format expected by MPI is "-x ENV_VAR1 -x ENV_VAR2 ..."
   ALL_ENV_VARS="$(printenv | grep "=" | awk -F "=" '{print $1}')"
   ALL_ENV_VARS="$(echo "$ALL_ENV_VARS" | grep -v "BASH\|SSH\|HOSTNAME\|TERMCAP\|_$\|^\s")"
   ENV_FLAG="-x $(echo "$ALL_ENV_VARS" | tr '\n' ',' | sed 's/,$/\n/g' | sed 's/,/ \-x /g')"
+
   # TODO: silence this call; it's very noisy
   # Note: setting --bind-to to "none" (default was "core") significantly improves MPI performance
   # for multi-threaded applications. See https://www.open-mpi.org/doc/v1.8/man1/mpirun.1.php
@@ -119,6 +133,7 @@ else
     $ENV_FLAG\
     $HOST_FLAG\
     --allow-run-as-root\
+    --nooversubscribe\
     --np "$NUM_NODES"\
     --bind-to none\
     --output-filename "$LOG_DIR/$JOB_NAME"\
