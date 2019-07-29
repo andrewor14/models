@@ -10,7 +10,7 @@ source common_configs.sh
 # Models flags
 export USE_KERAS="true"
 export NUM_PARAMETER_SERVERS="0"
-export BATCH_SIZE="1024"
+export BATCH_SIZE="8192"
 if [[ "$USE_KERAS" == "true" ]]; then
   export SKIP_EVAL="true"
   export ENABLE_EAGER="true"
