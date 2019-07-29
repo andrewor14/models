@@ -37,8 +37,15 @@ if [[ -n "$CUDA_VISIBLE_DEVICES" ]]; then
 else
   export NUM_GPUS_PER_NODE="0"
 fi
-export NUM_WORKERS_PER_NODE="${NUM_WORKERS_PER_NODE:=$DEFAULT_NUM_WORKERS_PER_NODE}"
-export NUM_GPUS_PER_WORKER="$((NUM_GPUS_PER_NODE / NUM_WORKERS_PER_NODE))"
+# Horovod expects one GPU per worker
+if [[ "$USE_HOROVOD" == "true" ]] && [[ "$NUM_GPUS_PER_NODE" != "0" ]]; then
+  export NUM_WORKERS_PER_NODE="$NUM_GPUS_PER_NODE"
+  export NUM_GPUS_PER_WORKER="1"
+else
+  export NUM_WORKERS_PER_NODE="${NUM_WORKERS_PER_NODE:=$DEFAULT_NUM_WORKERS_PER_NODE}"
+  export NUM_GPUS_PER_WORKER="$((NUM_GPUS_PER_NODE / NUM_WORKERS_PER_NODE))"
+fi
+# Check if all GPUs were assigned
 if [[ "$((NUM_GPUS_PER_WORKER * NUM_WORKERS_PER_NODE))" != "$NUM_GPUS_PER_NODE" ]]; then
   echo "ERROR: CUDA_VISIBLE_DEVICES ($CUDA_VISIBLE_DEVICES) did not divide cleanly"\
     "among $NUM_WORKERS_PER_NODE workers"
