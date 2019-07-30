@@ -26,8 +26,7 @@ from absl import flags
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 
 from autoscaling import autoscaling_helper
-from autoscaling.params import *
-from autoscaling.schedule_callback import PeriodicSpawnScheduleCallback
+from autoscaling.params import AutoscalingStatus
 from official.resnet import cifar10_main as cifar_main
 from official.resnet.keras import keras_common
 from official.resnet.keras import resnet_cifar_model
@@ -176,41 +175,15 @@ def do_run(flags_obj, autoscaling_callback):
       learning_rate_schedule,
       cifar_main.NUM_IMAGES['train'],
       autoscaling_callback.num_batches_processed_this_epoch)
+
+  # Add autoscaling callbacks
   callbacks.append(autoscaling_callback)
+  autoscaling_schedule_callback = autoscaling_helper.get_schedule_callback(autoscaling_callback)
+  if autoscaling_schedule_callback is not None:
+    callbacks.append(autoscaling_schedule_callback)
 
-  # Add autoscaling schedule
-  autoscaling_spawn_every_n_steps = int(os.getenv(AUTOSCALING_SPAWN_EVERY_N_STEPS, -1))
-  autoscaling_max_workers = int(os.getenv(AUTOSCALING_MAX_WORKERS, -1))
-  if autoscaling_spawn_every_n_steps > 0 and\
-      autoscaling_max_workers > 0 and\
-      autoscaling_callback.agent.task_index == 0:
-    periodic_spawn_callback = PeriodicSpawnScheduleCallback(\
-      autoscaling_callback.agent, autoscaling_spawn_every_n_steps, autoscaling_max_workers)
-    periodic_spawn_callback.step_count = autoscaling_callback.num_batches_processed_this_epoch
-    callbacks.append(periodic_spawn_callback)
-
-  train_steps = cifar_main.NUM_IMAGES['train'] // flags_obj.batch_size
-  train_epochs = flags_obj.train_epochs
-
-  if flags_obj.train_steps:
-    train_steps = min(flags_obj.train_steps, train_steps)
-    train_epochs = 1
-
-  original_train_steps = train_steps
-  original_train_epochs = train_epochs
-
-  # If we restarted in the middle of an epoch, finish the rest of the batches in the
-  # epoch first, then restart again with the original number of batches in an epoch
-  if autoscaling_callback.num_batches_processed_this_epoch > 0:
-    train_steps -= autoscaling_callback.num_batches_processed_this_epoch
-    tf.compat.v1.logging.info("There are %s/%s batches left in this epoch" %\
-      (train_steps, original_train_steps))
-    train_epochs = 1
-  else:
-    # Otherwise, just finish the remaining epochs
-    train_epochs -= autoscaling_callback.num_epochs_processed
-    tf.compat.v1.logging.info("There are %s/%s epochs left" %\
-      (train_epochs, original_train_epochs))
+  (train_steps, train_epochs) = autoscaling_helper.get_train_steps_and_epochs(\
+    cifar_main.NUM_IMAGES["train"], flags_obj, autoscaling_callback)
 
   num_eval_steps = (cifar_main.NUM_IMAGES['validation'] //
                     flags_obj.batch_size)
@@ -240,7 +213,7 @@ def do_run(flags_obj, autoscaling_callback):
                       verbose=2)
 
   # If we finished all the epochs already, then signal to above that we're terminating
-  if autoscaling_callback.num_epochs_processed == original_train_epochs:
+  if autoscaling_callback.num_epochs_processed == flags_obj.train_epochs:
     autoscaling_callback.agent.status = AutoscalingStatus.TERMINATED
 
   eval_output = None

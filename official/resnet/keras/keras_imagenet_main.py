@@ -22,6 +22,8 @@ from absl import app as absl_app
 from absl import flags
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 
+from autoscaling import autoscaling_helper, schedule_callback
+from autoscaling.params import AutoscalingStatus
 from official.resnet import imagenet_main
 from official.resnet.keras import keras_common
 from official.resnet.keras import resnet_model
@@ -81,7 +83,7 @@ def parse_record_keras(raw_record, is_training, dtype):
   return image, label
 
 
-def run(flags_obj):
+def do_run(flags_obj, autoscaling_callback):
   """Run ResNet ImageNet training and eval loop using native Keras APIs.
 
   Args:
@@ -93,6 +95,15 @@ def run(flags_obj):
   Returns:
     Dictionary of training and eval stats.
   """
+  if flags_obj.use_horovod:
+    # Note: we force the user to enable eager mode when using horovod to simplify things.
+    # For example, in eager mode, there are no global variables so we don't need to broadcast
+    # them through horovod before training.
+    if not flags_obj.enable_eager:
+      raise ValueError("Eager mode must be enabled when using horovod")
+    import horovod.tensorflow.keras as hvd
+    hvd.init(autoscaling_callback.agent.mpi_communicator)
+
   keras_utils.set_session_config(
       enable_eager=flags_obj.enable_eager,
       enable_xla=flags_obj.enable_xla,
@@ -187,6 +198,9 @@ def run(flags_obj):
 
   with strategy_scope:
     optimizer = keras_common.get_optimizer(lr_schedule)
+    if flags_obj.use_horovod:
+      import horovod.tensorflow.keras as hvd
+      optimizer = hvd.DistributedOptimizer(optimizer)
     if dtype == 'float16':
       # TODO(reedwm): Remove manually wrapping optimizer once mixed precision
       # can be enabled with a single line of code.
@@ -207,16 +221,21 @@ def run(flags_obj):
                            if flags_obj.report_accuracy_metrics else None),
                   run_eagerly=flags_obj.run_eagerly,
                   cloning=flags_obj.clone_model_in_keras_dist_strat)
+    autoscaling_callback.set_model(model)
 
   callbacks = keras_common.get_callbacks(
-      learning_rate_schedule, imagenet_main.NUM_IMAGES['train'])
+      learning_rate_schedule,
+      imagenet_main.NUM_IMAGES['train'],
+      autoscaling_callback.num_batches_processed_this_epoch)
 
-  train_steps = imagenet_main.NUM_IMAGES['train'] // flags_obj.batch_size
-  train_epochs = flags_obj.train_epochs
+  # Add autoscaling callbacks
+  callbacks.append(autoscaling_callback)
+  autoscaling_schedule_callback = autoscaling_helper.get_schedule_callback(autoscaling_callback)
+  if autoscaling_schedule_callback is not None:
+    callbacks.append(autoscaling_schedule_callback)
 
-  if flags_obj.train_steps:
-    train_steps = min(flags_obj.train_steps, train_steps)
-    train_epochs = 1
+  (train_steps, train_epochs) = autoscaling_helper.get_train_steps_and_epochs(\
+    imagenet_main.NUM_IMAGES["train"], flags_obj, autoscaling_callback)
 
   num_eval_steps = (imagenet_main.NUM_IMAGES['validation'] //
                     flags_obj.batch_size)
@@ -248,6 +267,10 @@ def run(flags_obj):
                       validation_freq=flags_obj.epochs_between_evals,
                       verbose=2)
 
+  # If we finished all the epochs already, then signal to above that we're terminating
+  if autoscaling_callback.num_epochs_processed == flags_obj.train_epochs:
+    autoscaling_callback.agent.status = AutoscalingStatus.TERMINATED
+
   eval_output = None
   if not flags_obj.skip_eval:
     eval_output = model.evaluate(eval_input_dataset,
@@ -258,6 +281,11 @@ def run(flags_obj):
     no_dist_strat_device.__exit__()
 
   stats = keras_common.build_stats(history, eval_output, callbacks)
+
+  if flags_obj.use_horovod:
+    import horovod.tensorflow.keras as hvd
+    hvd.shutdown()
+
   return stats
 
 
@@ -269,7 +297,7 @@ def define_imagenet_keras_flags():
 def main(_):
   model_helpers.apply_clean(flags.FLAGS)
   with logger.benchmark_context(flags.FLAGS):
-    return run(flags.FLAGS)
+    return autoscaling_helper.run(flags.FLAGS, do_run)
 
 
 if __name__ == '__main__':

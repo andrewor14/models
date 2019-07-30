@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 
+import os
+
 import tensorflow as tf
 from tensorflow.python import keras
+
+from autoscaling.params import *
 
 
 def log_fn(msg):
