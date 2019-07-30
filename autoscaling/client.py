@@ -11,7 +11,7 @@ import time
 
 import tensorflow as tf
 
-from official.resnet.autoscaling_params import *
+from autoscaling.params import *
 
 
 VERBOSE = False

@@ -5,7 +5,7 @@ import textwrap
 from mpi4py import MPI
 import horovod.tensorflow.keras as hvd
 
-from official.resnet import mpi_helper
+from deploy import mpi_helper
 
 
 AUTOSCALING_MASTER_HOST_PORT = "AUTOSCALING_MASTER_HOST_PORT"

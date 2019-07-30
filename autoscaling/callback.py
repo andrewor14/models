@@ -3,8 +3,8 @@
 import tensorflow as tf
 from tensorflow.python import keras
 
-from official.resnet.autoscaling_agent import log_exceptions
-from official.resnet.autoscaling_params import AutoscalingStatus
+from autoscaling.agent import log_exceptions
+from autoscaling.params import AutoscalingStatus
 
 
 class AutoscalingCallback(keras.callbacks.Callback):

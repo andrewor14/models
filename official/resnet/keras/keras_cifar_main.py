@@ -25,18 +25,16 @@ from absl import app as absl_app
 from absl import flags
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 
+from autoscaling import autoscaling_helper
+from autoscaling.params import *
+from autoscaling.schedule_callback import PeriodicSpawnScheduleCallback
 from official.resnet import cifar10_main as cifar_main
-from official.resnet.autoscaling_agent import AutoscalingAgent
-from official.resnet.autoscaling_params import *
 from official.resnet.keras import keras_common
 from official.resnet.keras import resnet_cifar_model
-from official.resnet.keras.autoscaling_callback import AutoscalingCallback
-from official.resnet.keras.autoscaling_schedule_callback import PeriodicSpawnScheduleCallback
 from official.utils.flags import core as flags_core
 from official.utils.logs import logger
 from official.utils.misc import distribution_utils
 from official.utils.misc import keras_utils
-from deploy import slurm_helper
 
 
 LR_SCHEDULE = [  # (multiplier, epoch to start) tuples
@@ -93,40 +91,6 @@ def parse_record_keras(raw_record, is_training, dtype):
   image, label = cifar_main.parse_record(raw_record, is_training, dtype)
   label = tf.compat.v1.sparse_to_dense(label, (cifar_main.NUM_CLASSES,), 1)
   return image, label
-
-
-def run(flags_obj):
-  """
-  Wrapper around main loop for ResNet models that handles changes in cluster membership.
-  """
-  # If TF_CONFIG is not provided, set it based on environment variables from slurm or MPI
-  if "TF_CONFIG" not in os.environ:
-    if slurm_helper.running_through_slurm():
-      num_ps = int(os.getenv("NUM_PARAMETER_SERVERS", "1"))
-      slurm_helper.set_tf_config(num_ps)
-      # TODO: divide CUDA_VISIBLE_DEVICES across workers sharing the same machine for slurm too
-    elif flags_obj.use_horovod:
-      from official.resnet import mpi_helper
-      mpi_helper.set_tf_config()
-      if flags_obj.num_gpus > 0:
-        mpi_helper.set_cuda_visible_devices(flags_obj.num_gpus)
-
-  # Keep track of cluster membership changes through an autoscaling hook
-  autoscaling_agent = AutoscalingAgent()
-  autoscaling_callback = AutoscalingCallback(autoscaling_agent)
-
-  while autoscaling_agent.status != AutoscalingStatus.TERMINATED:
-    try:
-      autoscaling_agent.initialize()
-      result = do_run(flags_obj, autoscaling_callback)
-      autoscaling_agent.on_restart()
-      autoscaling_callback.reset()
-    except Exception as e:
-      tf.compat.v1.logging.error("Exception in resnet_main: %s (%s)" %\
-        (e, e.__class__.__name__))
-      traceback.print_exc()
-      raise e
-  return result
 
 
 def do_run(flags_obj, autoscaling_callback):
@@ -309,7 +273,7 @@ def define_cifar_flags():
 
 def main(_):
   with logger.benchmark_context(flags.FLAGS):
-    return run(flags.FLAGS)
+    return autoscaling_helper.run_keras(flags.FLAGS, do_run)
 
 
 if __name__ == '__main__':

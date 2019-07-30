@@ -12,9 +12,9 @@ import tensorflow as tf
 from tensorflow.python.distribute import cross_device_utils, distribute_coordinator
 from tensorflow.python.eager import context
 
-from official.resnet.autoscaling_client import convert_port, AutoscalingClient
-from official.resnet.autoscaling_service import listen_for_autoscaling_requests
-from official.resnet.autoscaling_params import *
+from autoscaling.client import convert_port, AutoscalingClient
+from autoscaling.service import listen_for_requests
+from autoscaling.params import *
 
 
 class AutoscalingAgent:
@@ -73,7 +73,7 @@ class AutoscalingAgent:
     self.pending_cluster_spec_lock = threading.Lock()    
 
     # Start autoscaling server
-    listen_for_autoscaling_requests(self, convert_port(self.host_port))
+    listen_for_requests(self, convert_port(self.host_port))
 
     # Start autoscaling client, connected to the autoscaling server on the first worker
     first_worker = os.getenv(AUTOSCALING_MASTER_HOST_PORT)
@@ -133,7 +133,7 @@ class AutoscalingAgent:
     Merge newly spawned workers, if any, into our existing communicator.
     """
     from mpi4py import MPI
-    from official.resnet import mpi_helper
+    from deploy import mpi_helper
     # First, figure out our role
     comm = self.mpi_communicator
     is_joining = comm.rank == 0 and AUTOSCALING_MASTER_HOST_PORT in os.environ
@@ -163,7 +163,7 @@ class AutoscalingAgent:
     The spawned worker, if any, is added to `self.mpi_spawned_communicators`.
     Return whether a worker was successfully spawned.
     """
-    from official.resnet import mpi_helper
+    from deploy import mpi_helper
     if self.mpi_communicator is None:
       raise ValueError("Spawn worker is only allowed when running with Horovod")
     if self.mpi_communicator.rank > 0:

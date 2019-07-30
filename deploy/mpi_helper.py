@@ -7,7 +7,7 @@ from mpi4py import MPI
 import tensorflow as tf
 import horovod.tensorflow as hvd
 
-from official.resnet.autoscaling_params import *
+from autoscaling.params import *
 
 
 # Environment variables

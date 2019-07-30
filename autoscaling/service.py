@@ -8,15 +8,15 @@ import xmlrpc.server
 
 import tensorflow as tf
 
-from official.resnet.autoscaling_client import convert_port, connect
-from official.resnet.autoscaling_params import *
+from autoscaling.client import convert_port, connect
+from autoscaling.params import *
 
 
 def log_fn(msg):
   msg = "[Autoscaling service]: %s" % msg
   tf.compat.v1.logging.info(msg)
 
-def listen_for_autoscaling_requests(agent, host_port):
+def listen_for_requests(agent, host_port):
   '''
   Start a server listening for autoscaling requests
 
