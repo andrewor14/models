@@ -15,6 +15,7 @@ from tensorflow.python.eager import context
 from autoscaling.client import convert_port, AutoscalingClient
 from autoscaling.service import listen_for_requests
 from autoscaling.params import *
+from deploy import cuda_helper
 
 
 class AutoscalingAgent:
@@ -30,12 +31,13 @@ class AutoscalingAgent:
   among all the agents.
   """
 
-  def __init__(self):
+  def __init__(self, num_gpus_per_worker=0):
     self.saved_variables = None
     # A lambda that returns a 2-tuple of
     #   (1) Number of batches processed in this epoch so far, and
     #   (2) Number of epochs processed so far.
     self.get_progress_method = None
+    self.num_gpus_per_worker = num_gpus_per_worker
 
     # Parse this process' host port from TF_CONFIG
     tf_config = get_tf_config()
@@ -116,15 +118,19 @@ class AutoscalingAgent:
         self.apply_cluster_spec(self.pending_cluster_spec)
         self.pending_cluster_spec = None
     self.sync_cluster_spec()
+    self.task_index = self.cluster_spec["worker"].index(self.host_port)
+    # Set TF_CONFIG using the synced cluster spec
     new_tf_config = {"cluster": self.cluster_spec,\
       "task": {"type": self.task_type, "index": self.task_index}}
-    # When using horovod, check if we need to expand our communicator
-    if self.mpi_communicator is not None:
-      self.maybe_expand_mpi_communicator()
-    # Set TF_CONFIG using the synced cluster spec
     new_tf_config = json.dumps(new_tf_config)
     log_fn("Setting TF_CONFIG = %s" % new_tf_config)
     os.environ["TF_CONFIG"] = new_tf_config
+    # Update CUDA_VISIBLE_DEVICES with respect to new TF_CONFIG
+    if self.num_gpus_per_worker > 0:
+      cuda_helper.set_cuda_visible_devices(self.num_gpus_per_worker)
+    # When using horovod, check if we need to expand our communicator
+    if self.mpi_communicator is not None:
+      self.maybe_expand_mpi_communicator()
     self.status = AutoscalingStatus.RUNNING
     self.status_barrier(AutoscalingStatus.RUNNING)
 

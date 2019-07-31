@@ -14,12 +14,10 @@ from autoscaling.params import *
 PYTHONPATH = "PYTHONPATH"
 OMPI_MCA_orte_output_filename = "OMPI_MCA_orte_output_filename"
 OMPI_MCA_initial_wdir = "OMPI_MCA_initial_wdir"
-OMPI_COMM_WORLD_LOCAL_RANK = "OMPI_COMM_WORLD_LOCAL_RANK"
 MPI_SPAWN_LOG_DIR = "MPI_SPAWN_LOG_DIR"
 MPI_SPAWN_RANK = "MPI_SPAWN_RANK"
 MPI_TAG_NAME = "MPI_TAG_NAME"
 LAUNCH_SCRIPT_NAME = "LAUNCH_SCRIPT_NAME"
-CUDA_VISIBLE_DEVICES = "CUDA_VISIBLE_DEVICES"
 TF_CONFIG = "TF_CONFIG"
 
 # Other constants
@@ -53,25 +51,6 @@ def set_tf_config(base_port=2222):
   tf_config = json.dumps(tf_config)
   log_fn("Setting %s to %s" % (TF_CONFIG, tf_config))
   os.environ[TF_CONFIG] = tf_config
-
-def set_cuda_visible_devices(num_gpus_per_worker):
-  """
-  Set the correct CUDA_VISIBLE_DEVICES based on how many other workers share this machine.
-
-  This assumes CUDA_VISIBLE_DEVICES was already set and `num_gpus_per_worker` divides
-  the number of devices in CUDA_VISIBLE_DEVICES.
-  """
-  cuda_visible_devices = os.environ[CUDA_VISIBLE_DEVICES].split(",")
-  local_rank = int(os.environ[OMPI_COMM_WORLD_LOCAL_RANK])
-  start_index = local_rank * num_gpus_per_worker
-  end_index = start_index + num_gpus_per_worker
-  cuda_visible_devices = cuda_visible_devices[start_index:end_index]
-  if len(cuda_visible_devices) != num_gpus_per_worker:
-    raise ValueError("%s (%s) did not split evenly among workers (expecting %s GPUs each)" %\
-      (CUDA_VISIBLE_DEVICES, os.environ[CUDA_VISIBLE_DEVICES], num_gpus_per_worker))
-  cuda_visible_devices = ",".join(cuda_visible_devices)
-  log_fn("Setting %s to %s" % (CUDA_VISIBLE_DEVICES, cuda_visible_devices))
-  os.environ[CUDA_VISIBLE_DEVICES] = cuda_visible_devices
 
 def expand(intracomm, intercomm=None):
   """
