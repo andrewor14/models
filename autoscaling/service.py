@@ -13,8 +13,7 @@ from autoscaling.params import *
 
 
 def log_fn(msg):
-  msg = "[Autoscaling service]: %s" % msg
-  tf.compat.v1.logging.info(msg)
+  tf.logging.info("[Autoscaling service]: %s" % msg)
 
 def listen_for_requests(agent, host_port):
   '''

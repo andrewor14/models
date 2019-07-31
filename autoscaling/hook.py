@@ -47,6 +47,5 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
 
 
 def log_fn(msg):
-  msg = "[Autoscaling hook] %s" % msg
-  tf.compat.v1.logging.info(msg)
+  tf.logging.info("[Autoscaling hook] %s" % msg)
 

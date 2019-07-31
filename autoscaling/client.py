@@ -18,8 +18,7 @@ VERBOSE = False
 RUNNING_IN_SHELL = sys.__stdin__.isatty()
 
 def log_fn(msg):
-  msg = "[Autoscaling client]: %s" % msg
-  tf.compat.v1.logging.info(msg)
+  tf.logging.info("[Autoscaling client]: %s" % msg)
 
 def convert_port(host_port):
   '''

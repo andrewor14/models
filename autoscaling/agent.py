@@ -392,8 +392,7 @@ class AutoscalingAgent:
 # ================== HELPER METHODS ==================
 
 def log_fn(msg):
-  msg = "[Autoscaling agent] %s" % msg
-  tf.compat.v1.logging.info(msg)
+  tf.logging.info("[Autoscaling agent] %s" % msg)
 
 def get_tf_config():
   """

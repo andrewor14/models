@@ -103,6 +103,5 @@ class AutoscalingCallback(keras.callbacks.Callback):
     log_exceptions(lambda: self.do_on_epoch_end(epoch, logs))
 
 def log_fn(msg):
-  msg = "[Autoscaling callback] %s" % msg
-  tf.compat.v1.logging.info(msg)
+  tf.logging.info("[Autoscaling callback] %s" % msg)
 

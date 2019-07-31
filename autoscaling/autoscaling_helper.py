@@ -79,7 +79,7 @@ def run_keras(flags_obj, do_run):
       autoscaling_agent.on_restart()
       autoscaling_callback.reset()
     except Exception as e:
-      tf.compat.v1.logging.error("Exception in resnet_main: %s (%s)" %\
+      tf.logging.error("Exception in resnet_main: %s (%s)" %\
         (e, e.__class__.__name__))
       traceback.print_exc()
       raise e

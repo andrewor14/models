@@ -22,8 +22,6 @@ if [[ -z "$JOB_NAME" ]]; then
 fi
 
 # Slurm specific configs
-# Note: we always launch 1 task per node; in multiplex mode, this task
-# launches multiple python processes, but there is still only one task.
 NUM_TASKS_PER_NODE="1"
 NUM_CPUS_PER_NODE="${NUM_CPUS_PER_NODE:=$DEFAULT_NUM_CPUS_PER_NODE}"
 MEMORY_PER_NODE="${MEMORY_PER_NODE:=$DEFAULT_MEMORY_PER_NODE}"
@@ -52,41 +50,29 @@ if [[ "$((NUM_GPUS_PER_WORKER * NUM_WORKERS_PER_NODE))" != "$NUM_GPUS_PER_NODE" 
   exit 1
 fi
 
-# Set NUM_WORKERS, NUM_PARAMETER_SERVERS and NUM_NODES
-# In non-multiplex mode, set these variables based on each other while
+# Set NUM_WORKERS, NUM_PARAMETER_SERVERS and NUM_NODES based on each other while
 # preserving NUM_WORKERS + NUM_PARAMETER_SERVERS = NUM_NODES
-if [[ "$LAUNCH_SCRIPT_NAME" != "run_multiplex.sh" ]]; then
-  # If NUM_NODES is missing, either fill it in with the other variables,
-  # or default if we're missing information
-  if [[ -z "$NUM_NODES" ]]; then
-    if [[ -n "$NUM_WORKERS" ]] && [[ -n "$NUM_PARAMETER_SERVERS" ]]; then
-      NUM_NODES="$((NUM_WORKERS+NUM_PARAMETER_SERVERS))"
-    else
-      NUM_NODES="$DEFAULT_NUM_NODES"
-    fi
+# If NUM_NODES is missing, either fill it in with the other variables,
+# or default if we're missing information
+if [[ -z "$NUM_NODES" ]]; then
+  if [[ -n "$NUM_WORKERS" ]] && [[ -n "$NUM_PARAMETER_SERVERS" ]]; then
+    NUM_NODES="$((NUM_WORKERS+NUM_PARAMETER_SERVERS))"
+  else
+    NUM_NODES="$DEFAULT_NUM_NODES"
   fi
-  # At this point, NUM_NODES is set, so we just fill in the rest
-  if [[ -z "$NUM_WORKERS" ]]; then
-    NUM_PARAMETER_SERVERS="${NUM_PARAMETER_SERVERS:=$DEFAULT_NUM_PARAMETER_SERVERS}"
-    NUM_WORKERS="$((NUM_NODES-NUM_PARAMETER_SERVERS))"
-  elif [[ -z "$NUM_PARAMETER_SERVERS" ]]; then
-    NUM_PARAMETER_SERVERS="$((NUM_NODES-NUM_WORKERS))"
-  fi
-  # Check that things add up
-  if [[ "$((NUM_WORKERS+NUM_PARAMETER_SERVERS))" != "$NUM_NODES" ]]; then
-    echo "ERROR: NUM_WORKERS ($NUM_WORKERS) + NUM_PARAMETER_SERVERS"\
-           "($NUM_PARAMETER_SERVERS) != NUM_NODES ($NUM_NODES)"
-    exit 1
-  fi
-# In multiplex mode, NUM_NODES should always be 1, while NUM_WORKERS is
-# expected to be provided by the caller
-else
-  if [[ -n "$NUM_NODES" ]] && [[ "$NUM_NODES" != "1" ]]; then
-    echo "ERROR: NUM_NODES must be 1 in multiplex mode."
-    exit 1
-  fi
-  NUM_NODES=1
+fi
+# At this point, NUM_NODES is set, so we just fill in the rest
+if [[ -z "$NUM_WORKERS" ]]; then
   NUM_PARAMETER_SERVERS="${NUM_PARAMETER_SERVERS:=$DEFAULT_NUM_PARAMETER_SERVERS}"
+  NUM_WORKERS="$((NUM_NODES-NUM_PARAMETER_SERVERS))"
+elif [[ -z "$NUM_PARAMETER_SERVERS" ]]; then
+  NUM_PARAMETER_SERVERS="$((NUM_NODES-NUM_WORKERS))"
+fi
+# Check that things add up
+if [[ "$((NUM_WORKERS+NUM_PARAMETER_SERVERS))" != "$NUM_NODES" ]]; then
+  echo "ERROR: NUM_WORKERS ($NUM_WORKERS) + NUM_PARAMETER_SERVERS"\
+         "($NUM_PARAMETER_SERVERS) != NUM_NODES ($NUM_NODES)"
+  exit 1
 fi
 
 # Export for downstream scripts

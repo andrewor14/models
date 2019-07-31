@@ -29,7 +29,7 @@ EXECUTABLE = "bash"
 MPI_CURRENT_TAG = 14444
 
 def log_fn(msg):
-  tf.compat.v1.logging.info("[MPI helper]: %s" % msg)
+  tf.logging.info("[MPI helper]: %s" % msg)
 
 def set_tf_config(base_port=2222):
   """
