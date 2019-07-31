@@ -39,7 +39,7 @@ elif [[ "$ENVIRONMENT" = "visiongpu" ]]; then
 elif [[ "$ENVIRONMENT" == "ns" ]]; then
   export LOG_DIR="/home/andrewor/logs"
   export MODELS_DIR="/home/andrewor/models"
-  export IMAGENET_DATA_DIR="" # TODO: fill this in
+  export IMAGENET_DATA_DIR="/home/andrewor/dataset/imagenet"
   export CIFAR10_DATA_DIR="/home/andrewor/dataset/cifar10/cifar-10-batches-bin"
   export BASE_TRAIN_DIR="/home/andrewor/train_data"
   export BASE_EVAL_DIR="/home/andrewor/eval_data"
@@ -63,7 +63,7 @@ elif [[ "$ENVIRONMENT" = "snsgpu" ]]; then
 elif [[ -n "$IN_DOCKER_CONTAINER" ]]; then
   export LOG_DIR="/root/dev/logs"
   export MODELS_DIR="/root/dev/models"
-  export IMAGENET_DATA_DIR="" # TODO: fill this in
+  export IMAGENET_DATA_DIR="/root/dev/dataset/imagenet"
   export CIFAR10_DATA_DIR="/root/dev/dataset/cifar10/cifar-10-batches-bin"
   export BASE_TRAIN_DIR="/root/dev/train_data"
   export BASE_EVAL_DIR="/root/dev/eval_data"

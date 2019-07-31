@@ -1,10 +1,8 @@
 #!/bin/bash
 
 # =============================================================
-#  The main entry point to launching a tensorflow process
-#
-#  This expects the following environment variables to be set:
-#  JOB_NAME and NUM_WORKERS
+#  The main entry point to launching a tensorflow process.
+#  This expects JOB_NAME to be set.
 # =============================================================
 
 # Set common configs
@@ -12,11 +10,6 @@ source common_configs.sh
 
 if [[ -z "$JOB_NAME" ]]; then
   echo "ERROR: JOB_NAME must be set."
-  exit 1
-fi
-
-if [[ -z "$NUM_WORKERS" ]]; then
-  echo "ERROR: NUM_WORKERS must be set."
   exit 1
 fi
 
@@ -31,18 +24,42 @@ NUM_EPOCHS="${NUM_EPOCHS:=100}"
 BATCH_SIZE="${BATCH_SIZE:=32}"
 EPOCHS_BETWEEN_EVALS="${EPOCHS_BETWEEN_EVALS:=10}"
 DISTRIBUTION_STRATEGY="${DISTRIBUTION_STRATEGY:=multi_worker_mirrored}"
+DATASET="${DATASET:=cifar10}"
+
+# Dataset-specific configs
+if [[ "$DATASET" == "cifar10" ]]; then
+  DATA_DIR="$CIFAR10_DATA_DIR"
+  if [[ "$USE_KERAS" == "true" ]]; then
+    RUN_SCRIPT="$MODELS_DIR/official/resnet/keras/keras_cifar_main.py"
+  else
+    RUN_SCRIPT="$MODELS_DIR/official/resnet/cifar10_main.py"
+  fi
+elif [[ "$DATASET" == "imagenet" ]]; then
+  DATA_DIR="$IMAGENET_DATA_DIR"
+  RUN_SCRIPT="$MODELS_DIR/official/resnet/keras/keras_imagenet_main.py"
+  if [[ "$USE_KERAS" != "true" ]]; then
+    echo "ERROR: You must set USE_KERAS to 'true' for ImageNet training"
+    exit 1
+  fi
+else
+  echo "ERROR: Unknown dataset '$DATASET'"
+  exit 1
+fi
+
+# Keras-specific configs
 if [[ "$USE_KERAS" == "true" ]]; then
-  echo "Running keras API"
-  RUN_SCRIPT="$MODELS_DIR/official/resnet/keras/keras_cifar_main.py"
   SKIP_EVAL="${SKIP_EVAL:=true}"
   ENABLE_EAGER="${ENABLE_EAGER:=true}"
   USE_HOROVOD="${USE_HOROVOD:=false}"
   LOG_STEPS="${LOG_STEPS:=100}"
 else
-  RUN_SCRIPT="$MODELS_DIR/official/resnet/cifar10_main.py"
   RESNET_SIZE="${RESNET_SIZE:=56}"
   LOG_EVERY_N_STEPS="${LOG_EVERY_N_STEPS:=100}"
 fi
+
+# Set up working directories
+TRAIN_DIR="${TRAIN_DIR:=$BASE_TRAIN_DIR/$JOB_NAME}"
+mkdir -p "$TRAIN_DIR"
 
 # If we're running horovod, then we're just using tensorflow's CollectiveAllReduceStrategy
 # to update the variables, but we actually want to bypass the allreduce implementation in
@@ -57,10 +74,6 @@ if [[ "$DISTRIBUTION_STRATEGY" != "parameter_server" ]] && [[ "$NUM_PARAMETER_SE
   echo "ERROR: NUM_PARAMETER_SERVERS must be 0 if we're not using 'parameter_server' distribution strategy"
   exit 1
 fi
-
-# Set up working directories
-TRAIN_DIR="${TRAIN_DIR:=$BASE_TRAIN_DIR/$JOB_NAME}"
-mkdir -p "$TRAIN_DIR"
 
 # Print diff and environment variables
 DIFF="$(git diff)"
@@ -77,13 +90,9 @@ echo -e "-----------------------------------------------------------------------
 printenv
 echo -e "==========================================================================\n"
 
-if [[ "$SINGLE_PROCESS_MODE" == "true" ]]; then
-  unset SLURM_JOB_NODELIST
-fi
-
 # Build flags
 COMMON_FLAGS=""\
-" --data_dir=$CIFAR10_DATA_DIR"\
+" --data_dir=$DATA_DIR"\
 " --model_dir=$TRAIN_DIR"\
 " --num_gpus=$NUM_GPUS_PER_WORKER"\
 " --train_epochs=$NUM_EPOCHS"\

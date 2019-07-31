@@ -14,7 +14,7 @@ source common_configs.sh
 
 # Run configs
 RUN_PATH="$MODELS_DIR/deploy/run_with_env.sh"
-export LAUNCH_SCRIPT_NAME="${LAUNCH_SCRIPT_NAME:=run_cifar10.sh}"
+export LAUNCH_SCRIPT_NAME="${LAUNCH_SCRIPT_NAME:=run_tensorflow.sh}"
 if [[ -z "$JOB_NAME" ]]; then
   SUBMIT_TIMESTAMP="$(get_submit_timestamp)"
   RUN_TAG="${RUN_TAG:=models}"
