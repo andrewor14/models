@@ -18,6 +18,16 @@ export NUM_GPUS_INCREMENT="${NUM_GPUS_INCREMENT:=4}"
 export MIN_GPUS="${MIN_GPUS:=4}"
 export MAX_GPUS="${MAX_GPUS:=96}"
 
+# Set default batch size based on dataset
+if [[ "$DATASET" == "cifar10" ]]; then
+  export BATCH_SIZE="${BATCH_SIZE:=128}"
+elif [[ "$DATASET" == "imagenet" ]]; then
+  export BATCH_SIZE="${BATCH_SIZE:=8192}"
+else
+  echo "ERROR: Unknown dataset '$DATASET'"
+  exit 1
+fi
+
 # Don't touch these
 export USE_KERAS="true"
 export USE_HOROVOD="true"
