@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# ================================================
-#  Example script for running models in a cluster
-# ================================================
+# ============================================
+#  A script for running models in the cluster
+# ============================================
 
 # Set common configs
 source common_configs.sh
@@ -25,21 +25,21 @@ if [[ "$MODE" != "static" ]] &&\
 fi
 
 # Models flags
-export USE_KERAS="true"
-export NUM_PARAMETER_SERVERS="0"
+export USE_KERAS="${USE_KERAS:=true}"
+export NUM_PARAMETER_SERVERS="${NUM_PARAMETER_SERVERS:=0}"
 export NUM_WORKERS="${NUM_WORKERS:=4}"
 export BATCH_SIZE="${BATCH_SIZE:=1024}"
 export DATASET="${DATASET:=cifar10}"
 if [[ "$USE_KERAS" == "true" ]]; then
-  export SKIP_EVAL="true"
-  export ENABLE_EAGER="true"
-  export USE_HOROVOD="true"
+  export SKIP_EVAL="${SKIP_EVAL:=true}"
+  export ENABLE_EAGER="${ENABLE_EAGER:=true}"
+  export USE_HOROVOD="${USE_HOROVOD:=true}"
   export LOG_STEPS="1"
 else
-  export RESNET_SIZE="56"
+  export RESNET_SIZE="${RESNET_SIZE:=56}"
   export LOG_EVERY_N_STEPS="1"
 fi
-export RUN_TAG="${DATASET}-${BATCH_SIZE}-${MODE}"
+export RUN_TAG="${DATASET}-${BATCH_SIZE}-${MODE}-${NUM_WORKERS}"
 
 # Autoscaling flags
 if [[ "$MODE" == "autoscaling" ]]; then

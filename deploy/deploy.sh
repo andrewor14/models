@@ -136,6 +136,14 @@ else
   HOROVOD_FLAGS="-mca pml ob1 -mca btl ^openib -mca btl_tcp_if_exclude lo,docker0 "
   HOROVOD_FLAGS="$HOROVOD_FLAGS --bind-to none --map-by slot "
 
+  # Verbosity settings
+  STDOUT_DEVICE="/dev/stdout"
+  STDERR_DEVICE="/dev/stderr"
+  if [[ "$MPI_SILENCE_OUTPUT" == "true" ]]; then
+    STDOUT_DEVICE="/dev/null"
+    STDERR_DEVICE="/dev/null"
+  fi
+
   # TODO: silence this call; it's very noisy
   # Note: setting --bind-to to "none" (default was "core") significantly improves MPI performance
   # for multi-threaded applications. See https://www.open-mpi.org/doc/v1.8/man1/mpirun.1.php
@@ -147,6 +155,7 @@ else
     --nooversubscribe\
     --np "$NUM_NODES"\
     --output-filename "$LOG_DIR/$JOB_NAME"\
-    "$RUN_PATH" "$LAUNCH_SCRIPT_NAME"
+    "$RUN_PATH" "$LAUNCH_SCRIPT_NAME"\
+    1> "$STDOUT_DEVICE" 2> "$STDERR_DEVICE"
 fi
 
