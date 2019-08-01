@@ -26,19 +26,32 @@ fi
 
 # Models flags
 export USE_KERAS="${USE_KERAS:=true}"
+export USE_HOROVOD="${USE_HOROVOD:=true}"
 export NUM_PARAMETER_SERVERS="${NUM_PARAMETER_SERVERS:=0}"
 export NUM_WORKERS="${NUM_WORKERS:=4}"
-export BATCH_SIZE="${BATCH_SIZE:=1024}"
 export DATASET="${DATASET:=cifar10}"
+
+# Keras-specific flags
 if [[ "$USE_KERAS" == "true" ]]; then
   export SKIP_EVAL="${SKIP_EVAL:=true}"
   export ENABLE_EAGER="${ENABLE_EAGER:=true}"
-  export USE_HOROVOD="${USE_HOROVOD:=true}"
   export LOG_STEPS="1"
 else
   export RESNET_SIZE="${RESNET_SIZE:=56}"
   export LOG_EVERY_N_STEPS="1"
 fi
+
+# Set default batch size based on dataset
+if [[ "$DATASET" == "cifar10" ]]; then
+  export BATCH_SIZE="${BATCH_SIZE:=128}"
+elif [[ "$DATASET" == "imagenet" ]]; then
+  export BATCH_SIZE="${BATCH_SIZE:=8192}"
+else
+  echo "ERROR: Unknown dataset '$DATASET'"
+  exit 1
+fi
+
+# Set run tag to identify the job
 export RUN_TAG="${DATASET}-${BATCH_SIZE}-${MODE}-${NUM_WORKERS}"
 
 # Autoscaling flags
