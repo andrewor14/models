@@ -47,6 +47,12 @@ class AutoscalingAgent:
     self.host_port = self.cluster_spec[self.task_type][self.task_index]
     self.host_port = find_available_port(self.host_port)
 
+    # Hack: do not sync every step if we are running a tiny dataset
+    self.step_count = 0
+    self.sync_interval_steps = 1
+    if os.getenv("DATASET") == "cifar10":
+      self.sync_interval_steps = 10
+
     # ========= Horovod stuff ==========
 
     # The MPI communicator that Horovod will use, if any
@@ -356,6 +362,10 @@ class AutoscalingAgent:
 
     Return whether this process is restarting or terminating.
     """
+    # Only sync every N steps
+    self.step_count += 1
+    if self.step_count % self.sync_interval_steps != 0:
+      return False
     # Check if cluster membership has changed
     with self.pending_cluster_spec_lock:
       if self.pending_cluster_spec is not None:
