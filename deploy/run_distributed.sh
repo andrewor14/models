@@ -34,7 +34,7 @@ export BATCH_SIZE="${BATCH_SIZE:=1024}"
 
 # Keras-specific flags
 if [[ "$USE_KERAS" == "true" ]]; then
-  export SKIP_EVAL="${SKIP_EVAL:=true}"
+  export SKIP_EVAL="${SKIP_EVAL:=false}"
   export ENABLE_EAGER="${ENABLE_EAGER:=true}"
   export LOG_STEPS="1"
 else

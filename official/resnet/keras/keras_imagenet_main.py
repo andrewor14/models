@@ -268,14 +268,13 @@ def do_run(flags_obj, autoscaling_callback):
                       verbose=2)
 
   # If we finished all the epochs already, then signal to above that we're terminating
+  eval_output = None
   if autoscaling_callback.num_epochs_processed == flags_obj.train_epochs:
     autoscaling_callback.agent.status = AutoscalingStatus.TERMINATED
-
-  eval_output = None
-  if not flags_obj.skip_eval:
-    eval_output = model.evaluate(eval_input_dataset,
-                                 steps=num_eval_steps,
-                                 verbose=2)
+    if not flags_obj.skip_eval:
+      eval_output = model.evaluate(eval_input_dataset,
+                                   steps=num_eval_steps,
+                                   verbose=2)
 
   if not strategy and flags_obj.explicit_gpu_placement:
     no_dist_strat_device.__exit__()

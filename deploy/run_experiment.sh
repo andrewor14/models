@@ -31,6 +31,7 @@ fi
 # Don't touch these
 export USE_KERAS="true"
 export USE_HOROVOD="true"
+export ENABLE_EAGER="true"
 export NUM_PARAMETER_SERVERS="0"
 export MPI_SILENCE_OUTPUT="true"
 

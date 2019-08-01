@@ -48,7 +48,7 @@ fi
 
 # Keras-specific configs
 if [[ "$USE_KERAS" == "true" ]]; then
-  SKIP_EVAL="${SKIP_EVAL:=true}"
+  SKIP_EVAL="${SKIP_EVAL:=false}"
   ENABLE_EAGER="${ENABLE_EAGER:=true}"
   USE_HOROVOD="${USE_HOROVOD:=false}"
   LOG_STEPS="${LOG_STEPS:=100}"
