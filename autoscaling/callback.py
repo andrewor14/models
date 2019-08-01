@@ -70,9 +70,6 @@ class AutoscalingCallback(keras.callbacks.Callback):
     restarting = self.agent.step_end()
     if restarting:
       self.model.stop_training = True
-      if self.agent.status != AutoscalingStatus.TERMINATED:
-        # If we are still training, save our variables for the next restart
-        self.agent.save_variables(self.get_trainable_variables())
 
   def do_on_epoch_end(self, epoch, logs):
     """
@@ -82,6 +79,13 @@ class AutoscalingCallback(keras.callbacks.Callback):
     if self.agent.status == AutoscalingStatus.RUNNING:
       self.num_epochs_processed += 1
       self.num_batches_processed_this_epoch = 0
+
+  def do_on_train_end(self, logs):
+    """
+    Save our variables for the next restart if we are not terminating.
+    """
+    if self.agent.status != AutoscalingStatus.TERMINATED:
+      self.agent.save_variables(self.get_trainable_variables())
 
   def get_trainable_variables(self):
     """
@@ -101,6 +105,9 @@ class AutoscalingCallback(keras.callbacks.Callback):
 
   def on_epoch_end(self, epoch, logs=None):
     log_exceptions(lambda: self.do_on_epoch_end(epoch, logs))
+
+  def on_train_end(self, logs=None):
+    log_exceptions(lambda: self.do_on_train_end(logs))
 
 def log_fn(msg):
   tf.logging.info("[Autoscaling callback] %s" % msg)

@@ -27,9 +27,13 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
     restarting = self.agent.step_end()
     if restarting:
       run_context.request_stop()
-      if self.agent.status != AutoscalingStatus.TERMINATED:
-        # If we are still training, save our variables for the next restart
-        self.agent.save_variables(self.get_trainable_variables(), run_context.session)
+
+  def do_end(self, session):
+    """
+    Save our variables for the next restart if we are not terminating.
+    """
+    if self.agent.status != AutoscalingStatus.TERMINATED:
+      self.agent.save_variables(self.get_trainable_variables(), session)
 
   def get_trainable_variables(self):
     """
@@ -45,6 +49,8 @@ class AutoscalingHook(tf.estimator.SessionRunHook):
   def after_run(self, run_context, run_values):
     log_exceptions(lambda: self.do_after_run(run_context, run_values))
 
+  def end(self, session):
+    log_exceptions(lambda: self.do_end(session))
 
 def log_fn(msg):
   tf.logging.info("[Autoscaling hook] %s" % msg)
