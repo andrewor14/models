@@ -8,7 +8,7 @@ export ENVIRONMENT="$(hostname | awk -F '[.-]' '{print $1}' | sed 's/[0-9]//g')"
 export SLURM_EMAIL="andrewor@princeton.edu"
 export DEFAULT_NUM_NODES="4"
 export DEFAULT_NUM_PARAMETER_SERVERS="1"
-export DEFAULT_NUM_WORKERS_PER_NODE="2"
+export DEFAULT_NUM_WORKERS_PER_NODE="1"
 
 if [[ "$ENVIRONMENT" = "tiger" ]]; then
   export ENVIRONMENT="tigergpu"
@@ -57,6 +57,7 @@ elif [[ "$ENVIRONMENT" = "snsgpu" ]]; then
   export BASE_TRAIN_DIR="/home/andrew/Documents/dev/train_data"
   export BASE_EVAL_DIR="/home/andrew/Documents/dev/eval_data"
   export PYTHON_COMMAND="python3"
+  export DEFAULT_NUM_WORKERS_PER_NODE="2"
   # No slurm on this machine, not used
   export DEFAULT_NUM_CPUS_PER_NODE=""
   export DEFAULT_MEMORY_PER_NODE=""

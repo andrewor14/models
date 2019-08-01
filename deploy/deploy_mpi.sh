@@ -59,7 +59,7 @@ elif [[ -n "$MPI_HOST_FILE" ]] || [[ -f "$DEFAULT_HOST_FILE" ]]; then
     HOST_FLAG="--hostfile $MPI_HOST_FILE"
   else
     # Otherwise, assign the default number of slots per host to each host
-    HOSTS="$(cat hosts.txt | sed s/$/:$NUM_WORKERS_PER_NODE/g | tr '\n' ',' | sed 's/,$/\n/')"
+    HOSTS="$(cat $MPI_HOST_FILE | sed s/$/:$NUM_WORKERS_PER_NODE/g | tr '\n' ',' | sed 's/,$/\n/')"
     HOST_FLAG="--host $HOSTS"
   fi
 elif [[ -n "$(command -v sinfo)" ]]; then
