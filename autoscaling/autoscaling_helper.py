@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import sys
 import traceback
 
 import tensorflow as tf
@@ -11,6 +12,9 @@ from autoscaling.callback import AutoscalingCallback
 from autoscaling.schedule_callback import PeriodicSpawnScheduleCallback
 from deploy import slurm_helper
 
+
+def log_fn(msg):
+  tf.logging.info("[Autoscaling helper]: %s" % msg)
 
 def get_train_steps_and_epochs(num_total_samples, flags_obj, autoscaling_callback):
   """
@@ -58,6 +62,8 @@ def run_keras(flags_obj, do_run):
 
   The real computation logic is specified through `do_run`, a function that takes in
   two arguments, `flags_obj` and an `AutoscalingCallback`.
+
+  WARNING: this function currently terminates the python process on finish or error.
   """
   # If TF_CONFIG is not provided, set it based on environment variables from slurm or MPI
   if "TF_CONFIG" not in os.environ:
@@ -82,6 +88,10 @@ def run_keras(flags_obj, do_run):
       tf.logging.error("Exception in resnet_main: %s (%s)" %\
         (e, e.__class__.__name__))
       traceback.print_exc()
-      raise e
-  return result
+      # Hack: the tensorflow process does not terminate properly unless we do this
+      os._exit(1)
+
+  log_fn("Training complete")
+  # Hack: the tensorflow process does not terminate properly unless we do this
+  os._exit(0)
 

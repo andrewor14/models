@@ -296,7 +296,7 @@ def define_imagenet_keras_flags():
 def main(_):
   model_helpers.apply_clean(flags.FLAGS)
   with logger.benchmark_context(flags.FLAGS):
-    return autoscaling_helper.run_keras(flags.FLAGS, do_run)
+    autoscaling_helper.run_keras(flags.FLAGS, do_run)
 
 
 if __name__ == '__main__':

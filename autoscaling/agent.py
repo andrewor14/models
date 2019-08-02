@@ -51,7 +51,7 @@ class AutoscalingAgent:
     self.step_count = 0
     self.sync_interval_steps = 1
     if os.getenv("DATASET") == "cifar10":
-      self.sync_interval_steps = 10
+      self.sync_interval_steps = 20
 
     # ========= Horovod stuff ==========
 

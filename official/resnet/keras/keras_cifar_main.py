@@ -245,7 +245,7 @@ def define_cifar_flags():
 
 def main(_):
   with logger.benchmark_context(flags.FLAGS):
-    return autoscaling_helper.run_keras(flags.FLAGS, do_run)
+    autoscaling_helper.run_keras(flags.FLAGS, do_run)
 
 
 if __name__ == '__main__':
