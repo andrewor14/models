@@ -65,7 +65,7 @@ mkdir -p "$TRAIN_DIR"
 # to update the variables, but we actually want to bypass the allreduce implementation in
 # that strategy since we're already doing it in horovod
 # TODO: This currently fails with workers with multiple GPUs. Fix it.
-if [[ "$USE_HOROVOD" == "true" ]] && [[ "$NUM_GPUS_PER_WORKER" == "1" ]]; then
+if [[ "$USE_HOROVOD" == "true" ]] && [[ "$NUM_GPUS_PER_WORKER" -le "1" ]]; then
   export BYPASS_DISTRIBUTION_STRATEGY_ALLREDUCE="true"
 fi
 
