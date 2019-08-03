@@ -104,17 +104,13 @@ def do_run(flags_obj, autoscaling_callback):
   Returns:
     Dictionary of training and eval stats.
   """
-  if flags_obj.use_horovod:
-    # Note: we force the user to enable eager mode when using horovod to simplify things.
-    # For example, in eager mode, there are no global variables so we don't need to broadcast
-    # them through horovod before training.
-    if not flags_obj.enable_eager:
-      raise ValueError("Eager mode must be enabled when using horovod")
-    import horovod.tensorflow.keras as hvd
-    hvd.init(autoscaling_callback.agent.mpi_communicator)
+  tf.logging.info("Starting do_run")
+  tf.logging.info("setting session config")
 
   keras_utils.set_session_config(enable_eager=flags_obj.enable_eager,
                                  enable_xla=flags_obj.enable_xla)
+
+  tf.logging.info("done setting session config")
 
   dtype = flags_core.get_tf_dtype(flags_obj)
   if dtype == 'fp16':
@@ -127,9 +123,14 @@ def do_run(flags_obj, autoscaling_callback):
                    if tf.test.is_built_with_cuda() else 'channels_last')
   tf.keras.backend.set_image_data_format(data_format)
 
+  tf.logging.info("Getting dist strat")
+
   strategy = distribution_utils.get_distribution_strategy(
       distribution_strategy=flags_obj.distribution_strategy,
       num_gpus=flags_obj.num_gpus)
+  strategy = None
+
+  tf.logging.info("Dist strat was %s" % strategy)
 
   strategy_scope = distribution_utils.get_strategy_scope(strategy)
 
@@ -159,31 +160,32 @@ def do_run(flags_obj, autoscaling_callback):
       num_epochs=flags_obj.train_epochs,
       parse_record_fn=parse_record_keras)
 
+  callbacks = keras_common.get_callbacks(
+      learning_rate_schedule,
+      cifar_main.NUM_IMAGES['train'],
+      autoscaling_callback.num_batches_processed_this_epoch)
+
+  tf.logging.info("Making optimizer")
+  
   with strategy_scope:
     optimizer = keras_common.get_optimizer()
-    if flags_obj.use_horovod:
-      import horovod.tensorflow.keras as hvd
-      optimizer = hvd.DistributedOptimizer(optimizer)
+    #if flags_obj.use_horovod:
+    #  import horovod.tensorflow as hvd
+    #  optimizer = hvd.DistributedOptimizer(optimizer)
+    tf.logging.info("Making model")
     model = resnet_cifar_model.resnet56(classes=cifar_main.NUM_CLASSES)
+    tf.logging.info("Compiling model")
     model.compile(loss='categorical_crossentropy',
                   optimizer=optimizer,
                   run_eagerly=flags_obj.run_eagerly,
                   metrics=['categorical_accuracy'])
     autoscaling_callback.set_model(model)
 
-  callbacks = keras_common.get_callbacks(
-      learning_rate_schedule,
-      cifar_main.NUM_IMAGES['train'],
-      autoscaling_callback.num_batches_processed_this_epoch)
-
   # Add autoscaling callbacks
   callbacks.append(autoscaling_callback)
   autoscaling_schedule_callback = autoscaling_helper.get_schedule_callback(autoscaling_callback)
   if autoscaling_schedule_callback is not None:
     callbacks.append(autoscaling_schedule_callback)
-
-  (train_steps, train_epochs) = autoscaling_helper.get_train_steps_and_epochs(\
-    cifar_main.NUM_IMAGES["train"], flags_obj, autoscaling_callback)
 
   num_eval_steps = (cifar_main.NUM_IMAGES['validation'] //
                     flags_obj.batch_size)
@@ -203,14 +205,54 @@ def do_run(flags_obj, autoscaling_callback):
     no_dist_strat_device = tf.device('/device:GPU:0')
     no_dist_strat_device.__enter__()
 
-  history = model.fit(train_input_dataset,
-                      epochs=train_epochs,
-                      steps_per_epoch=train_steps,
-                      callbacks=callbacks,
-                      validation_steps=num_eval_steps,
-                      validation_data=validation_data,
-                      validation_freq=flags_obj.epochs_between_evals,
-                      verbose=2)
+  from deploy import mpi_spawn_test
+  mpi_spawn_test.algorithm(autoscaling_callback.agent.mpi_communicator)
+
+  first_time = True
+  while False: #autoscaling_callback.agent.mpi_communicator.size < 10:
+    if flags_obj.use_horovod:
+      # Note: we force the user to enable eager mode when using horovod to simplify things.
+      # For example, in eager mode, there are no global variables so we don't need to broadcast
+      # them through horovod before training.
+      if not flags_obj.enable_eager:
+        raise ValueError("Eager mode must be enabled when using horovod")
+      import horovod.tensorflow as hvd
+      tf.logging.info("hvd.init")
+      hvd.init(autoscaling_callback.agent.mpi_communicator)
+      tf.logging.info("done hvd.init")
+      tf.logging.info("hvd size = %s" % hvd.size())
+      #if "AUTOSCALING_MASTER_HOST_PORT" in os.environ or not first_time:
+      tf.logging.info("Doing a round of allreduce before training")
+      avg_rank = hvd.allreduce(tf.constant(hvd.rank()))
+      tf.logging.info("Result was = %s" % avg_rank)
+      tf.logging.info("hvd.shutdown")
+      hvd.shutdown()
+
+    #(train_steps, train_epochs) = autoscaling_helper.get_train_steps_and_epochs(\
+    #  cifar_main.NUM_IMAGES["train"], flags_obj, autoscaling_callback)
+
+    tf.logging.info("model.fit")
+    #history = model.fit(train_input_dataset,
+    #                    epochs=train_epochs,
+    #                    steps_per_epoch=train_steps,
+    #                    callbacks=callbacks,
+    #                    validation_steps=num_eval_steps,
+    #                    validation_data=validation_data,
+    #                    validation_freq=flags_obj.epochs_between_evals,
+    #                    verbose=2)
+    tf.logging.info("model.fit done")
+
+    if autoscaling_callback.agent.mpi_communicator.rank == 0:
+      autoscaling_callback.agent.mpi_spawn_worker()
+    # Wait until we have a pending cluster spec
+    import time
+    while True:
+      with autoscaling_callback.agent.pending_cluster_spec_lock:
+        if autoscaling_callback.agent.pending_cluster_spec is not None:
+          break
+      time.sleep(1)
+    autoscaling_callback.agent.initialize()
+    first_time = False
 
   # If we finished all the epochs already, then signal to above that we're terminating
   eval_output = None
@@ -225,10 +267,6 @@ def do_run(flags_obj, autoscaling_callback):
     no_dist_strat_device.__exit__()
 
   stats = keras_common.build_stats(history, eval_output, callbacks)
-
-  if flags_obj.use_horovod:
-    import horovod.tensorflow.keras as hvd
-    hvd.shutdown()
 
   return stats
 

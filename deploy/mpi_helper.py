@@ -52,6 +52,9 @@ def set_tf_config(base_port=2222):
   log_fn("Setting %s to %s" % (TF_CONFIG, tf_config))
   os.environ[TF_CONFIG] = tf_config
 
+four_comm = None
+five_comm = None
+six_comm = None
 def expand(intracomm, intercomm=None):
   """
   Expand an existing intracommunicator by merging an intercommunicator into it.
@@ -68,6 +71,14 @@ def expand(intracomm, intercomm=None):
   is_joining = intracomm.rank == 0 and AUTOSCALING_MASTER_HOST_PORT in os.environ
   is_root = intracomm.rank == 0 and not is_joining  
   tag = MPI_CURRENT_TAG if is_root else None
+  null_comm = MPI.Intracomm(MPI.COMM_NULL)
+
+  global four_comm
+  global five_comm
+  global six_comm
+  if intracomm.size == 4: four_comm = intracomm.Dup()
+  if intracomm.size == 5: five_comm = intracomm.Dup()
+  if intracomm.size == 6: six_comm = intracomm.Dup()
 
   if is_joining:
     log_fn("Joining an existing communicator")
@@ -78,7 +89,7 @@ def expand(intracomm, intercomm=None):
   if intercomm is not None:
     merged_intracomm = intercomm.Merge(is_joining)
   else:
-    merged_intracomm = MPI.Intracomm(MPI.COMM_NULL)
+    merged_intracomm = null_comm
 
   # The root broadcasts its tag in both communicators to make sure everyone has the same tag
   if intercomm is not None:
@@ -96,8 +107,20 @@ def expand(intracomm, intercomm=None):
   comm = super_merged_intercomm.Merge(is_joining)
   log_fn("Our rank in new communicator = %s (size %s)" % (comm.rank, comm.size))
 
+  # Clean up
+  #super_merged_intercomm.Free()
+  #if merged_intracomm != null_comm:
+  #  merged_intracomm.Free()
+  #if intracomm is not None:
+  #  intracomm.Free()
+
   # Run some collective operations on this communicator
-  test_communication(comm)
+  if comm.size == 7: test_communication(six_comm)
+  if comm.size == 8: test_communication(five_comm)
+  if comm.size == 9: test_communication(six_comm)
+
+  # HACK
+  tf.keras.backend.clear_session()
 
   if is_root:
     MPI_CURRENT_TAG += 1
@@ -141,6 +164,8 @@ def test_communication(comm):
   """
   Helper method to make sure basic communication works in the given communicator.
   """
+  if comm is None:
+    return
   log_fn("Testing communication in communicator %s (size %s)" % (comm, comm.size))
   # Try broadcasting a value
   value = "[root value]" if comm.rank == 0 else None
@@ -150,4 +175,15 @@ def test_communication(comm):
   # Try doing an allreduce
   value = comm.allreduce(comm.rank, op=MPI.SUM)
   log_fn("  Allreduce result: %s" % value)
+  # Try running horovod
+  import horovod.tensorflow.keras as hvd
+  from tensorflow.python.keras import backend
+  log_fn("  hvd.init")
+  hvd.init(comm)
+  log_fn("  done hvd.init")
+  log_fn("  hvd.mpi_threads_supported() = %s" % hvd.mpi_threads_supported())
+  hvd.allreduce(hvd.rank())
+  log_fn("  Horovod allreduce result: %s" % value)
+  hvd.shutdown()
+  log_fn("  done hvd.shutdown")
 

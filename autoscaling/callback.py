@@ -59,6 +59,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
     """
     Restore saved variables from memory, if any, before running the first step.
     """
+    log_fn("batch begin")
     if self.agent.saved_variables is not None:
       self.agent.restore_variables(self.get_trainable_variables())
 
@@ -108,6 +109,9 @@ class AutoscalingCallback(keras.callbacks.Callback):
 
   def on_train_end(self, logs=None):
     log_exceptions(lambda: self.do_on_train_end(logs))
+
+  def on_train_begin(self, logs=None):
+    log_fn("on train begin")
 
 def log_fn(msg):
   tf.logging.info("[Autoscaling callback] %s" % msg)

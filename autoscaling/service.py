@@ -78,6 +78,7 @@ class AutoscalingService:
       client = self.agent.client
       for server in client.servers:
         if server != client.master_server:
+          log_fn("Told server %s to add worker %s" % (server, host_port))
           server.add_workers([host_port])
       self.add_workers([host_port])
       # Note: There may be pending workers that are not part of the autoscaling client yet.

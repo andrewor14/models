@@ -51,7 +51,7 @@ class AutoscalingAgent:
     self.step_count = 0
     self.sync_interval_steps = 1
     if os.getenv("DATASET") == "cifar10":
-      self.sync_interval_steps = 20
+      self.sync_interval_steps = 10
 
     # ========= Horovod stuff ==========
 
@@ -129,8 +129,9 @@ class AutoscalingAgent:
     new_tf_config = {"cluster": self.cluster_spec,\
       "task": {"type": self.task_type, "index": self.task_index}}
     new_tf_config = json.dumps(new_tf_config)
-    log_fn("Setting TF_CONFIG = %s" % new_tf_config)
+    #log_fn("Setting TF_CONFIG = %s" % new_tf_config)
     os.environ["TF_CONFIG"] = new_tf_config
+    del os.environ["TF_CONFIG"]
     # Update CUDA_VISIBLE_DEVICES with respect to new TF_CONFIG
     if self.num_gpus_per_worker > 0:
       cuda_helper.set_cuda_visible_devices(self.num_gpus_per_worker)
@@ -269,7 +270,7 @@ class AutoscalingAgent:
     Return the list of everyone's status once the target is reached.
     """
     targets = [target] if not isinstance(target, list) else target
-    log_fn = lambda _: None if quiet else log_fn
+    #log_fn = lambda _: None if quiet else log_fn
     # Check if we have reached the target ourselves
     my_status = self.status
     if my_status not in targets:
@@ -396,6 +397,12 @@ class AutoscalingAgent:
         log_fn("Received signal to restart server")
         self.status = AutoscalingStatus.RESTARTING
         self.status_barrier(AutoscalingStatus.RESTARTING)
+        self.initialize()
+        #log_fn("hvd.shutdown")
+        #hvd.shutdown()
+        #log_fn("hvd.init")
+        #hvd.init(self.mpi_communicator)
+        #log_fn("whee done hvd.init")
       return True
 
 
