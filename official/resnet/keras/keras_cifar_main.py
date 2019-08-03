@@ -33,7 +33,6 @@ from official.resnet.keras import resnet_cifar_model
 from official.utils.flags import core as flags_core
 from official.utils.logs import logger
 from official.utils.misc import distribution_utils
-from official.utils.misc import keras_utils
 
 
 LR_SCHEDULE = [  # (multiplier, epoch to start) tuples
@@ -105,12 +104,6 @@ def do_run(flags_obj, autoscaling_callback):
     Dictionary of training and eval stats.
   """
   tf.logging.info("Starting do_run")
-  tf.logging.info("setting session config")
-
-  keras_utils.set_session_config(enable_eager=flags_obj.enable_eager,
-                                 enable_xla=flags_obj.enable_xla)
-
-  tf.logging.info("done setting session config")
 
   dtype = flags_core.get_tf_dtype(flags_obj)
   if dtype == 'fp16':
@@ -206,9 +199,8 @@ def do_run(flags_obj, autoscaling_callback):
     no_dist_strat_device.__enter__()
 
   #from deploy import mpi_spawn_test
-  #mpi_spawn_test.algorithm(autoscaling_callback.agent)
+  #mpi_spawn_test.algorithm2(autoscaling_callback.agent)
 
-  first_time = True
   while autoscaling_callback.agent.mpi_communicator.size < 10:
     if flags_obj.use_horovod:
       # Note: we force the user to enable eager mode when using horovod to simplify things.
@@ -216,7 +208,17 @@ def do_run(flags_obj, autoscaling_callback):
       # them through horovod before training.
       if not flags_obj.enable_eager:
         raise ValueError("Eager mode must be enabled when using horovod")
-      import horovod.tensorflow.keras as hvd
+      import horovod.tensorflow as hvd
+      from mpi4py import MPI
+      # Hack:
+      tf.logging.info("hack begin")
+      tf.keras.backend.clear_session()
+      hvd.init(MPI.COMM_WORLD.Dup())
+      hvd.allreduce(tf.constant(hvd.rank()))
+      hvd.shutdown()
+      tf.keras.backend.clear_session()
+      tf.logging.info("hack end")
+
       tf.logging.info("hvd.init")
       hvd.init(autoscaling_callback.agent.mpi_communicator)
       tf.logging.info("done hvd.init")
@@ -225,6 +227,8 @@ def do_run(flags_obj, autoscaling_callback):
       tf.logging.info("Doing a round of allreduce before training")
       avg_rank = hvd.allreduce(tf.constant(hvd.rank()))
       tf.logging.info("Result was = %s" % avg_rank)
+    if flags_obj.use_horovod:
+      import horovod.tensorflow as hvd
       tf.logging.info("hvd.shutdown")
       hvd.shutdown()
 
@@ -252,7 +256,6 @@ def do_run(flags_obj, autoscaling_callback):
           break
       time.sleep(1)
     autoscaling_callback.agent.initialize()
-    first_time = False
 
   # If we finished all the epochs already, then signal to above that we're terminating
   eval_output = None

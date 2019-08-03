@@ -11,6 +11,7 @@ from autoscaling.params import *
 from autoscaling.callback import AutoscalingCallback
 from autoscaling.schedule_callback import PeriodicSpawnScheduleCallback
 from deploy import slurm_helper
+from official.utils.misc import keras_utils
 
 
 def log_fn(msg):
@@ -73,6 +74,11 @@ def run_keras(flags_obj, do_run):
     elif flags_obj.use_horovod:
       from deploy import mpi_helper
       mpi_helper.set_tf_config()
+
+  keras_utils.set_session_config(
+    enable_eager=flags_obj.enable_eager,
+    enable_xla=flags_obj.enable_xla,
+    enable_grappler_layout_optimizer=flags_obj.enable_grappler_layout_optimizer)
 
   # Keep track of cluster membership changes through an autoscaling hook
   autoscaling_agent = AutoscalingAgent(flags_obj.num_gpus)

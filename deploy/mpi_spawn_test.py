@@ -25,12 +25,12 @@ def main():
   try:
     tf.enable_eager_execution()
     mpi_helper.set_tf_config()
-    algorithm(AutoscalingAgent())
+    algorithm2(AutoscalingAgent())
   except Exception as e:
     log("##### ERROR #####")
     log(e)
     import traceback
-    tracek.print_stack()
+    traceback.print_stack()
     raise e
 
 def experiment():
@@ -104,6 +104,31 @@ def algorithm(agent):
     ***********************************************************
       All done, our rank in final communicator = %s (size %s)
     ***********************************************************""" % (comm.rank, comm.size)))
+
+def algorithm2(agent):
+  while agent.mpi_communicator.size < 10:
+    agent.initialize()
+    #import horovod.tensorflow as hvd
+    #tf.logging.info("hvd.init")
+    #hvd.init(autoscaling_callback.agent.mpi_communicator)
+    #tf.logging.info("done hvd.init")
+    #tf.logging.info("hvd size = %s" % hvd.size())
+    ##if "AUTOSCALING_MASTER_HOST_PORT" in os.environ or not first_time:
+    #tf.logging.info("Doing a round of allreduce before training")
+    #avg_rank = hvd.allreduce(tf.constant(hvd.rank()))
+    #tf.logging.info("Result was = %s" % avg_rank)
+    #tf.logging.info("hvd.shutdown")
+    #hvd.shutdown()
+
+    if agent.mpi_communicator.rank == 0:
+      agent.mpi_spawn_worker()
+    # Wait until we have a pending cluster spec
+    import time
+    while True:
+      with agent.pending_cluster_spec_lock:
+        if agent.pending_cluster_spec is not None:
+          break
+      time.sleep(1)
 
 if __name__ == "__main__":
   tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)

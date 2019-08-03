@@ -184,14 +184,14 @@ def test_communication(comm):
   value = comm.allreduce(comm.rank, op=MPI.SUM)
   log_fn("  Allreduce result: %s" % value)
   # Try running horovod
-  import horovod.tensorflow as hvd
-  log_fn("  hvd.init")
-  hvd.init(comm)
-  log_fn("  done hvd.init")
-  log_fn("  hvd.mpi_threads_supported() = %s" % hvd.mpi_threads_supported())
-  log_fn("  Running horovod allreduce")
-  hvd.allreduce(tf.constant(hvd.rank()))
-  log_fn("  Horovod allreduce result: %s" % value)
-  hvd.shutdown()
-  log_fn("  done hvd.shutdown")
+  #import horovod.tensorflow as hvd
+  #log_fn("  hvd.init")
+  #hvd.init(comm)
+  #log_fn("  done hvd.init, comm.size = %s" % comm.size)
+  #log_fn("  hvd.mpi_threads_supported() = %s" % hvd.mpi_threads_supported())
+  #log_fn("  Running horovod allreduce")
+  #hvd.allreduce(tf.constant(hvd.rank()))
+  #log_fn("  Horovod allreduce result: %s" % value)
+  #hvd.shutdown()
+  #log_fn("  done hvd.shutdown")
 

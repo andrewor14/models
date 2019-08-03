@@ -31,7 +31,6 @@ from official.resnet.keras import trivial_model
 from official.utils.flags import core as flags_core
 from official.utils.logs import logger
 from official.utils.misc import distribution_utils
-from official.utils.misc import keras_utils
 from official.utils.misc import model_helpers
 
 
@@ -103,12 +102,6 @@ def do_run(flags_obj, autoscaling_callback):
       raise ValueError("Eager mode must be enabled when using horovod")
     import horovod.tensorflow.keras as hvd
     hvd.init(autoscaling_callback.agent.mpi_communicator)
-
-  keras_utils.set_session_config(
-      enable_eager=flags_obj.enable_eager,
-      enable_xla=flags_obj.enable_xla,
-      enable_grappler_layout_optimizer=
-      flags_obj.enable_grappler_layout_optimizer)
 
   # Execute flag override logic for better model performance
   if flags_obj.tf_gpu_thread_mode:
