@@ -115,12 +115,20 @@ def expand(intracomm, intercomm=None):
   #  intracomm.Free()
 
   # Run some collective operations on this communicator
-  if comm.size == 7: test_communication(six_comm)
-  if comm.size == 8: test_communication(five_comm)
-  if comm.size == 9: test_communication(six_comm)
-
-  # HACK
+  test_communication(MPI.COMM_WORLD.Dup())
   tf.keras.backend.clear_session()
+  test_communication(comm)
+  tf.keras.backend.clear_session()
+
+  #if comm.size == 7:
+  #  test_communication(MPI.COMM_WORLD.Dup())
+  #  tf.keras.backend.clear_session()
+  #  test_communication(four_comm)
+  #  tf.keras.backend.clear_session()
+  #  test_communication(five_comm)
+  #  tf.keras.backend.clear_session()
+  #  test_communication(six_comm)
+  #  tf.keras.backend.clear_session()
 
   if is_root:
     MPI_CURRENT_TAG += 1
