@@ -23,10 +23,14 @@ def log(msg):
 
 def main():
   try:
-    #tf.enable_eager_execution()
-    algorithm()
+    tf.enable_eager_execution()
+    mpi_helper.set_tf_config()
+    algorithm(AutoscalingAgent())
   except Exception as e:
     log("##### ERROR #####")
+    log(e)
+    import traceback
+    tracek.print_stack()
     raise e
 
 def experiment():
@@ -68,36 +72,33 @@ def experiment():
 
   log("All done")
 
-def algorithm():
+def algorithm(agent):
   """
   Start the algorithm with a communicator that only includes the root
   then slowly spawn workers one by one and let them join our communicator.
   """
-  #comm = agent.mpi_communicator
-  comm = MPI.COMM_WORLD.Dup()
+  comm = agent.mpi_communicator
   is_joining = AUTOSCALING_MASTER_HOST_PORT in os.environ
   is_root = comm.rank == 0 and not is_joining
-  #if is_root:
-  #  from autoscaling.params import AutoscalingStatus
-  #  agent.status = AutoscalingStatus.RUNNING
+  if is_root:
+    from autoscaling.params import AutoscalingStatus
+    agent.status = AutoscalingStatus.RUNNING
   while comm.size < MAX_WORKERS:
     log("========== Join remote, current size = %s ==========" % comm.size)
-    spawn_intercomm = None
+    #spawn_intercomm = None
     if is_root:
       log("Master is spawning worker %s" % comm.size)
-      #agent.mpi_spawn_worker()
+      agent.mpi_spawn_worker()
       #spawn_intercomm = agent.mpi_spawned_communicators.pop(0)
       #agent.mpi_spawned_communicators.append(spawn_intercomm)
       #env = { AUTOSCALING_MASTER_HOST_PORT: agent.client.master_host_port }
-      env = { AUTOSCALING_MASTER_HOST_PORT: "Joined worker(%s)" % comm.size }
-      spawn_intercomm = mpi_helper.spawn(comm.size, env=env)
-    elif is_joining:
-      spawn_intercomm = MPI.Comm.Get_parent()
-    comm = mpi_helper.expand(comm, spawn_intercomm)
-    #if is_root: log("BEFORE expand root's spawned communicators: %s" % agent.mpi_spawned_communicators)
-    #agent.maybe_expand_mpi_communicator()
-    #if is_root: log("AFTER expand root's spawned communicators: %s" % agent.mpi_spawned_communicators)
-    #agent.mpi_communicator = comm
+      #env = { AUTOSCALING_MASTER_HOST_PORT: "Joined worker(%s)" % comm.size }
+      #spawn_intercomm = mpi_helper.spawn(comm.size, env=env)
+    #elif is_joining:
+    #  spawn_intercomm = MPI.Comm.Get_parent()
+    #comm = mpi_helper.expand(comm, spawn_intercomm)
+    agent.maybe_expand_mpi_communicator()
+    comm = agent.mpi_communicator
     is_joining = False
   log(textwrap.dedent("""
     ***********************************************************

@@ -205,18 +205,18 @@ def do_run(flags_obj, autoscaling_callback):
     no_dist_strat_device = tf.device('/device:GPU:0')
     no_dist_strat_device.__enter__()
 
-  from deploy import mpi_spawn_test
-  mpi_spawn_test.algorithm(autoscaling_callback.agent.mpi_communicator)
+  #from deploy import mpi_spawn_test
+  #mpi_spawn_test.algorithm(autoscaling_callback.agent)
 
   first_time = True
-  while False: #autoscaling_callback.agent.mpi_communicator.size < 10:
+  while autoscaling_callback.agent.mpi_communicator.size < 10:
     if flags_obj.use_horovod:
       # Note: we force the user to enable eager mode when using horovod to simplify things.
       # For example, in eager mode, there are no global variables so we don't need to broadcast
       # them through horovod before training.
       if not flags_obj.enable_eager:
         raise ValueError("Eager mode must be enabled when using horovod")
-      import horovod.tensorflow as hvd
+      import horovod.tensorflow.keras as hvd
       tf.logging.info("hvd.init")
       hvd.init(autoscaling_callback.agent.mpi_communicator)
       tf.logging.info("done hvd.init")

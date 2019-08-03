@@ -52,9 +52,9 @@ def set_tf_config(base_port=2222):
   log_fn("Setting %s to %s" % (TF_CONFIG, tf_config))
   os.environ[TF_CONFIG] = tf_config
 
-four_comm = None
-five_comm = None
-six_comm = None
+#four_comm = None
+#five_comm = None
+#six_comm = None
 def expand(intracomm, intercomm=None):
   """
   Expand an existing intracommunicator by merging an intercommunicator into it.
@@ -73,12 +73,12 @@ def expand(intracomm, intercomm=None):
   tag = MPI_CURRENT_TAG if is_root else None
   null_comm = MPI.Intracomm(MPI.COMM_NULL)
 
-  global four_comm
-  global five_comm
-  global six_comm
-  if intracomm.size == 4: four_comm = intracomm.Dup()
-  if intracomm.size == 5: five_comm = intracomm.Dup()
-  if intracomm.size == 6: six_comm = intracomm.Dup()
+  #global four_comm
+  #global five_comm
+  #global six_comm
+  #if intracomm.size == 4: four_comm = intracomm.Dup()
+  #if intracomm.size == 5: five_comm = intracomm.Dup()
+  #if intracomm.size == 6: six_comm = intracomm.Dup()
 
   if is_joining:
     log_fn("Joining an existing communicator")
@@ -184,13 +184,13 @@ def test_communication(comm):
   value = comm.allreduce(comm.rank, op=MPI.SUM)
   log_fn("  Allreduce result: %s" % value)
   # Try running horovod
-  import horovod.tensorflow.keras as hvd
-  from tensorflow.python.keras import backend
+  import horovod.tensorflow as hvd
   log_fn("  hvd.init")
   hvd.init(comm)
   log_fn("  done hvd.init")
   log_fn("  hvd.mpi_threads_supported() = %s" % hvd.mpi_threads_supported())
-  hvd.allreduce(hvd.rank())
+  log_fn("  Running horovod allreduce")
+  hvd.allreduce(tf.constant(hvd.rank()))
   log_fn("  Horovod allreduce result: %s" % value)
   hvd.shutdown()
   log_fn("  done hvd.shutdown")
