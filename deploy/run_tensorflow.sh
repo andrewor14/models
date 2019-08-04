@@ -49,7 +49,11 @@ fi
 # Keras-specific configs
 if [[ "$USE_KERAS" == "true" ]]; then
   SKIP_EVAL="${SKIP_EVAL:=false}"
+  # ENABLE_EAGER refers to whether we should set tf.enable_eager_execution
+  # RUN_EAGERLY refers to whether we should run the keras model ops eagerly
+  # They are different configs in the models repo, but here we link them by default
   ENABLE_EAGER="${ENABLE_EAGER:=true}"
+  RUN_EAGERLY="${RUN_EAGERLY:=$ENABLE_EAGER}"
   USE_HOROVOD="${USE_HOROVOD:=false}"
   LOG_STEPS="${LOG_STEPS:=100}"
 else
@@ -61,12 +65,12 @@ fi
 TRAIN_DIR="${TRAIN_DIR:=$BASE_TRAIN_DIR/$JOB_NAME}"
 mkdir -p "$TRAIN_DIR"
 
-# If we're running horovod, then we're just using tensorflow's CollectiveAllReduceStrategy
-# to update the variables, but we actually want to bypass the allreduce implementation in
-# that strategy since we're already doing it in horovod
-# TODO: This currently fails with workers with multiple GPUs. Fix it.
-if [[ "$USE_HOROVOD" == "true" ]] && [[ "$NUM_GPUS_PER_WORKER" -le "1" ]]; then
-  export BYPASS_DISTRIBUTION_STRATEGY_ALLREDUCE="true"
+# If we're running Horovod, make sure we're running eagerly otherwise Horovod will hang!
+if [[ "$USE_HOROVOD" == "true" ]]; then
+  if [[ "$ENABLE_EAGER" != "true" ]] || [[ "$RUN_EAGERLY" != "true" ]]; then
+    echo "ERROR: When using Horovod, ENABLE_EAGER and RUN_EAGERLY must be set to true"
+    exit 1
+  fi
 fi
 
 # Only allow positive number of parameter servers if we're running in parameter_server mode
@@ -104,6 +108,7 @@ if [[ "$USE_KERAS" == "true" ]]; then
   FLAGS="$COMMON_FLAGS"\
 " --skip_eval=$SKIP_EVAL"\
 " --enable_eager=$ENABLE_EAGER"\
+" --run_eagerly=$RUN_EAGERLY"\
 " --use_horovod=$USE_HOROVOD"\
 " --log_steps=$LOG_STEPS"
 else

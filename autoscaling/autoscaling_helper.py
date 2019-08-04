@@ -11,12 +11,13 @@ from autoscaling.params import *
 from autoscaling.callback import AutoscalingCallback
 from autoscaling.schedule_callback import PeriodicSpawnScheduleCallback
 from deploy import slurm_helper
+from official.utils.misc import keras_utils
 
 
 def log_fn(msg):
   tf.logging.info("[Autoscaling helper]: %s" % msg)
 
-def get_train_steps_and_epochs(num_total_samples, flags_obj, autoscaling_callback):
+def get_train_steps_and_epochs(num_total_samples, flags_obj, callback):
   """
   Return how many steps and epochs to train this round before restarting.
   """
@@ -29,19 +30,19 @@ def get_train_steps_and_epochs(num_total_samples, flags_obj, autoscaling_callbac
   # epoch first, then restart again with the original number of batches in an epoch
   original_train_steps = train_steps
   original_train_epochs = train_epochs
-  if autoscaling_callback.num_batches_processed_this_epoch > 0:
-    train_steps -= autoscaling_callback.num_batches_processed_this_epoch
+  if callback.num_batches_processed_this_epoch > 0:
+    train_steps -= callback.num_batches_processed_this_epoch
     tf.logging.info("There are %s/%s batches left in this epoch" %\
       (train_steps, original_train_steps))
     train_epochs = 1
   else:
     # Otherwise, just finish the remaining epochs
-    train_epochs -= autoscaling_callback.num_epochs_processed
+    train_epochs -= callback.num_epochs_processed
     tf.logging.info("There are %s/%s epochs left" %\
       (train_epochs, original_train_epochs))
   return train_steps, train_epochs
 
-def get_schedule_callback(autoscaling_callback):
+def get_schedule_callback(callback):
   """
   Return a `keras.callbacks.Callback` that specifies the autoscaling schedule to be used.
   """
@@ -49,12 +50,32 @@ def get_schedule_callback(autoscaling_callback):
   autoscaling_max_workers = int(os.getenv(AUTOSCALING_MAX_WORKERS, -1))
   if autoscaling_spawn_every_n_steps > 0 and\
       autoscaling_max_workers > 0 and\
-      autoscaling_callback.agent.task_index == 0:
+      callback.agent.task_index == 0:
     periodic_spawn_callback = PeriodicSpawnScheduleCallback(\
-      autoscaling_callback.agent, autoscaling_spawn_every_n_steps, autoscaling_max_workers)
-    periodic_spawn_callback.step_count = autoscaling_callback.num_batches_processed_this_epoch
+      callback.agent, autoscaling_spawn_every_n_steps, autoscaling_max_workers)
+    periodic_spawn_callback.step_count = callback.num_batches_processed_this_epoch
     return periodic_spawn_callback
   return None
+
+def initialize_horovod(flags_obj, comm):
+  import horovod.tensorflow as hvd
+  from mpi4py import MPI
+  # Note: we force the user to enable eager mode when using horovod to simplify things.
+  # For example, in eager mode, there are no global variables so we don't need to broadcast
+  # them through horovod before training.
+  if not flags_obj.enable_eager or not flags_obj.run_eagerly:
+    raise ValueError("Eager mode must be enabled when using horovod; "
+      "please set both --enable_eager and --run_eagerly to true")
+  # HACK: Horovod freezes when restarting with a larger communicator.
+  # However, this issue goes away if we first restart with MPI.COMM_WORLD
+  # and also clear any lingering state in tensorflow's keras backend.
+  # Admittedly, it is unclear why this works, but it does!
+  tf.keras.backend.clear_session()
+  hvd.init(MPI.COMM_WORLD.Dup())
+  hvd.allreduce(tf.constant(hvd.rank()))
+  hvd.shutdown()
+  tf.keras.backend.clear_session()
+  hvd.init(comm)
 
 def run_keras(flags_obj, do_run):
   """ 
@@ -74,16 +95,29 @@ def run_keras(flags_obj, do_run):
       from deploy import mpi_helper
       mpi_helper.set_tf_config()
 
-  # Keep track of cluster membership changes through an autoscaling hook
-  autoscaling_agent = AutoscalingAgent(flags_obj.num_gpus)
-  autoscaling_callback = AutoscalingCallback(autoscaling_agent)
+  # Always enable eager execution in the beginning
+  keras_utils.set_session_config(
+    enable_eager=flags_obj.enable_eager,
+    enable_xla=flags_obj.enable_xla,
+    enable_grappler_layout_optimizer=flags_obj.enable_grappler_layout_optimizer)
 
-  while autoscaling_agent.status != AutoscalingStatus.TERMINATED:
+  # Keep track of cluster membership changes through an autoscaling hook
+  agent = AutoscalingAgent(flags_obj.num_gpus)
+  callback = AutoscalingCallback(agent)
+
+  while agent.status != AutoscalingStatus.TERMINATED:
     try:
-      autoscaling_agent.initialize()
-      result = do_run(flags_obj, autoscaling_callback)
-      autoscaling_agent.on_restart()
-      autoscaling_callback.reset()
+      agent.initialize()
+      if flags_obj.use_horovod:
+        initialize_horovod(flags_obj, agent.mpi_communicator)
+      # Actually run the training
+      # We expect this function to call model.fit
+      result = do_run(flags_obj, callback)
+      agent.on_restart()
+      callback.reset()
+      if flags_obj.use_horovod:
+        import horovod.tensorflow as hvd
+        hvd.shutdown()
     except Exception as e:
       tf.logging.error("Exception in resnet_main: %s (%s)" %\
         (e, e.__class__.__name__))

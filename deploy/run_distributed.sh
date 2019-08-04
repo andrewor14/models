@@ -42,9 +42,6 @@ else
   export LOG_EVERY_N_STEPS="1"
 fi
 
-# Set run tag to identify the job
-export RUN_TAG="${DATASET}-${BATCH_SIZE}-${MODE}-${NUM_WORKERS}"
-
 # Autoscaling flags
 if [[ "$MODE" == "autoscaling" ]]; then
   export AUTOSCALING_DISABLE_WRITE_GRAPH="true"
@@ -55,8 +52,13 @@ if [[ "$MODE" == "autoscaling" ]]; then
   # If we're just trying to attach to an existing cluster, just launch 1 worker
   if [[ -n "$AUTOSCALING_MASTER_HOST_PORT" ]]; then
     export NUM_WORKERS=1
-    export RUN_TAG="${RUN_TAG}-spawned"
   fi
+fi
+
+# Set run tag to identify the job
+export RUN_TAG="${DATASET}-${BATCH_SIZE}-${MODE}-${NUM_WORKERS}"
+if [[ -n "$AUTOSCALING_MASTER_HOST_PORT" ]]; then
+  export RUN_TAG="${RUN_TAG}-spawned"
 fi
 
 ./deploy.sh

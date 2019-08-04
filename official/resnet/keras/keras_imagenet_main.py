@@ -31,7 +31,6 @@ from official.resnet.keras import trivial_model
 from official.utils.flags import core as flags_core
 from official.utils.logs import logger
 from official.utils.misc import distribution_utils
-from official.utils.misc import keras_utils
 from official.utils.misc import model_helpers
 
 
@@ -95,21 +94,6 @@ def do_run(flags_obj, autoscaling_callback):
   Returns:
     Dictionary of training and eval stats.
   """
-  if flags_obj.use_horovod:
-    # Note: we force the user to enable eager mode when using horovod to simplify things.
-    # For example, in eager mode, there are no global variables so we don't need to broadcast
-    # them through horovod before training.
-    if not flags_obj.enable_eager:
-      raise ValueError("Eager mode must be enabled when using horovod")
-    import horovod.tensorflow.keras as hvd
-    hvd.init(autoscaling_callback.agent.mpi_communicator)
-
-  keras_utils.set_session_config(
-      enable_eager=flags_obj.enable_eager,
-      enable_xla=flags_obj.enable_xla,
-      enable_grappler_layout_optimizer=
-      flags_obj.enable_grappler_layout_optimizer)
-
   # Execute flag override logic for better model performance
   if flags_obj.tf_gpu_thread_mode:
     keras_common.set_gpu_thread_mode_and_count(flags_obj)
@@ -128,7 +112,12 @@ def do_run(flags_obj, autoscaling_callback):
                    if tf.test.is_built_with_cuda() else 'channels_last')
   tf.keras.backend.set_image_data_format(data_format)
 
-  strategy = distribution_utils.get_distribution_strategy(
+  if flags_obj.use_horovod:
+    # We use horovod to synchronize the variables across replicas
+    # Each tensorflow process is unaware of other processes
+    strategy = None
+  else:
+    strategy = distribution_utils.get_distribution_strategy(
       distribution_strategy=flags_obj.distribution_strategy,
       num_gpus=flags_obj.num_gpus,
       num_workers=distribution_utils.configure_cluster(),
@@ -280,10 +269,6 @@ def do_run(flags_obj, autoscaling_callback):
     no_dist_strat_device.__exit__()
 
   stats = keras_common.build_stats(history, eval_output, callbacks)
-
-  if flags_obj.use_horovod:
-    import horovod.tensorflow.keras as hvd
-    hvd.shutdown()
 
   return stats
 

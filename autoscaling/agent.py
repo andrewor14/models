@@ -51,7 +51,7 @@ class AutoscalingAgent:
     self.step_count = 0
     self.sync_interval_steps = 1
     if os.getenv("DATASET") == "cifar10":
-      self.sync_interval_steps = 20
+      self.sync_interval_steps = 10
 
     # ========= Horovod stuff ==========
 
@@ -112,6 +112,12 @@ class AutoscalingAgent:
         raise ValueError("'%s' is not an AutoscalingStatus" % s)
       self._status = s
 
+  def using_horovod(self):
+    """
+    Return whether we use horovod to average gradients during training.
+    """
+    return self.mpi_communicator is not None
+
   def initialize(self):
     """
     Ensure everyone sees the same cluster spec, then set TF_CONFIG accordingly.
@@ -135,7 +141,7 @@ class AutoscalingAgent:
     if self.num_gpus_per_worker > 0:
       cuda_helper.set_cuda_visible_devices(self.num_gpus_per_worker)
     # When using horovod, check if we need to expand our communicator
-    if self.mpi_communicator is not None:
+    if self.using_horovod():
       self.maybe_expand_mpi_communicator()
     self.status = AutoscalingStatus.RUNNING
     self.status_barrier(AutoscalingStatus.RUNNING)
@@ -176,7 +182,7 @@ class AutoscalingAgent:
     Return whether a worker was successfully spawned.
     """
     from deploy import mpi_helper
-    if self.mpi_communicator is None:
+    if not self.using_horovod():
       raise ValueError("Spawn worker is only allowed when running with Horovod")
     if self.mpi_communicator.rank > 0:
       raise ValueError("Only the root can spawn workers")
@@ -194,23 +200,27 @@ class AutoscalingAgent:
     """
     Reset internal state in tensorflow on restart.
     """
-    log_fn("Resetting internal tensorflow state")
-    # Note: tensorflow maintains a thread local variable to keep track of the existing server
-    # If such a server exists, then tensorflow will simply reuse it. Here we clear this variable
-    # to avoid this behavior, because we *do* want it to start a new server with a different
-    # server def.
-    distribute_coordinator._thread_local.__dict__.clear()
-    # Note: tensorflow maintains a thread local variable to keep track of collective ops.
-    # If we don't clear this, then tensorflow will reuse the old op, which has a wrong number
-    # of workers, and hang without any error messages.
-    cross_device_utils._thread_local.__dict__.clear()
-    # Destroy the existing graph used internally by keras, otherwise adding workers hangs
-    # when calling the batch normalization layer. This is caused by a mismatch in the instance
-    # keys used in collective ops between old and new workers in the cluster. Resetting the
-    # global variables used by keras solves this problem.
-    tf.keras.backend.clear_session()
-    # Finally, reset all other internal state stored in the context
-    context.context().reset()
+    # Much of the internal tensorflow state needs to be cleared only when we are using a
+    # distribution strategy. When using horovod, there is no strategy and so there is no need
+    # to run the following.
+    if not self.using_horovod():
+      log_fn("Resetting internal tensorflow state")
+      # Note: tensorflow maintains a thread local variable to keep track of the existing server
+      # If such a server exists, then tensorflow will simply reuse it. Here we clear this variable
+      # to avoid this behavior, because we *do* want it to start a new server with a different
+      # server def.
+      distribute_coordinator._thread_local.__dict__.clear()
+      # Note: tensorflow maintains a thread local variable to keep track of collective ops.
+      # If we don't clear this, then tensorflow will reuse the old op, which has a wrong number
+      # of workers, and hang without any error messages.
+      cross_device_utils._thread_local.__dict__.clear()
+      # Destroy the existing graph used internally by keras, otherwise adding workers hangs
+      # when calling the batch normalization layer. This is caused by a mismatch in the instance
+      # keys used in collective ops between old and new workers in the cluster. Resetting the
+      # global variables used by keras solves this problem.
+      tf.keras.backend.clear_session()
+      # Finally, reset all other internal state stored in the context
+      context.context().reset()
 
   def sync_cluster_spec(self):
     """

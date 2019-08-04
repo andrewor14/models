@@ -3,7 +3,7 @@ import sys
 import textwrap
 
 from mpi4py import MPI
-import horovod.tensorflow.keras as hvd
+import tensorflow as tf
 
 from deploy import mpi_helper
 
@@ -49,5 +49,6 @@ def algorithm(comm):
     ***********************************************************""" % (comm.rank, comm.size)))
 
 if __name__ == "__main__":
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
   main()
 
