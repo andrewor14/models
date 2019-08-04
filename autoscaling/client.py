@@ -14,7 +14,7 @@ import tensorflow as tf
 from autoscaling.params import *
 
 
-VERBOSE = True
+VERBOSE = False
 RUNNING_IN_SHELL = sys.__stdin__.isatty()
 
 def log_fn(msg):

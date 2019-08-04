@@ -94,15 +94,6 @@ def do_run(flags_obj, autoscaling_callback):
   Returns:
     Dictionary of training and eval stats.
   """
-  if flags_obj.use_horovod:
-    # Note: we force the user to enable eager mode when using horovod to simplify things.
-    # For example, in eager mode, there are no global variables so we don't need to broadcast
-    # them through horovod before training.
-    if not flags_obj.enable_eager:
-      raise ValueError("Eager mode must be enabled when using horovod")
-    import horovod.tensorflow.keras as hvd
-    hvd.init(autoscaling_callback.agent.mpi_communicator)
-
   # Execute flag override logic for better model performance
   if flags_obj.tf_gpu_thread_mode:
     keras_common.set_gpu_thread_mode_and_count(flags_obj)
@@ -273,10 +264,6 @@ def do_run(flags_obj, autoscaling_callback):
     no_dist_strat_device.__exit__()
 
   stats = keras_common.build_stats(history, eval_output, callbacks)
-
-  if flags_obj.use_horovod:
-    import horovod.tensorflow.keras as hvd
-    hvd.shutdown()
 
   return stats
 

@@ -129,9 +129,8 @@ class AutoscalingAgent:
     new_tf_config = {"cluster": self.cluster_spec,\
       "task": {"type": self.task_type, "index": self.task_index}}
     new_tf_config = json.dumps(new_tf_config)
-    #log_fn("Setting TF_CONFIG = %s" % new_tf_config)
+    log_fn("Setting TF_CONFIG = %s" % new_tf_config)
     os.environ["TF_CONFIG"] = new_tf_config
-    del os.environ["TF_CONFIG"]
     # Update CUDA_VISIBLE_DEVICES with respect to new TF_CONFIG
     if self.num_gpus_per_worker > 0:
       cuda_helper.set_cuda_visible_devices(self.num_gpus_per_worker)
@@ -270,7 +269,7 @@ class AutoscalingAgent:
     Return the list of everyone's status once the target is reached.
     """
     targets = [target] if not isinstance(target, list) else target
-    #log_fn = lambda _: None if quiet else log_fn
+    log_fn = lambda _: None if quiet else log_fn
     # Check if we have reached the target ourselves
     my_status = self.status
     if my_status not in targets:
