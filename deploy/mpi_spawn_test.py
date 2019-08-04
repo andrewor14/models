@@ -23,7 +23,7 @@ def log(msg):
 
 def main():
   try:
-    tf.enable_eager_execution()
+    #tf.enable_eager_execution()
     mpi_helper.set_tf_config()
     algorithm2(AutoscalingAgent())
   except Exception as e:

@@ -94,6 +94,7 @@ def run_keras(flags_obj, do_run):
       tf.logging.error("Exception in resnet_main: %s (%s)" %\
         (e, e.__class__.__name__))
       traceback.print_exc()
+      raise e
       # Hack: the tensorflow process does not terminate properly unless we do this
       os._exit(1)
 

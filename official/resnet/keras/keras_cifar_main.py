@@ -105,6 +105,35 @@ def do_run(flags_obj, autoscaling_callback):
   """
   tf.logging.info("Starting do_run")
 
+  #from deploy import mpi_spawn_test
+  #mpi_spawn_test.algorithm2(autoscaling_callback.agent)
+
+  if flags_obj.use_horovod:
+    ## Note: we force the user to enable eager mode when using horovod to simplify things.
+    ## For example, in eager mode, there are no global variables so we don't need to broadcast
+    ## them through horovod before training.
+    #if not flags_obj.enable_eager:
+    #  raise ValueError("Eager mode must be enabled when using horovod")
+    import horovod.tensorflow as hvd
+    from mpi4py import MPI
+
+    # Hack:
+    tf.logging.info("hack begin")
+    tf.keras.backend.clear_session()
+    hvd.init(MPI.COMM_WORLD.Dup())
+    hvd.allreduce(tf.constant(hvd.rank()))
+    hvd.shutdown()
+    tf.keras.backend.clear_session()
+    tf.logging.info("hack end")
+
+    tf.logging.info("hvd.init")
+    hvd.init(autoscaling_callback.agent.mpi_communicator)
+    tf.logging.info("done hvd.init")
+    tf.logging.info("hvd size = %s" % hvd.size())
+    tf.logging.info("Doing a round of allreduce before training")
+    avg_rank = hvd.allreduce(tf.constant(hvd.rank()))
+    tf.logging.info("Result was = %s" % avg_rank)
+
   dtype = flags_core.get_tf_dtype(flags_obj)
   if dtype == 'fp16':
     raise ValueError('dtype fp16 is not supported in Keras. Use the default '
@@ -162,15 +191,15 @@ def do_run(flags_obj, autoscaling_callback):
   
   with strategy_scope:
     optimizer = keras_common.get_optimizer()
-    #if flags_obj.use_horovod:
-    #  import horovod.tensorflow as hvd
-    #  optimizer = hvd.DistributedOptimizer(optimizer)
+    if flags_obj.use_horovod:
+      import horovod.tensorflow as hvd
+      optimizer = hvd.DistributedOptimizer(optimizer)
     tf.logging.info("Making model")
     model = resnet_cifar_model.resnet56(classes=cifar_main.NUM_CLASSES)
     tf.logging.info("Compiling model")
     model.compile(loss='categorical_crossentropy',
                   optimizer=optimizer,
-                  run_eagerly=flags_obj.run_eagerly,
+                  run_eagerly=True,
                   metrics=['categorical_accuracy'])
     autoscaling_callback.set_model(model)
 
@@ -198,80 +227,50 @@ def do_run(flags_obj, autoscaling_callback):
     no_dist_strat_device = tf.device('/device:GPU:0')
     no_dist_strat_device.__enter__()
 
-  #from deploy import mpi_spawn_test
-  #mpi_spawn_test.algorithm2(autoscaling_callback.agent)
+  (train_steps, train_epochs) = autoscaling_helper.get_train_steps_and_epochs(\
+    cifar_main.NUM_IMAGES["train"], flags_obj, autoscaling_callback)
 
-  while autoscaling_callback.agent.mpi_communicator.size < 10:
-    if flags_obj.use_horovod:
-      # Note: we force the user to enable eager mode when using horovod to simplify things.
-      # For example, in eager mode, there are no global variables so we don't need to broadcast
-      # them through horovod before training.
-      if not flags_obj.enable_eager:
-        raise ValueError("Eager mode must be enabled when using horovod")
-      import horovod.tensorflow as hvd
-      from mpi4py import MPI
-      # Hack:
-      tf.logging.info("hack begin")
-      tf.keras.backend.clear_session()
-      hvd.init(MPI.COMM_WORLD.Dup())
-      hvd.allreduce(tf.constant(hvd.rank()))
-      hvd.shutdown()
-      tf.keras.backend.clear_session()
-      tf.logging.info("hack end")
+  tf.logging.info("model.fit")
+  history = model.fit(train_input_dataset,
+                      epochs=train_epochs,
+                      steps_per_epoch=train_steps,
+                      callbacks=callbacks,
+                      validation_steps=num_eval_steps,
+                      validation_data=validation_data,
+                      validation_freq=flags_obj.epochs_between_evals,
+                      verbose=2)
+  tf.logging.info("model.fit done")
 
-      tf.logging.info("hvd.init")
-      hvd.init(autoscaling_callback.agent.mpi_communicator)
-      tf.logging.info("done hvd.init")
-      tf.logging.info("hvd size = %s" % hvd.size())
-      #if "AUTOSCALING_MASTER_HOST_PORT" in os.environ or not first_time:
-      tf.logging.info("Doing a round of allreduce before training")
-      avg_rank = hvd.allreduce(tf.constant(hvd.rank()))
-      tf.logging.info("Result was = %s" % avg_rank)
-    if flags_obj.use_horovod:
-      import horovod.tensorflow as hvd
-      tf.logging.info("hvd.shutdown")
-      hvd.shutdown()
+  if autoscaling_callback.agent.mpi_communicator.rank == 0:
+    autoscaling_callback.agent.mpi_spawn_worker()
+  # Wait until we have a pending cluster spec
+  import time
+  while True:
+    with autoscaling_callback.agent.pending_cluster_spec_lock:
+      if autoscaling_callback.agent.pending_cluster_spec is not None:
+        break
+    time.sleep(1)
 
-    #(train_steps, train_epochs) = autoscaling_helper.get_train_steps_and_epochs(\
-    #  cifar_main.NUM_IMAGES["train"], flags_obj, autoscaling_callback)
-
-    tf.logging.info("model.fit")
-    #history = model.fit(train_input_dataset,
-    #                    epochs=train_epochs,
-    #                    steps_per_epoch=train_steps,
-    #                    callbacks=callbacks,
-    #                    validation_steps=num_eval_steps,
-    #                    validation_data=validation_data,
-    #                    validation_freq=flags_obj.epochs_between_evals,
-    #                    verbose=2)
-    tf.logging.info("model.fit done")
-
-    if autoscaling_callback.agent.mpi_communicator.rank == 0:
-      autoscaling_callback.agent.mpi_spawn_worker()
-    # Wait until we have a pending cluster spec
-    import time
-    while True:
-      with autoscaling_callback.agent.pending_cluster_spec_lock:
-        if autoscaling_callback.agent.pending_cluster_spec is not None:
-          break
-      time.sleep(1)
-    autoscaling_callback.agent.initialize()
+  if flags_obj.use_horovod:
+    import horovod.tensorflow.keras as hvd
+    tf.logging.info("hvd.shutdown")
+    hvd.shutdown()
 
   # If we finished all the epochs already, then signal to above that we're terminating
-  eval_output = None
-  if autoscaling_callback.num_epochs_processed == flags_obj.train_epochs:
-    autoscaling_callback.agent.status = AutoscalingStatus.TERMINATED
-    if not flags_obj.skip_eval:
-      eval_output = model.evaluate(eval_input_dataset,
-                                   steps=num_eval_steps,
-                                   verbose=2)
+  #eval_output = None
+  #if autoscaling_callback.num_epochs_processed == flags_obj.train_epochs:
+  #  autoscaling_callback.agent.status = AutoscalingStatus.TERMINATED
+  #  if not flags_obj.skip_eval:
+  #    eval_output = model.evaluate(eval_input_dataset,
+  #                                 steps=num_eval_steps,
+  #                                 verbose=2)
 
-  if not strategy and flags_obj.explicit_gpu_placement:
-    no_dist_strat_device.__exit__()
+  #if not strategy and flags_obj.explicit_gpu_placement:
+  #  no_dist_strat_device.__exit__()
 
-  stats = keras_common.build_stats(history, eval_output, callbacks)
+  #stats = keras_common.build_stats(history, eval_output, callbacks)
 
-  return stats
+  #return stats
 
 
 def define_cifar_flags():

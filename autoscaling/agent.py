@@ -196,22 +196,22 @@ class AutoscalingAgent:
     Reset internal state in tensorflow on restart.
     """
     log_fn("Resetting internal tensorflow state")
-    # Note: tensorflow maintains a thread local variable to keep track of the existing server
-    # If such a server exists, then tensorflow will simply reuse it. Here we clear this variable
-    # to avoid this behavior, because we *do* want it to start a new server with a different
-    # server def.
-    distribute_coordinator._thread_local.__dict__.clear()
-    # Note: tensorflow maintains a thread local variable to keep track of collective ops.
-    # If we don't clear this, then tensorflow will reuse the old op, which has a wrong number
-    # of workers, and hang without any error messages.
-    cross_device_utils._thread_local.__dict__.clear()
-    # Destroy the existing graph used internally by keras, otherwise adding workers hangs
-    # when calling the batch normalization layer. This is caused by a mismatch in the instance
-    # keys used in collective ops between old and new workers in the cluster. Resetting the
-    # global variables used by keras solves this problem.
-    tf.keras.backend.clear_session()
-    # Finally, reset all other internal state stored in the context
-    context.context().reset()
+    ## Note: tensorflow maintains a thread local variable to keep track of the existing server
+    ## If such a server exists, then tensorflow will simply reuse it. Here we clear this variable
+    ## to avoid this behavior, because we *do* want it to start a new server with a different
+    ## server def.
+    #distribute_coordinator._thread_local.__dict__.clear()
+    ## Note: tensorflow maintains a thread local variable to keep track of collective ops.
+    ## If we don't clear this, then tensorflow will reuse the old op, which has a wrong number
+    ## of workers, and hang without any error messages.
+    #cross_device_utils._thread_local.__dict__.clear()
+    ## Destroy the existing graph used internally by keras, otherwise adding workers hangs
+    ## when calling the batch normalization layer. This is caused by a mismatch in the instance
+    ## keys used in collective ops between old and new workers in the cluster. Resetting the
+    ## global variables used by keras solves this problem.
+    #tf.keras.backend.clear_session()
+    ## Finally, reset all other internal state stored in the context
+    #context.context().reset()
 
   def sync_cluster_spec(self):
     """
@@ -397,12 +397,6 @@ class AutoscalingAgent:
         log_fn("Received signal to restart server")
         self.status = AutoscalingStatus.RESTARTING
         self.status_barrier(AutoscalingStatus.RESTARTING)
-        self.initialize()
-        #log_fn("hvd.shutdown")
-        #hvd.shutdown()
-        #log_fn("hvd.init")
-        #hvd.init(self.mpi_communicator)
-        #log_fn("whee done hvd.init")
       return True
 
 

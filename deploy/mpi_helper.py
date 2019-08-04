@@ -115,10 +115,10 @@ def expand(intracomm, intercomm=None):
   #  intracomm.Free()
 
   # Run some collective operations on this communicator
-  test_communication(MPI.COMM_WORLD.Dup())
-  tf.keras.backend.clear_session()
+  #test_communication(MPI.COMM_WORLD.Dup())
+  #tf.keras.backend.clear_session()
   test_communication(comm)
-  tf.keras.backend.clear_session()
+  #tf.keras.backend.clear_session()
 
   #if comm.size == 7:
   #  test_communication(MPI.COMM_WORLD.Dup())
@@ -184,13 +184,13 @@ def test_communication(comm):
   value = comm.allreduce(comm.rank, op=MPI.SUM)
   log_fn("  Allreduce result: %s" % value)
   # Try running horovod
-  #import horovod.tensorflow as hvd
+  #import horovod.tensorflow.keras as hvd
   #log_fn("  hvd.init")
   #hvd.init(comm)
   #log_fn("  done hvd.init, comm.size = %s" % comm.size)
   #log_fn("  hvd.mpi_threads_supported() = %s" % hvd.mpi_threads_supported())
   #log_fn("  Running horovod allreduce")
-  #hvd.allreduce(tf.constant(hvd.rank()))
+  #hvd.allreduce(hvd.rank())
   #log_fn("  Horovod allreduce result: %s" % value)
   #hvd.shutdown()
   #log_fn("  done hvd.shutdown")
