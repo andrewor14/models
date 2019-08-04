@@ -47,11 +47,10 @@ class AutoscalingAgent:
     self.host_port = self.cluster_spec[self.task_type][self.task_index]
     self.host_port = find_available_port(self.host_port)
 
-    # Hack: do not sync every step if we are running a tiny dataset
+    # Syncing at the end of each step adds some overhead
+    # If we are running a tiny dataset, we may want to sync less often
     self.step_count = 0
-    self.sync_interval_steps = 1
-    if os.getenv("DATASET") == "cifar10":
-      self.sync_interval_steps = 10
+    self.sync_interval_steps = int(os.getenv(AUTOSCALING_SYNC_INTERVAL_STEPS, "1"))
 
     # ========= Horovod stuff ==========
 
@@ -90,9 +89,14 @@ class AutoscalingAgent:
       first_worker = convert_port(first_worker)
     self.client = AutoscalingClient(first_worker)
 
-    # Request to join the cluster
-    log_fn("Joining cluster as %s" % self.host_port)
-    self.client.master_server.join_cluster(self.host_port)
+    # If we are not part of the original cluster, request to join it
+    # This fails if the master server is initializing, in which case we keep retrying
+    if AUTOSCALING_MASTER_HOST_PORT in os.environ:
+      log_fn("Joining cluster as %s" % self.host_port)
+      while not self.client.master_server.join_cluster(self.host_port):
+        log_fn("Master server is not ready to service our join request, trying again later.")
+        time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
+      log_fn("Master server accepted our join request")
 
   @property
   def status(self):

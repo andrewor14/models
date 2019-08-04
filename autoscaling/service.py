@@ -58,14 +58,19 @@ class AutoscalingService:
   def join_cluster(self, host_port):
     '''
     Handle a join request, only called on the master server.
+
+    The join request is rejected if it is received during initialization.
+    Return whether the join request has been accepted.
     '''
     log_fn("Received join cluster request from %s" % host_port)
+    if not is_running(self.agent.status):
+      log_fn("Rejecting join cluster request from %s because we are initializing" % host_port)
+      return False
     cluster_spec = self.get_cluster_spec()
     ps_hosts = cluster_spec["ps"] if "ps" in cluster_spec else []
     worker_hosts = cluster_spec["worker"]
     hosts = ps_hosts + worker_hosts
-    is_new_worker = host_port not in hosts
-    if is_new_worker:
+    if host_port not in hosts:
       # Wait until client is ready
       while self.agent.client is None:
         log_fn("... autoscaling client is not ready yet, waiting %s second(s)" %\
@@ -93,7 +98,9 @@ class AutoscalingService:
             log_fn("Telling pending worker %s to add worker %s" % (pending_worker, host_port))
             server = connect(convert_port(pending_worker))
             server.add_workers([host_port])
-    return is_new_worker
+    else:
+      log_fn("Warning: received join request from a worker who had already joined: %s" % host_port)
+    return True
 
   def _get_or_create_pending_cluster_spec(self):
     '''
