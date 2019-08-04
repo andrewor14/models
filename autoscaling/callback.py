@@ -84,6 +84,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
     """
     Save our variables for the next restart if we are not terminating.
     """
+    self.agent.train_end()
     if self.agent.status != AutoscalingStatus.TERMINATED:
       self.agent.save_variables(self.get_trainable_variables())
 

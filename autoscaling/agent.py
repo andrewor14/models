@@ -128,6 +128,8 @@ class AutoscalingAgent:
     This should be called on start up and after every time we restart.
     """
     log_fn("Initializing")
+    self.status = AutoscalingStatus.READY_TO_SYNC
+    self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
     # Check if cluster membership changed. If so, update cluster spec accordingly.
     with self.pending_cluster_spec_lock:
       if self.pending_cluster_spec is not None:
@@ -236,8 +238,6 @@ class AutoscalingAgent:
     Our status must be READY_TO_SYNC before we call this method, and RUNNING when we return.
     """
     log_fn("Attempting to sync cluster spec with everyone")
-    self.status = AutoscalingStatus.READY_TO_SYNC
-    self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
     self.status = AutoscalingStatus.SYNCING
     self.status_barrier(AutoscalingStatus.SYNCING)
     while True:
@@ -398,20 +398,27 @@ class AutoscalingAgent:
     statuses = self.status_barrier(\
       [AutoscalingStatus.READY_TO_RESTART, AutoscalingStatus.NOT_READY_TO_RESTART],
       quiet=True)
-    if AutoscalingStatus.NOT_READY_TO_RESTART in statuses:
+    should_restart = AutoscalingStatus.NOT_READY_TO_RESTART not in statuses
+    if not should_restart:
       self.status = AutoscalingStatus.RUNNING
       self.status_barrier(AutoscalingStatus.RUNNING, quiet=True)
-    else:
-      # Do restart
-      if self.host_port not in self.pending_cluster_spec["worker"]:
-        log_fn("Received signal to terminate")
-        self.status = AutoscalingStatus.TERMINATED
-      else:
-        log_fn("Received signal to restart server")
-        self.status = AutoscalingStatus.RESTARTING
-        self.status_barrier(AutoscalingStatus.RESTARTING)
-      return True
+    return should_restart
 
+  def train_end(self):
+    """
+    Change our status to either TERMINATED or RESTARTING.
+    """
+    should_terminate = False
+    with self.pending_cluster_spec_lock:
+      should_terminate = self.pending_cluster_spec is not None and\
+        self.host_port not in self.pending_cluster_spec["worker"]
+    if should_terminate:
+      log_fn("Received signal to terminate")
+      self.status = AutoscalingStatus.TERMINATED
+    else:
+      log_fn("Received signal to restart server")
+      self.status = AutoscalingStatus.RESTARTING
+      self.status_barrier(AutoscalingStatus.RESTARTING)
 
 # ================== HELPER METHODS ==================
 
