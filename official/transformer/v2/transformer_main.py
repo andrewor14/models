@@ -138,12 +138,6 @@ class TransformerTask(object):
   def train(self):
     """Trains the model."""
     params, flags_obj, is_train = self.params, self.flags_obj, True
-    # Sets config options.
-    keras_utils.set_session_config(
-        enable_eager=flags_obj.run_eagerly,
-        enable_xla=flags_obj.enable_xla,
-        enable_grappler_layout_optimizer=
-        flags_obj.enable_grappler_layout_optimizer)
 
     _ensure_dir(flags_obj.model_dir)
     if self.distribution_strategy:
@@ -278,6 +272,11 @@ def _ensure_dir(log_dir):
 
 def main(_):
   flags_obj = flags.FLAGS
+  keras_utils.set_session_config(
+    enable_eager=flags_obj.run_eagerly,
+    enable_xla=flags_obj.enable_xla,
+    enable_grappler_layout_optimizer=
+      flags_obj.enable_grappler_layout_optimizer)
   with logger.benchmark_context(flags_obj):
     task = TransformerTask(flags_obj)
     if flags_obj.mode == "train":

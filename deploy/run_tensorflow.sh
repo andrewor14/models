@@ -46,6 +46,7 @@ elif [[ "$DATASET" == "wmt" ]]; then
   RUN_SCRIPT="$MODELS_DIR/official/transformer/v2/transformer_main.py"
   PARAM_SET="${PARAM_SET:=base}"
   VOCAB_FILE="${VOCAB_FILE:=$WMT_DATA_DIR/vocab.ende.32768}"
+  MAX_LENGTH="${MAX_LENGTH:=64}"
   BLEU_SOURCE="${BLEU_SOURCE:=$WMT_DATA_DIR/newstest2014.en}"
   BLEU_REF="${BLEU_REF:=$WMT_DATA_DIR/newstest2014.de}"
   if [[ "$USE_KERAS" != "true" ]]; then
@@ -123,6 +124,7 @@ if [[ "$DATASET" == "wmt" ]]; then
   FLAGS="$FLAGS"\
 "  --param_set=$PARAM_SET"\
 "  --vocab_file=$VOCAB_FILE"\
+"  --max_length=$MAX_LENGTH"\
 "  --bleu_source=$BLEU_SOURCE"\
 "  --bleu_ref=$BLEU_REF"
 fi
