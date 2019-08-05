@@ -398,27 +398,24 @@ class AutoscalingAgent:
     statuses = self.status_barrier(\
       [AutoscalingStatus.READY_TO_RESTART, AutoscalingStatus.NOT_READY_TO_RESTART],
       quiet=True)
-    should_restart = AutoscalingStatus.NOT_READY_TO_RESTART not in statuses
-    if not should_restart:
+    # If even one worker is not ready to restart, then we just keep running
+    if AutoscalingStatus.NOT_READY_TO_RESTART in statuses:
       self.status = AutoscalingStatus.RUNNING
       self.status_barrier(AutoscalingStatus.RUNNING, quiet=True)
-    return should_restart
-
-  def train_end(self):
-    """
-    Change our status to either TERMINATED or RESTARTING.
-    """
-    should_terminate = False
-    with self.pending_cluster_spec_lock:
-      should_terminate = self.pending_cluster_spec is not None and\
-        self.host_port not in self.pending_cluster_spec["worker"]
-    if should_terminate:
-      log_fn("Received signal to terminate")
-      self.status = AutoscalingStatus.TERMINATED
+      return False
     else:
-      log_fn("Received signal to restart server")
-      self.status = AutoscalingStatus.RESTARTING
-      self.status_barrier(AutoscalingStatus.RESTARTING)
+      # If the new cluster spec does not contain us, then that means we are removed
+      should_terminate = False
+      with self.pending_cluster_spec_lock:
+        should_terminate = self.host_port not in self.pending_cluster_spec["worker"]
+      if should_terminate:
+        log_fn("Received signal to terminate")
+        self.status = AutoscalingStatus.TERMINATED
+      else:
+        log_fn("Received signal to restart server")
+        self.status = AutoscalingStatus.RESTARTING
+        self.status_barrier(AutoscalingStatus.RESTARTING)
+      return True
 
 # ================== HELPER METHODS ==================
 

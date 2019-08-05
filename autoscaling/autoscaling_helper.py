@@ -26,6 +26,7 @@ def get_train_steps_and_epochs(num_total_samples, flags_obj, callback):
   if flags_obj.train_steps:
     train_steps = min(flags_obj.train_steps, train_steps)
     train_epochs = 1
+  callback.num_batches_per_epoch = train_steps
   # If we restarted in the middle of an epoch, finish the rest of the batches in the
   # epoch first, then restart again with the original number of batches in an epoch
   original_train_steps = train_steps

@@ -187,9 +187,6 @@ def do_run(flags_obj, autoscaling_callback):
 
   with strategy_scope:
     optimizer = keras_common.get_optimizer(lr_schedule)
-    if flags_obj.use_horovod:
-      import horovod.tensorflow.keras as hvd
-      optimizer = hvd.DistributedOptimizer(optimizer)
     if dtype == 'float16':
       # TODO(reedwm): Remove manually wrapping optimizer once mixed precision
       # can be enabled with a single line of code.
@@ -223,9 +220,6 @@ def do_run(flags_obj, autoscaling_callback):
   if autoscaling_schedule_callback is not None:
     callbacks.append(autoscaling_schedule_callback)
 
-  (train_steps, train_epochs) = autoscaling_helper.get_train_steps_and_epochs(\
-    imagenet_main.NUM_IMAGES["train"], flags_obj, autoscaling_callback)
-
   num_eval_steps = (imagenet_main.NUM_IMAGES['validation'] //
                     flags_obj.batch_size)
 
@@ -247,14 +241,20 @@ def do_run(flags_obj, autoscaling_callback):
     no_dist_strat_device = tf.device('/device:GPU:0')
     no_dist_strat_device.__enter__()
 
-  history = model.fit(train_input_dataset,
-                      epochs=train_epochs,
-                      steps_per_epoch=train_steps,
-                      callbacks=callbacks,
-                      validation_steps=num_eval_steps,
-                      validation_data=validation_data,
-                      validation_freq=flags_obj.epochs_between_evals,
-                      verbose=2)
+  while autoscaling_callback.agent.status not in\
+      [AutoscalingStatus.RESTARTING, AutoscalingStatus.TERMINATED]:
+
+    (train_steps, train_epochs) = autoscaling_helper.get_train_steps_and_epochs(\
+      imagenet_main.NUM_IMAGES['train'], flags_obj, autoscaling_callback)
+
+    history = model.fit(train_input_dataset,
+                        epochs=train_epochs,
+                        steps_per_epoch=train_steps,
+                        callbacks=callbacks,
+                        validation_steps=num_eval_steps,
+                        validation_data=validation_data,
+                        validation_freq=flags_obj.epochs_between_evals,
+                        verbose=2)
 
   # If we finished all the epochs already, then signal to above that we're terminating
   eval_output = None

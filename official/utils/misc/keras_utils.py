@@ -90,6 +90,9 @@ class TimeHistory(tf.keras.callbacks.Callback):
             log_str += ", %s = %f" % (metric, value)
       tf.compat.v1.logging.info(log_str)
 
+  def on_epoch_end(self, epoch, logs=None):
+    self.starting_batch = 0
+
 def get_profiler_callback(model_dir, profile_steps, enable_tensorboard):
   """Validate profile_steps flag value and return profiler callback."""
   profile_steps_error_message = (

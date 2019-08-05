@@ -24,8 +24,7 @@ def get_next_statuses(status):
   maybe_pending_restart = [AutoscalingStatus.PENDING_RESTART, AutoscalingStatus.NOT_PENDING_RESTART]
   maybe_ready_to_restart = [AutoscalingStatus.READY_TO_RESTART, AutoscalingStatus.NOT_READY_TO_RESTART]
   if status == AutoscalingStatus.RUNNING:
-    # Next state could be READY_TO_SYNC if we finish an epoch
-    return maybe_pending_restart + [AutoscalingStatus.READY_TO_SYNC]
+    return maybe_pending_restart
   if status in maybe_pending_restart:
     return maybe_ready_to_restart
   if status in maybe_ready_to_restart:
