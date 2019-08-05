@@ -27,8 +27,8 @@ from official.utils.logs import hooks_helper
 
 def define_base(data_dir=True, model_dir=True, clean=True, train_epochs=True,
                 epochs_between_evals=True, stop_threshold=True, batch_size=True,
-                num_gpu=True, hooks=True, export_dir=True,
-                distribution_strategy=True, run_eagerly=False):
+                num_gpu=True, hooks=True, export_dir=True, distribution_strategy=True,
+                run_eagerly=False, use_horovod=False):
   """Register base flags.
 
   Args:
@@ -148,6 +148,10 @@ def define_base(data_dir=True, model_dir=True, clean=True, train_epochs=True,
                        "according to the number of GPUs.")
     )
 
+  if use_horovod:
+    flags.DEFINE_boolean(
+      name='use_horovod', default=False,
+      help='Whether to use horovod as the underlying communication mechanism.')
 
   return key_flags
 

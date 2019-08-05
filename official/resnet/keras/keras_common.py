@@ -252,7 +252,7 @@ def build_stats(history, eval_output, callbacks):
 
 def define_keras_flags(dynamic_loss_scale=True):
   """Define flags for Keras models."""
-  flags_core.define_base(run_eagerly=True)
+  flags_core.define_base(run_eagerly=True, use_horovod=True)
   flags_core.define_performance(num_parallel_calls=False,
                                 tf_gpu_thread_mode=True,
                                 datasets_num_private_threads=True,
@@ -264,7 +264,7 @@ def define_keras_flags(dynamic_loss_scale=True):
   flags_core.define_benchmark()
   flags.adopt_module_key_flags(flags_core)
 
-  flags.DEFINE_boolean(name='enable_eager', default=False, help='Enable eager?')
+  flags.DEFINE_boolean(name='enable_eager', default=True, help='Enable eager?')
   flags.DEFINE_boolean(name='skip_eval', default=False, help='Skip evaluation?')
   # TODO(b/135607288): Remove this flag once we understand the root cause of
   # slowdown when setting the learning phase in Keras backend.
@@ -323,10 +323,6 @@ def define_keras_flags(dynamic_loss_scale=True):
            'convolutions and batch normalizations, and this flag allows to '
            'disable it.'
   )
-  flags.DEFINE_boolean(
-      name='use_horovod',
-      default=False,
-      help='Whether to use horovod as the underlying communication mechanism.')
 
 def get_synth_input_fn(height, width, num_channels, num_classes,
                        dtype=tf.float32, drop_remainder=True):

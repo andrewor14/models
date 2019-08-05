@@ -61,7 +61,7 @@ def get_model_params(param_set, num_gpus):
 def define_transformer_flags():
   """Add flags and flag validators for running transformer_main."""
   # Add common flags (data_dir, model_dir, train_epochs, etc.).
-  flags_core.define_base()
+  flags_core.define_base(run_eagerly=True, use_horovod=True)
   flags_core.define_performance(
       num_parallel_calls=True,
       inter_op=False,

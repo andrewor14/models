@@ -41,6 +41,17 @@ elif [[ "$DATASET" == "imagenet" ]]; then
     echo "ERROR: You must set USE_KERAS to 'true' for ImageNet training"
     exit 1
   fi
+elif [[ "$DATASET" == "wmt" ]]; then
+  DATA_DIR="$WMT_DATA_DIR"
+  RUN_SCRIPT="$MODELS_DIR/official/transformer/v2/transformer_main.py"
+  PARAM_SET="${PARAM_SET:=base}"
+  VOCAB_FILE="${VOCAB_FILE:=$WMT_DATA_DIR/vocab.ende.32768}"
+  BLEU_SOURCE="${BLEU_SOURCE:=$WMT_DATA_DIR/newstest2014.en}"
+  BLEU_REF="${BLEU_REF:=$WMT_DATA_DIR/newstest2014.de}"
+  if [[ "$USE_KERAS" != "true" ]]; then
+    echo "ERROR: You must set USE_KERAS to 'true' for transformer training"
+    exit 1
+  fi
 else
   echo "ERROR: Unknown dataset '$DATASET'"
   exit 1
@@ -48,12 +59,7 @@ fi
 
 # Keras-specific configs
 if [[ "$USE_KERAS" == "true" ]]; then
-  SKIP_EVAL="${SKIP_EVAL:=false}"
-  # ENABLE_EAGER refers to whether we should set tf.enable_eager_execution
-  # RUN_EAGERLY refers to whether we should run the keras model ops eagerly
-  # They are different configs in the models repo, but here we link them by default
-  ENABLE_EAGER="${ENABLE_EAGER:=true}"
-  RUN_EAGERLY="${RUN_EAGERLY:=$ENABLE_EAGER}"
+  RUN_EAGERLY="${RUN_EAGERLY:=true}"
   USE_HOROVOD="${USE_HOROVOD:=false}"
   LOG_STEPS="${LOG_STEPS:=100}"
 else
@@ -66,11 +72,9 @@ TRAIN_DIR="${TRAIN_DIR:=$BASE_TRAIN_DIR/$JOB_NAME}"
 mkdir -p "$TRAIN_DIR"
 
 # If we're running Horovod, make sure we're running eagerly otherwise Horovod will hang!
-if [[ "$USE_HOROVOD" == "true" ]]; then
-  if [[ "$ENABLE_EAGER" != "true" ]] || [[ "$RUN_EAGERLY" != "true" ]]; then
-    echo "ERROR: When using Horovod, ENABLE_EAGER and RUN_EAGERLY must be set to true"
-    exit 1
-  fi
+if [[ "$USE_HOROVOD" == "true" ]] && [[ "$RUN_EAGERLY" != "true" ]]; then
+  echo "ERROR: When using Horovod, RUN_EAGERLY must be set to true"
+  exit 1
 fi
 
 # Only allow positive number of parameter servers if we're running in parameter_server mode
@@ -95,7 +99,7 @@ printenv
 echo -e "==========================================================================\n"
 
 # Build flags
-COMMON_FLAGS=""\
+FLAGS=""\
 " --data_dir=$DATA_DIR"\
 " --model_dir=$TRAIN_DIR"\
 " --num_gpus=$NUM_GPUS_PER_WORKER"\
@@ -105,16 +109,22 @@ COMMON_FLAGS=""\
 " --distribution_strategy=$DISTRIBUTION_STRATEGY"
 
 if [[ "$USE_KERAS" == "true" ]]; then
-  FLAGS="$COMMON_FLAGS"\
-" --skip_eval=$SKIP_EVAL"\
-" --enable_eager=$ENABLE_EAGER"\
+  FLAGS="$FLAGS"\
 " --run_eagerly=$RUN_EAGERLY"\
 " --use_horovod=$USE_HOROVOD"\
 " --log_steps=$LOG_STEPS"
 else
-  FLAGS="$COMMON_FLAGS"\
+  FLAGS="$FLAGS"\
 " --log_every_n_steps=$LOG_EVERY_N_STEPS"\
 " --resnet_size=$RESNET_SIZE"
+fi
+
+if [[ "$DATASET" == "wmt" ]]; then
+  FLAGS="$FLAGS"\
+"  --param_set=$PARAM_SET"\
+"  --vocab_file=$VOCAB_FILE"\
+"  --bleu_source=$BLEU_SOURCE"\
+"  --bleu_ref=$BLEU_REF"
 fi
 
 # Run it

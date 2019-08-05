@@ -94,7 +94,12 @@ class TransformerTask(object):
 
     # Add flag-defined parameters to params object
     num_gpus = flags_core.get_num_gpus(flags_obj)
-    self.distribution_strategy = distribution_utils.get_distribution_strategy(
+    if flags_obj.use_horovod:
+      # We use horovod to synchronize the variables across replicas
+      # Each tensorflow process is unaware of other processes
+      self.distribution_strategy = None
+    else:
+      self.distribution_strategy = distribution_utils.get_distribution_strategy(
         distribution_strategy=flags_obj.distribution_strategy,
         num_gpus=flags_core.get_num_gpus(flags_obj))
 
@@ -135,6 +140,7 @@ class TransformerTask(object):
     params, flags_obj, is_train = self.params, self.flags_obj, True
     # Sets config options.
     keras_utils.set_session_config(
+        enable_eager=flags_obj.run_eagerly,
         enable_xla=flags_obj.enable_xla,
         enable_grappler_layout_optimizer=
         flags_obj.enable_grappler_layout_optimizer)
@@ -144,11 +150,11 @@ class TransformerTask(object):
       with self.distribution_strategy.scope():
         model = transformer.create_model(params, is_train)
         opt = self._create_optimizer()
-        model.compile(opt)
+        model.compile(opt, run_eagerly=flags_obj.run_eagerly)
     else:
       model = transformer.create_model(params, is_train)
       opt = self._create_optimizer()
-      model.compile(opt)
+      model.compile(opt, run_eagerly=flags_obj.run_eagerly)
 
     model.summary()
 

@@ -85,7 +85,7 @@ if [[ "$ENVIRONMENT" = "tigergpu" ]]; then
 fi
 
 # For normal operations (not using MPI), just run standard `sbatch` with `srun`
-if [[ "$USE_HOROVOD" != "true" ]]; then
+if [[ "$USE_HOROVOD" != "true" ]] && [[ -n "$(command -v sbatch)" ]]; then
   sbatch\
     --nodes="$NUM_NODES"\
     --ntasks="$NUM_NODES"\
