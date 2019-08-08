@@ -4,13 +4,14 @@ import os
 import sys
 import traceback
 
+from mpi4py import MPI
 import tensorflow as tf
 
 from autoscaling.agent import AutoscalingAgent
 from autoscaling.params import *
 from autoscaling.callback import AutoscalingCallback
 from autoscaling.schedule_callback import PeriodicSpawnScheduleCallback
-from deploy import slurm_helper
+from deploy import mpi_helper
 from official.utils.misc import keras_utils
 
 
@@ -60,13 +61,6 @@ def get_schedule_callback(callback):
 
 def initialize_horovod(flags_obj, comm):
   import horovod.tensorflow as hvd
-  from mpi4py import MPI
-  # Note: we force the user to enable eager mode when using horovod to simplify things.
-  # For example, in eager mode, there are no global variables so we don't need to broadcast
-  # them through horovod before training.
-  if not flags_obj.enable_eager or not flags_obj.run_eagerly:
-    raise ValueError("Eager mode must be enabled when using horovod; "
-      "please set both --enable_eager and --run_eagerly to true")
   # HACK: Horovod freezes when restarting with a larger communicator.
   # However, this issue goes away if we first restart with MPI.COMM_WORLD
   # and also clear any lingering state in tensorflow's keras backend.
@@ -87,14 +81,9 @@ def run_keras(flags_obj, do_run):
 
   WARNING: this function currently terminates the python process on finish or error.
   """
-  # If TF_CONFIG is not provided, set it based on environment variables from slurm or MPI
+  # Set TF_CONFIG using MPI
   if "TF_CONFIG" not in os.environ:
-    if slurm_helper.running_through_slurm():
-      num_ps = int(os.getenv("NUM_PARAMETER_SERVERS", "1"))
-      slurm_helper.set_tf_config(num_ps)
-    elif flags_obj.use_horovod:
-      from deploy import mpi_helper
-      mpi_helper.set_tf_config()
+    mpi_helper.set_tf_config()
 
   # Always enable eager execution in the beginning
   keras_utils.set_session_config(
@@ -103,7 +92,7 @@ def run_keras(flags_obj, do_run):
     enable_grappler_layout_optimizer=flags_obj.enable_grappler_layout_optimizer)
 
   # Keep track of cluster membership changes through an autoscaling hook
-  agent = AutoscalingAgent(flags_obj.num_gpus)
+  agent = AutoscalingAgent(flags_obj.num_gpus, flags_obj.use_horovod)
   callback = AutoscalingCallback(agent)
 
   while agent.status != AutoscalingStatus.TERMINATED:

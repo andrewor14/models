@@ -33,8 +33,8 @@ export BATCH_SIZE="${BATCH_SIZE:=1024}"
 
 # Keras-specific flags
 if [[ "$USE_KERAS" == "true" ]]; then
-  export RUN_EAGERLY="${RUN_EAGERLY:=true}"
-  export USE_HOROVOD="${USE_HOROVOD:=true}"
+  export RUN_EAGERLY="${RUN_EAGERLY:=false}"
+  export USE_HOROVOD="${USE_HOROVOD:=false}"
   export LOG_STEPS="1"
 else
   export RESNET_SIZE="${RESNET_SIZE:=56}"

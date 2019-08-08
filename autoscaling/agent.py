@@ -8,6 +8,7 @@ import threading
 import time
 import traceback
 
+from mpi4py import MPI
 import tensorflow as tf
 from tensorflow.python.distribute import cross_device_utils, distribute_coordinator
 from tensorflow.python.eager import context
@@ -15,7 +16,7 @@ from tensorflow.python.eager import context
 from autoscaling.client import convert_port, AutoscalingClient
 from autoscaling.service import listen_for_requests
 from autoscaling.params import *
-from deploy import cuda_helper
+from deploy import cuda_helper, mpi_helper
 
 
 class AutoscalingAgent:
@@ -31,13 +32,14 @@ class AutoscalingAgent:
   among all the agents.
   """
 
-  def __init__(self, num_gpus_per_worker=0):
+  def __init__(self, num_gpus_per_worker=0, use_horovod=False):
     self.saved_variables = None
     # A lambda that returns a 2-tuple of
     #   (1) Number of batches processed in this epoch so far, and
     #   (2) Number of epochs processed so far.
     self.get_progress_method = None
     self.num_gpus_per_worker = num_gpus_per_worker
+    self.use_horovod = use_horovod
 
     # Parse this process' host port from TF_CONFIG
     tf_config = get_tf_config()
@@ -52,13 +54,10 @@ class AutoscalingAgent:
     self.step_count = 0
     self.sync_interval_steps = int(os.getenv(AUTOSCALING_SYNC_INTERVAL_STEPS, "1"))
 
-    # ========= Horovod stuff ==========
+    # ========= MPI stuff ==========
 
-    # The MPI communicator that Horovod will use, if any
-    self.mpi_communicator = None
-    if os.getenv("USE_HOROVOD", "").lower() == "true":
-      from mpi4py import MPI
-      self.mpi_communicator = MPI.COMM_WORLD.Dup()
+    # The MPI communicator that Horovod will use
+    self.mpi_communicator = MPI.COMM_WORLD.Dup()
 
     # A list of MPI intercommunicators created from spawning worker processes
     # These communicators will be merged into `self.mpi_communicator` on restart
@@ -116,12 +115,6 @@ class AutoscalingAgent:
         raise ValueError("'%s' is not an AutoscalingStatus" % s)
       self._status = s
 
-  def using_horovod(self):
-    """
-    Return whether we use horovod to average gradients during training.
-    """
-    return self.mpi_communicator is not None
-
   def initialize(self):
     """
     Ensure everyone sees the same cluster spec, then set TF_CONFIG accordingly.
@@ -146,9 +139,8 @@ class AutoscalingAgent:
     # Update CUDA_VISIBLE_DEVICES with respect to new TF_CONFIG
     if self.num_gpus_per_worker > 0:
       cuda_helper.set_cuda_visible_devices(self.num_gpus_per_worker)
-    # When using horovod, check if we need to expand our communicator
-    if self.using_horovod():
-      self.maybe_expand_mpi_communicator()
+    # Check if we need to expand our communicator
+    self.maybe_expand_mpi_communicator()
     self.status = AutoscalingStatus.RUNNING
     self.status_barrier(AutoscalingStatus.RUNNING)
 
@@ -156,8 +148,6 @@ class AutoscalingAgent:
     """
     Merge newly spawned workers, if any, into our existing communicator.
     """
-    from mpi4py import MPI
-    from deploy import mpi_helper
     # First, figure out our role
     comm = self.mpi_communicator
     is_joining = comm.rank == 0 and AUTOSCALING_MASTER_HOST_PORT in os.environ
@@ -187,9 +177,6 @@ class AutoscalingAgent:
     The spawned worker, if any, is added to `self.mpi_spawned_communicators`.
     Return whether a worker was successfully spawned.
     """
-    from deploy import mpi_helper
-    if not self.using_horovod():
-      raise ValueError("Spawn worker is only allowed when running with Horovod")
     if self.mpi_communicator.rank > 0:
       raise ValueError("Only the root can spawn workers")
     if not is_running(self.status):
@@ -209,7 +196,7 @@ class AutoscalingAgent:
     # Much of the internal tensorflow state needs to be cleared only when we are using a
     # distribution strategy. When using horovod, there is no strategy and so there is no need
     # to run the following.
-    if not self.using_horovod():
+    if not self.use_horovod:
       log_fn("Resetting internal tensorflow state")
       # Note: tensorflow maintains a thread local variable to keep track of the existing server
       # If such a server exists, then tensorflow will simply reuse it. Here we clear this variable

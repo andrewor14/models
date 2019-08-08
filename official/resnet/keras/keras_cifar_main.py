@@ -153,6 +153,9 @@ def do_run(flags_obj, autoscaling_callback):
 
   with strategy_scope:
     optimizer = keras_common.get_optimizer()
+    if flags_obj.use_horovod:
+      import horovod.tensorflow as hvd
+      optimizer = hvd.DistributedOptimizer(optimizer)
     model = resnet_cifar_model.resnet56(classes=cifar_main.NUM_CLASSES)
     model.compile(loss='categorical_crossentropy',
                   optimizer=optimizer,

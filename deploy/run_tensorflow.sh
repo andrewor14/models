@@ -60,7 +60,7 @@ fi
 
 # Keras-specific configs
 if [[ "$USE_KERAS" == "true" ]]; then
-  RUN_EAGERLY="${RUN_EAGERLY:=true}"
+  RUN_EAGERLY="${RUN_EAGERLY:=false}"
   USE_HOROVOD="${USE_HOROVOD:=false}"
   LOG_STEPS="${LOG_STEPS:=100}"
 else
@@ -73,6 +73,7 @@ TRAIN_DIR="${TRAIN_DIR:=$BASE_TRAIN_DIR/$JOB_NAME}"
 mkdir -p "$TRAIN_DIR"
 
 # If we're running Horovod, make sure we're running eagerly otherwise Horovod will hang!
+# TODO: This currently runs much slower than without RUN_EAGERLY, we should make graph mode work
 if [[ "$USE_HOROVOD" == "true" ]] && [[ "$RUN_EAGERLY" != "true" ]]; then
   echo "ERROR: When using Horovod, RUN_EAGERLY must be set to true"
   exit 1

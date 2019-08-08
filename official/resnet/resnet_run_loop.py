@@ -36,7 +36,7 @@ import tensorflow as tf
 from autoscaling.agent import AutoscalingAgent
 from autoscaling.hook import AutoscalingHook
 from autoscaling.params import AutoscalingStatus
-from deploy.slurm_helper import running_through_slurm, set_tf_config
+from deploy import mpi_helper
 from official.resnet import resnet_model
 from official.utils.flags import core as flags_core
 from official.utils.export import export
@@ -532,10 +532,8 @@ def resnet_main(flags_obj, model_function, input_function, dataset_name, shape=N
   """
   Wrapper around main loop for ResNet models that handles changes in cluster membership.
   """
-  # If we're running through slurm, set TF_CONFIG according to slurm environment variables
-  if running_through_slurm() and "TF_CONFIG" not in os.environ:
-    num_ps = int(os.getenv("NUM_PARAMETER_SERVERS", "1"))
-    set_tf_config(num_ps)
+  if "TF_CONFIG" not in os.environ:
+    mpi_helper.set_tf_config()
 
   # Keep track of cluster membership changes through an autoscaling agent
   autoscaling_agent = AutoscalingAgent()

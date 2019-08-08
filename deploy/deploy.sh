@@ -1,10 +1,9 @@
 #!/bin/bash
 
 # ============================================================
-#  Entry point for submitting a job through slurm or MPI
+#  Entry point for submitting a job through MPI
 #
 #  The caller should set the following environment variables:
-#  NUM_CPUS_PER_NODE, MEMORY_PER_NODE, TIME_LIMIT_HOURS,
 #  LAUNCH_SCRIPT_NAME, NUM_NODES, NUM_WORKERS,
 #  and NUM_PARAMETER_SERVERS
 # ============================================================
@@ -20,12 +19,6 @@ if [[ -z "$JOB_NAME" ]]; then
   RUN_TAG="${RUN_TAG:=models}"
   export JOB_NAME="${RUN_TAG}-${SUBMIT_TIMESTAMP}"
 fi
-
-# Slurm specific configs
-NUM_TASKS_PER_NODE="1"
-NUM_CPUS_PER_NODE="${NUM_CPUS_PER_NODE:=$DEFAULT_NUM_CPUS_PER_NODE}"
-MEMORY_PER_NODE="${MEMORY_PER_NODE:=$DEFAULT_MEMORY_PER_NODE}"
-TIME_LIMIT_HOURS="${TIME_LIMIT_HOURS:=144}"
 
 # Assign GPUs based on CUDA_VISIBLE_DEVICES and how many workers are sharing one node.
 # For example, if CUDA_VISIBLE_DEVICES = 0,1,2,3,4,5,6,7 and NUM_WORKERS_PER_NODE = 2,
@@ -84,25 +77,5 @@ if [[ "$ENVIRONMENT" = "tigergpu" ]]; then
   module load openmpi/gcc/3.0.0/64
 fi
 
-# For normal operations (not using MPI), just run standard `sbatch` with `srun`
-if [[ "$USE_HOROVOD" != "true" ]] && [[ -n "$(command -v sbatch)" ]]; then
-  sbatch\
-    --nodes="$NUM_NODES"\
-    --ntasks="$NUM_NODES"\
-    --ntasks-per-node="$NUM_TASKS_PER_NODE"\
-    --cpus-per-task="$NUM_CPUS_PER_NODE"\
-    --mem="$MEMORY_PER_NODE"\
-    --gres="gpu:$NUM_GPUS_PER_NODE"\
-    --time="$TIME_LIMIT_HOURS:00:00"\
-    --job-name="$JOB_NAME"\
-    --mail-type="begin"\
-    --mail-type="end"\
-    --mail-user="$EMAIL"\
-    --wrap "srun --output=$LOG_DIR/$JOB_NAME-%n.out $RUN_PATH $LAUNCH_SCRIPT_NAME"
-else
-  # Otherwise, we're running horovod, so we use `mpirun`.
-  # Note: slurm has an API for dynamically expanding a job's allocation, but it is often
-  # not accessible due to permission issues. Therefore, we avoid using slurm here at all.
-  ./deploy_mpi.sh
-fi
+./deploy_mpi.sh
 
