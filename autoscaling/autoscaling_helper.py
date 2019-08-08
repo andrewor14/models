@@ -2,6 +2,7 @@
 
 import os
 import sys
+import time
 import traceback
 
 import tensorflow as tf
@@ -9,9 +10,12 @@ import tensorflow as tf
 from autoscaling.agent import AutoscalingAgent
 from autoscaling.params import *
 from autoscaling.callback import AutoscalingCallback
-from autoscaling.schedule_callback import PeriodicSpawnScheduleCallback
+from autoscaling.schedule_callback import PeriodicScheduleCallback
 from deploy import slurm_helper
 from official.utils.misc import keras_utils
+
+# Global singleton for tensorflow to access
+AUTOSCALING_MPI_COMMUNICATOR = None
 
 
 def log_fn(msg):
@@ -47,36 +51,56 @@ def get_schedule_callback(callback):
   """
   Return a `keras.callbacks.Callback` that specifies the autoscaling schedule to be used.
   """
-  autoscaling_spawn_every_n_steps = int(os.getenv(AUTOSCALING_SPAWN_EVERY_N_STEPS, -1))
-  autoscaling_max_workers = int(os.getenv(AUTOSCALING_MAX_WORKERS, -1))
-  if autoscaling_spawn_every_n_steps > 0 and\
-      autoscaling_max_workers > 0 and\
-      callback.agent.task_index == 0:
-    periodic_spawn_callback = PeriodicSpawnScheduleCallback(\
-      callback.agent, autoscaling_spawn_every_n_steps, autoscaling_max_workers)
-    periodic_spawn_callback.step_count = callback.num_batches_processed_this_epoch
-    return periodic_spawn_callback
+  if callback.agent.using_horovod():
+    from mpi4py import MPI
+    is_master = MPI.COMM_WORLD.rank == 0
+  else:
+    is_master = callback.agent.task_index == 0
+  if not is_master:
+    return None
+  autoscaling_add_every_n_steps = int(os.getenv(AUTOSCALING_ADD_WORKERS_EVERY_N_STEPS, -1))
+  autoscaling_max_workers = int(os.getenv(AUTOSCALING_MAX_WORKERS, len(callback.agent.all_host_ports)))
+  if autoscaling_add_every_n_steps > 0 and autoscaling_max_workers > 0:
+    periodic_schedule_callback = PeriodicScheduleCallback(\
+      callback.agent, autoscaling_add_every_n_steps, autoscaling_max_workers)
+    periodic_schedule_callback.step_count = callback.num_batches_processed_this_epoch
+    return periodic_schedule_callback
   return None
 
-def initialize_horovod(flags_obj, comm):
+def clear_everything():
+  tf.keras.backend.clear_session()
+  import threading
+  import weakref
+  from tensorflow.python.keras import backend
+  backend._GRAPH = None
+  backend._CURRENT_SCRATCH_GRAPH = None
+  backend._SESSION = threading.local()
+  backend._GRAPH_LEARNING_PHASES = weakref.WeakKeyDictionary()
+  backend._FREEZABLE_VARS = weakref.WeakKeyDictionary()
+  backend._DUMMY_EAGER_GRAPH = threading.local()
+  backend._MANUAL_VAR_INIT = False
+  backend._LOCAL_DEVICES = None
+  backend._GRAPH_VARIABLES = weakref.WeakKeyDictionary()
+  backend._GRAPH_TF_OPTIMIZERS = weakref.WeakKeyDictionary()
+
+def initialize_horovod(comm):
   import horovod.tensorflow as hvd
   from mpi4py import MPI
-  # Note: we force the user to enable eager mode when using horovod to simplify things.
-  # For example, in eager mode, there are no global variables so we don't need to broadcast
-  # them through horovod before training.
-  if not flags_obj.enable_eager or not flags_obj.run_eagerly:
-    raise ValueError("Eager mode must be enabled when using horovod; "
-      "please set both --enable_eager and --run_eagerly to true")
   # HACK: Horovod freezes when restarting with a larger communicator.
   # However, this issue goes away if we first restart with MPI.COMM_WORLD
   # and also clear any lingering state in tensorflow's keras backend.
   # Admittedly, it is unclear why this works, but it does!
-  tf.keras.backend.clear_session()
-  hvd.init(MPI.COMM_WORLD.Dup())
-  hvd.allreduce(tf.constant(hvd.rank()))
-  hvd.shutdown()
-  tf.keras.backend.clear_session()
-  hvd.init(comm)
+  #tf.keras.backend.clear_session()
+  clear_everything()
+  #log_fn("Doing the init here")
+  #hvd.init(MPI.COMM_WORLD.Dup())
+  #hvd.allreduce(tf.constant(hvd.rank()))
+  #hvd.shutdown()
+  clear_everything()
+  #tf.logging.info("hvd.init")
+  #tf.keras.backend.clear_session()
+  #hvd.init(comm)
+  #tf.logging.info("hvd.init done")
 
 def run_keras(flags_obj, do_run):
   """ 
@@ -93,8 +117,9 @@ def run_keras(flags_obj, do_run):
       num_ps = int(os.getenv("NUM_PARAMETER_SERVERS", "1"))
       slurm_helper.set_tf_config(num_ps)
     elif flags_obj.use_horovod:
+      from mpi4py import MPI
       from deploy import mpi_helper
-      mpi_helper.set_tf_config()
+      mpi_helper.set_tf_config(MPI.COMM_WORLD)
 
   # Always enable eager execution in the beginning
   keras_utils.set_session_config(
@@ -110,10 +135,23 @@ def run_keras(flags_obj, do_run):
     try:
       agent.initialize()
       if flags_obj.use_horovod:
-        initialize_horovod(flags_obj, agent.mpi_communicator)
-      # Actually run the training
-      # We expect this function to call model.fit
-      result = do_run(flags_obj, callback)
+        initialize_horovod(agent.mpi_communicator)
+      # If we are not part of the core communicator, just wait until our pending cluster spec is set
+      do_dummy_loop = False
+      if flags_obj.use_horovod:
+        from mpi4py import MPI
+        do_dummy_loop = agent.mpi_communicator.size == 1 and MPI.COMM_WORLD.rank != 0
+      if do_dummy_loop:
+        log_fn("Waiting for master server command...")
+        while True:
+          with agent.pending_cluster_spec_lock:
+            if agent.pending_cluster_spec is not None:
+              break
+            time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
+      else:
+        # Actually run the training
+        # We expect this function to call model.fit
+        do_run(flags_obj, callback)
       agent.on_restart()
       callback.reset()
       if flags_obj.use_horovod:
@@ -123,6 +161,7 @@ def run_keras(flags_obj, do_run):
       tf.logging.error("Exception in resnet_main: %s (%s)" %\
         (e, e.__class__.__name__))
       traceback.print_exc()
+      raise e
       # Hack: the tensorflow process does not terminate properly unless we do this
       os._exit(1)
 

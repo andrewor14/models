@@ -61,7 +61,8 @@ class AutoscalingCallback(keras.callbacks.Callback):
     Restore saved variables from memory, if any, before running the first step.
     """
     if self.agent.saved_variables is not None:
-      self.agent.restore_variables(self.get_trainable_variables())
+      #self.agent.restore_variables(self.get_trainable_variables())
+      pass
 
   def do_on_batch_end(self, batch, logs):
     """

@@ -20,11 +20,66 @@ def log(msg):
 
 def main():
   try:
-    algorithm(MPI.COMM_WORLD.Dup())
+    algorithm2_eager(MPI.COMM_WORLD.Dup())
   except Exception as e:
     log("##### ERROR #####")
     raise e
 
+def algorithm2(comm):
+  import horovod.tensorflow as hvd
+  sub_comm = None
+  my_rank = comm.rank
+  for group_size in range(1, comm.size + 1):
+    tf.keras.backend.clear_session()
+    hvd.init(comm)
+    hvd.allreduce(tf.constant(my_rank))
+    hvd.shutdown()
+    tf.keras.backend.clear_session()
+    if my_rank < group_size:
+      new_group = MPI.COMM_WORLD.group.Incl(list(range(group_size)))
+      sub_comm = MPI.COMM_WORLD.Create_group(new_group)
+      log("Rank %s: created group of size %s" % (my_rank, sub_comm.size))
+      log("Rank %s: before hvd.init" % my_rank)
+      hvd.init(sub_comm)
+      log("Rank %s: running hvd.allreduce" % my_rank)
+      avg_rank = hvd.allreduce(tf.constant(my_rank))
+      log("Rank %s: shutting down" % my_rank)
+      hvd.shutdown()
+      log("Rank %s: average rank was %s" % (my_rank, avg_rank))
+    else:
+      log("Rank %s not participating in allreduce yet" % my_rank)
+    comm.barrier()
+    tf.keras.backend.clear_session()
+
+def algorithm2_eager(comm):
+  tf.enable_eager_execution()
+  import horovod.tensorflow as hvd
+  sub_comm = None
+  my_rank = comm.rank
+  for group_size in range(1, comm.size + 1):
+    tf.keras.backend.clear_session()
+    hvd.init(comm)
+    hvd.allreduce(tf.constant(my_rank))
+    hvd.shutdown()
+    tf.keras.backend.clear_session()
+    if my_rank < group_size:
+      new_group = MPI.COMM_WORLD.group.Incl(list(range(group_size)))
+      sub_comm = MPI.COMM_WORLD.Create_group(new_group)
+      log("Rank %s: created group of size %s" % (my_rank, sub_comm.size))
+      #from tensorflow.python.keras import backend as K
+      #with K.get_graph().as_default():
+      log("Rank %s: before hvd.init" % my_rank)
+      hvd.init(sub_comm)
+      log("Rank %s: running hvd.allreduce" % my_rank)
+      avg_rank = hvd.allreduce(tf.constant(my_rank))
+      log("Rank %s: shutting down" % my_rank)
+      hvd.shutdown()
+      log("Rank %s: average rank was %s" % (my_rank, avg_rank))
+    else:
+      log("Rank %s not participating in allreduce yet" % my_rank)
+    comm.barrier()
+    tf.keras.backend.clear_session()
+       
 def algorithm(comm):
   """
   Start the algorithm with a communicator that only includes the root

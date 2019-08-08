@@ -264,7 +264,7 @@ def define_keras_flags(dynamic_loss_scale=True):
   flags_core.define_benchmark()
   flags.adopt_module_key_flags(flags_core)
 
-  flags.DEFINE_boolean(name='enable_eager', default=True, help='Enable eager?')
+  flags.DEFINE_boolean(name='enable_eager', default=False, help='Enable eager?')
   flags.DEFINE_boolean(name='skip_eval', default=False, help='Skip evaluation?')
   # TODO(b/135607288): Remove this flag once we understand the root cause of
   # slowdown when setting the learning phase in Keras backend.

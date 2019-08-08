@@ -31,14 +31,13 @@ MPI_CURRENT_TAG = 14444
 def log_fn(msg):
   tf.logging.info("[MPI helper]: %s" % msg)
 
-def set_tf_config(base_port=2222):
+def set_tf_config(comm=MPI.COMM_WORLD, base_port=2222):
   """
-  Set TF_CONFIG based on hostnames of all processes in MPI.COMM_WORLD.
-  This assumes that there is at most one process per host.
+  Set TF_CONFIG based on hostnames of all processes in the given communicator.
   """
   my_host = MPI.Get_processor_name()
-  all_hosts = MPI.COMM_WORLD.allgather(my_host)
-  my_index = MPI.COMM_WORLD.rank
+  all_hosts = comm.allgather(my_host)
+  my_index = comm.rank
   # Populate host ports, incrementing port from `base_port` for each host collision
   host_ports = []
   host_counts = {}

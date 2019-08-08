@@ -33,7 +33,7 @@ export BATCH_SIZE="${BATCH_SIZE:=1024}"
 
 # Keras-specific flags
 if [[ "$USE_KERAS" == "true" ]]; then
-  export RUN_EAGERLY="${RUN_EAGERLY:=true}"
+  export RUN_EAGERLY="${RUN_EAGERLY:=false}"
   export USE_HOROVOD="${USE_HOROVOD:=true}"
   export LOG_STEPS="1"
 else
@@ -46,8 +46,7 @@ if [[ "$MODE" == "autoscaling" ]]; then
   export AUTOSCALING_DISABLE_WRITE_GRAPH="true"
   export AUTOSCALING_DISABLE_CHECKPOINTS="true"
   export AUTOSCALING_DISABLE_CHECKPOINT_RESTORE="true"
-  export AUTOSCALING_SPAWN_EVERY_N_STEPS="${AUTOSCALING_SPAWN_EVERY_N_STEPS:=10}"
-  export AUTOSCALING_MAX_WORKERS="${AUTOSCALING_MAX_WORKERS:=60}"
+  export AUTOSCALING_ADD_WORKERS_EVERY_N_STEPS="${AUTOSCALING_ADD_WORKERS_EVERY_N_STEPS:=10}"
   # If we're just trying to attach to an existing cluster, just launch 1 worker
   if [[ -n "$AUTOSCALING_MASTER_HOST_PORT" ]]; then
     export NUM_WORKERS=1

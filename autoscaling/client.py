@@ -67,11 +67,14 @@ class AutoscalingClient:
     self._launch_worker_script = os.getenv(AUTOSCALING_LAUNCH_WORKER_SCRIPT)
     self.reset()
 
-  def reset(self):
+  def reset(self, new_master_host_port=None):
     '''
     Open a connection to each server in the system, found by fetching the cluster spec
     from the given master host port.
     '''
+    if new_master_host_port is not None and new_master_host_port != self.master_host_port:
+      self.master_host_port = new_master_host_port
+      self.master_server = connect(new_master_host_port)
     cluster_spec = self.master_server.get_cluster_spec()
     self._cluster_spec = cluster_spec
     self._servers = {}

@@ -12,10 +12,12 @@ import tensorflow as tf
 from tensorflow.python.distribute import cross_device_utils, distribute_coordinator
 from tensorflow.python.eager import context
 
-from autoscaling.client import convert_port, AutoscalingClient
+from autoscaling.client import connect, convert_port, AutoscalingClient
 from autoscaling.service import listen_for_requests
 from autoscaling.params import *
 from deploy import cuda_helper
+
+AUTOSCALING_MPI_COMMUNICATOR = None
 
 
 class AutoscalingAgent:
@@ -51,18 +53,30 @@ class AutoscalingAgent:
     # If we are running a tiny dataset, we may want to sync less often
     self.step_count = 0
     self.sync_interval_steps = int(os.getenv(AUTOSCALING_SYNC_INTERVAL_STEPS, "1"))
+    if os.getenv("DATASET", "") == "cifar10":
+      self.sync_interval_steps = 1
 
     # ========= Horovod stuff ==========
 
     # The MPI communicator that Horovod will use, if any
     self.mpi_communicator = None
-    if os.getenv("USE_HOROVOD", "").lower() == "true":
-      from mpi4py import MPI
-      self.mpi_communicator = MPI.COMM_WORLD.Dup()
+    self.mpi_communicator_ranks = []
+
+    # All host ports, indexed by the process rank
+    # This is useful for expanding our communicator with processes in our world
+    self.all_host_ports = []
 
     # A list of MPI intercommunicators created from spawning worker processes
     # These communicators will be merged into `self.mpi_communicator` on restart
     self.mpi_spawned_communicators = []
+
+    if os.getenv("USE_HOROVOD", "").lower() == "true":
+      from mpi4py import MPI
+      self.all_host_ports = MPI.COMM_WORLD.allgather(self.host_port)
+      self.mpi_communicator = MPI.COMM_SELF
+      self.mpi_communicator_ranks = [MPI.COMM_WORLD.rank]
+      global AUTOSCALING_MPI_COMMUNICATOR
+      AUTOSCALING_MPI_COMMUNICATOR = self.mpi_communicator
 
     # ========= Autoscaling stuff ==========
 
@@ -128,15 +142,17 @@ class AutoscalingAgent:
     This should be called on start up and after every time we restart.
     """
     log_fn("Initializing")
-    self.status = AutoscalingStatus.READY_TO_SYNC
-    self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
     # Check if cluster membership changed. If so, update cluster spec accordingly.
     with self.pending_cluster_spec_lock:
       if self.pending_cluster_spec is not None:
         self.apply_cluster_spec(self.pending_cluster_spec)
         self.pending_cluster_spec = None
+    # Our master host port may have changed, so we need to update our client
+    new_master_host_port = convert_port(self.cluster_spec["worker"][0])
+    self.client.reset(new_master_host_port)
+    self.status = AutoscalingStatus.READY_TO_SYNC
+    self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
     self.sync_cluster_spec()
-    self.task_index = self.cluster_spec["worker"].index(self.host_port)
     # Set TF_CONFIG using the synced cluster spec
     new_tf_config = {"cluster": self.cluster_spec,\
       "task": {"type": self.task_type, "index": self.task_index}}
@@ -146,13 +162,116 @@ class AutoscalingAgent:
     # Update CUDA_VISIBLE_DEVICES with respect to new TF_CONFIG
     if self.num_gpus_per_worker > 0:
       cuda_helper.set_cuda_visible_devices(self.num_gpus_per_worker)
-    # When using horovod, check if we need to expand our communicator
+    # When using horovod, update our MPI communicator based on the new cluster spec
     if self.using_horovod():
-      self.maybe_expand_mpi_communicator()
+      self.update_mpi_communicator_from_cluster_spec()
     self.status = AutoscalingStatus.RUNNING
     self.status_barrier(AutoscalingStatus.RUNNING)
 
-  def maybe_expand_mpi_communicator(self):
+  # TODO: move all MPI logic to a different file
+  def add_workers_to_mpi_communicator(self, num_workers=1):
+    """
+    Prepare to add workers to our MPI communicator, which will be updated after a restart.
+    This should only be called on the master server.
+    """
+    if not is_running(self.status):
+      log_fn("Not adding workers because we are initializing")
+      return False
+
+    # Make sure adding the new workers does not exceed our world capacity
+    spare_capacity = len(self.all_host_ports) - self.mpi_communicator.size
+    if num_workers > spare_capacity:
+      log_fn("Warning: unable to add %s workers because our current communicator "
+        "has size %s and the world only has size %s. Adding %s workers instead." %\
+        (num_workers, self.mpi_communicator.size, len(self.all_host_ports), spare_capacity))
+      num_workers = spare_capacity
+
+    # Find workers that are not already in our current cluster spec
+    i = self.mpi_communicator.size
+    current_workers = self.cluster_spec["worker"].copy()
+    new_workers = []
+    while len(new_workers) < num_workers:
+      candidate = self.all_host_ports[i % len(self.all_host_ports)]
+      if candidate not in current_workers and candidate not in new_workers:
+        new_workers.append(candidate)
+      i += 1
+      if i > 2 * len(self.all_host_ports):
+        # should never happen
+        raise ValueError("Unable to find new workers to add to our MPI communicator")
+
+    log_fn("ADDING THESE WORKERS %s" % new_workers)
+
+    # Tell everyone in the new cluster spec to add the other workers
+    # Note: we cannot use `self.client` here because it is not aware of the new workers yet
+    all_workers = current_workers + new_workers
+    for worker in all_workers:
+      server = connect(convert_port(worker))
+      server.add_workers(all_workers)
+    return True
+
+  def remove_workers_from_mpi_communicator(self, host_ports):
+    """
+    Prepare to remove workers from our MPI communicator, which will be updated after a restart.
+    This should only be called on the master server.
+    """
+    if not is_running(self.status):
+      log_fn("Not removing workers %s because we are initializing" % host_ports)
+      return False
+
+    log_fn("REMOVING THESE WORKERS %s" % host_ports)
+
+    # Filter out workers that are not in our cluster spec
+    removed_workers = []
+    for host_port in host_ports:
+      if host_port == self.host_port:
+        log_fn("Warning: not removing worker %s because it is ourselves" % host_port)
+      elif host_port not in self.cluster_spec["worker"]:
+        log_fn("Warning: not removing worker %s because it is not in our cluster spec" % host_port)
+      else:
+        removed_workers.append(host_port)
+
+    # Tell everyone involved to restart
+    for host_port, server in self.client._servers.items():
+      if host_port in removed_workers:
+        # For removed workers, just tell them to run by themselves again
+        server.set_pending_cluster_spec({"worker": [host_port]})
+      else:
+        server.remove_workers(removed_workers)
+    return True
+
+  def reset_mpi_communicator(self):
+    """
+    Remove everyone but ourselves from our MPI communicator.
+    """
+    workers_to_remove = self.cluster_spec["worker"].copy()
+    workers_to_remove.remove(self.host_port)
+    return self.remove_workers_from_mpi_communicator(workers_to_remove)
+
+  def update_mpi_communicator_from_cluster_spec(self):
+    """
+    Expand our existing communicator by incorporating processes from our cluster spec.
+    We assume all processes in the cluster spec are in the same MPI.COMM_WORLD as us.
+    """
+    from mpi4py import MPI
+    if self.cluster_spec["worker"] == self.all_host_ports:
+      self.mpi_communicator = MPI.COMM_WORLD.Dup()
+      log_fn("Updated MPI communicator (size %s) to the original world" %\
+        self.mpi_communicator.size)
+    else:
+      ranks = []
+      for worker in self.cluster_spec["worker"]:
+        ranks.append(self.all_host_ports.index(worker))
+      self.mpi_communicator_ranks = ranks
+      new_group = MPI.COMM_WORLD.group.Incl(ranks)
+      self.mpi_communicator = MPI.COMM_WORLD.Create_group(new_group)
+      log_fn("Updated MPI communicator (size %s) to match cluster spec %s" %\
+        (self.mpi_communicator.size, self.cluster_spec))
+    global AUTOSCALING_MPI_COMMUNICATOR
+    AUTOSCALING_MPI_COMMUNICATOR = self.mpi_communicator
+
+
+  # TODO: remove this
+  def expand_mpi_communicator_with_spawned_workers(self):
     """
     Merge newly spawned workers, if any, into our existing communicator.
     """
@@ -181,6 +300,7 @@ class AutoscalingAgent:
         comm = mpi_helper.expand(comm)
     self.mpi_communicator = comm
 
+  # TODO: remove this
   def mpi_spawn_worker(self):
     """
     Spawn a worker process through MPI, succeeds only if called while running.
@@ -251,7 +371,7 @@ class AutoscalingAgent:
         for server in self.client.servers:
           their_cluster_spec = json.dumps(server.get_cluster_spec())
           if my_cluster_spec != their_cluster_spec:
-            failure_message = "... cluster spec sync failed"
+            failure_message = "... cluster spec sync failed (mine = %s, theirs = %s)" % (my_cluster_spec, their_cluster_spec)
       # If no failure so far, then we are synced, so we should transition to SYNCED
       if not failure_message:
         log_fn("... cluster spec synced: %s" % my_cluster_spec)

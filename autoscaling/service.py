@@ -55,6 +55,18 @@ class AutoscalingService:
       return self.agent.get_progress_method()
     return (None, None)
 
+  ### FOR TESTING ONLY ###
+  def set_mpi_communicator_size(self, target_size):
+    current_size = self.agent.mpi_communicator.size
+    def run():
+      if target_size > current_size:
+        self.agent.add_workers_to_mpi_communicator(target_size - current_size)
+      elif target_size < current_size:
+        workers_to_remove = self.agent.cluster_spec["worker"][-1 * (current_size - target_size):]
+        self.agent.remove_workers_from_mpi_communicator(workers_to_remove)
+    import threading
+    threading.Thread(target=run).start()
+
   def join_cluster(self, host_port):
     '''
     Handle a join request, only called on the master server.
@@ -115,7 +127,12 @@ class AutoscalingService:
     log_fn("Handling add_workers request: %s" % host_ports)
     with self.agent.pending_cluster_spec_lock:
       cluster_spec = self._get_or_create_pending_cluster_spec()
-      cluster_spec["worker"].extend(host_ports)
+      for host_port in host_ports:
+        if host_port not in cluster_spec["worker"]:
+          cluster_spec["worker"].append(host_port)
+      # If we're using horovod, then sort the workers by rank to ensure everyone has the same order
+      if self.agent.using_horovod():
+        cluster_spec["worker"].sort(key=lambda hp: self.agent.all_host_ports.index(hp))
 
   def remove_workers(self, host_ports):
     log_fn("Handling remove_workers request: %s" % host_ports)
@@ -123,6 +140,14 @@ class AutoscalingService:
       cluster_spec = self._get_or_create_pending_cluster_spec()
       for hp in host_ports:
         cluster_spec["worker"].remove(hp)
+
+  def set_pending_cluster_spec(self, cluster_spec):
+    '''
+    Override the existing pending cluster spec to the one specified.
+    '''
+    log_fn("Handling request to set pending cluster spec to %s" % cluster_spec)
+    with self.agent.pending_cluster_spec_lock:
+      self.agent.pending_cluster_spec = cluster_spec
 
   def spawn_worker(self):
     log_fn("Handling spawn_worker request")
