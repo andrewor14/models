@@ -67,40 +67,25 @@ def get_schedule_callback(callback):
     return periodic_schedule_callback
   return None
 
-def clear_everything():
-  tf.keras.backend.clear_session()
-  import threading
-  import weakref
-  from tensorflow.python.keras import backend
-  backend._GRAPH = None
-  backend._CURRENT_SCRATCH_GRAPH = None
-  backend._SESSION = threading.local()
-  backend._GRAPH_LEARNING_PHASES = weakref.WeakKeyDictionary()
-  backend._FREEZABLE_VARS = weakref.WeakKeyDictionary()
-  backend._DUMMY_EAGER_GRAPH = threading.local()
-  backend._MANUAL_VAR_INIT = False
-  backend._LOCAL_DEVICES = None
-  backend._GRAPH_VARIABLES = weakref.WeakKeyDictionary()
-  backend._GRAPH_TF_OPTIMIZERS = weakref.WeakKeyDictionary()
-
 def initialize_horovod(comm):
   import horovod.tensorflow as hvd
   from mpi4py import MPI
+  from tensorflow.python.keras import backend as K
   # HACK: Horovod freezes when restarting with a larger communicator.
   # However, this issue goes away if we first restart with MPI.COMM_WORLD
   # and also clear any lingering state in tensorflow's keras backend.
   # Admittedly, it is unclear why this works, but it does!
   #tf.keras.backend.clear_session()
-  clear_everything()
-  #log_fn("Doing the init here")
+  #log_fn("hvd: init WORLD")
   #hvd.init(MPI.COMM_WORLD.Dup())
+  #log_fn("hvd: WORLD created allreduce op")
   #hvd.allreduce(tf.constant(hvd.rank()))
+  #log_fn("hvd: WORLD shutdown")
   #hvd.shutdown()
-  clear_everything()
-  #tf.logging.info("hvd.init")
-  #tf.keras.backend.clear_session()
-  #hvd.init(comm)
-  #tf.logging.info("hvd.init done")
+  tf.logging.info("hvd: init COMM")
+  tf.keras.backend.clear_session()
+  hvd.init(comm)
+  tf.logging.info("hvd: init COMM done")
 
 def run_keras(flags_obj, do_run):
   """ 
