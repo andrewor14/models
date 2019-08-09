@@ -89,6 +89,7 @@ def define_transformer_flags():
   flags_core.define_benchmark()
   flags_core.define_device(tpu=True)
 
+  flags.DEFINE_boolean(name='enable_eager', default=False, help='Enable eager?')
   flags.DEFINE_integer(
       name='train_steps', short_name='ts', default=300000,
       help=flags_core.help_wrap('The number of steps used to train.'))

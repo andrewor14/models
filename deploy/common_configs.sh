@@ -37,7 +37,7 @@ elif [[ "$ENVIRONMENT" == "ns" ]]; then
   export MODELS_DIR="/home/andrewor/models"
   export IMAGENET_DATA_DIR="/home/andrewor/dataset/imagenet"
   export CIFAR10_DATA_DIR="/home/andrewor/dataset/cifar10/cifar-10-batches-bin"
-  export WMT_DATA_DIR="" # TODO: fill this in
+  export WMT_DATA_DIR="/home/andrewor/dataset/transformer"
   export BASE_TRAIN_DIR="/home/andrewor/train_data"
   export BASE_EVAL_DIR="/home/andrewor/eval_data"
   export PYTHON_COMMAND="/usr/licensed/anaconda3/5.2.0/bin/python3.6"
