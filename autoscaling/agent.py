@@ -139,6 +139,9 @@ class AutoscalingAgent:
     # Update CUDA_VISIBLE_DEVICES with respect to new TF_CONFIG
     if self.num_gpus_per_worker > 0:
       cuda_helper.set_cuda_visible_devices(self.num_gpus_per_worker)
+    # When using horovod, delete TF_CONFIG to avoid interference from tensorflow
+    if self.use_horovod:
+      del os.environ["TF_CONFIG"]
     # Check if we need to expand our communicator
     self.maybe_expand_mpi_communicator()
     self.status = AutoscalingStatus.RUNNING

@@ -72,13 +72,6 @@ fi
 TRAIN_DIR="${TRAIN_DIR:=$BASE_TRAIN_DIR/$JOB_NAME}"
 mkdir -p "$TRAIN_DIR"
 
-# If we're running Horovod, make sure we're running eagerly otherwise Horovod will hang!
-# TODO: This currently runs much slower than without RUN_EAGERLY, we should make graph mode work
-if [[ "$USE_HOROVOD" == "true" ]] && [[ "$RUN_EAGERLY" != "true" ]]; then
-  echo "ERROR: When using Horovod, RUN_EAGERLY must be set to true"
-  exit 1
-fi
-
 # Only allow positive number of parameter servers if we're running in parameter_server mode
 if [[ "$DISTRIBUTION_STRATEGY" != "parameter_server" ]] && [[ "$NUM_PARAMETER_SERVERS" != "0" ]]; then
   echo "ERROR: NUM_PARAMETER_SERVERS must be 0 if we're not using 'parameter_server' distribution strategy"

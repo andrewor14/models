@@ -24,12 +24,15 @@ from __future__ import print_function
 
 import os
 import tempfile
+import traceback
 
 from absl import app as absl_app  # pylint: disable=unused-import
 from absl import flags
 import tensorflow as tf
 
 # pylint: disable=g-bad-import-order
+from autoscaling import autoscaling_helper
+from deploy import mpi_helper
 from official.transformer import compute_bleu
 from official.transformer.utils import tokenizer
 from official.transformer.v2 import data_pipeline
@@ -135,12 +138,12 @@ class TransformerTask(object):
           "infer_float32_vars")
       tf.keras.mixed_precision.experimental.set_policy(policy)
 
-  def train(self):
+  def train(self, autoscaling_callback):
     """Trains the model."""
     params, flags_obj, is_train = self.params, self.flags_obj, True
 
     _ensure_dir(flags_obj.model_dir)
-    if self.distribution_strategy:
+    if self.distribution_strategy and not flags_obj.use_horovod:
       with self.distribution_strategy.scope():
         model = transformer.create_model(params, is_train)
         opt = self._create_optimizer()
@@ -148,6 +151,9 @@ class TransformerTask(object):
     else:
       model = transformer.create_model(params, is_train)
       opt = self._create_optimizer()
+      if flags_obj.use_horovod:
+        import horovod.tensorflow as hvd
+        opt = hvd.DistributedOptimizer(opt)
       model.compile(opt, run_eagerly=flags_obj.run_eagerly)
 
     model.summary()
@@ -158,6 +164,7 @@ class TransformerTask(object):
                             num_parallel_calls=params["num_parallel_calls"])
 
     callbacks = self._create_callbacks(flags_obj.model_dir, 0, params)
+    callbacks.append(autoscaling_callback)
 
     if flags_obj.train_steps < flags_obj.steps_between_evals:
       flags_obj.steps_between_evals = flags_obj.train_steps
@@ -270,17 +277,11 @@ def _ensure_dir(log_dir):
     os.makedirs(log_dir)
 
 
-def main(_):
-  flags_obj = flags.FLAGS
-  keras_utils.set_session_config(
-    enable_eager=flags_obj.run_eagerly,
-    enable_xla=flags_obj.enable_xla,
-    enable_grappler_layout_optimizer=
-      flags_obj.enable_grappler_layout_optimizer)
+def do_run(flags_obj, autoscaling_callback):
   with logger.benchmark_context(flags_obj):
     task = TransformerTask(flags_obj)
     if flags_obj.mode == "train":
-      task.train()
+      task.train(autoscaling_callback)
     elif flags_obj.mode == "predict":
       task.predict()
     elif flags_obj.mode == "eval":
@@ -289,7 +290,12 @@ def main(_):
       raise ValueError("Invalid mode {}".format(flags_obj.mode))
 
 
+def main(_):
+  autoscaling_helper.run_keras(flags.FLAGS, do_run)
+
+
 if __name__ == "__main__":
   tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
   misc.define_transformer_flags()
   absl_app.run(main)
+
