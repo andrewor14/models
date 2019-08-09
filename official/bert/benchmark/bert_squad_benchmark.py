@@ -72,27 +72,31 @@ class BertSquadBenchmarkBase(benchmark_utils.BertBenchmarkBase):
     with tf.io.gfile.GFile(predictions_file, 'r') as reader:
       return json.load(reader)
 
-  def _get_distribution_strategy(self):
+  def _get_distribution_strategy(self, use_ds=True):
     """Gets the distribution strategy."""
     return distribution_utils.get_distribution_strategy(
-        distribution_strategy='mirrored', num_gpus=self.num_gpus)
+        distribution_strategy='mirrored' if use_ds else 'off',
+        num_gpus=self.num_gpus)
 
   @flagsaver.flagsaver
-  def _train_squad(self):
+  def _train_squad(self, use_ds=True, run_eagerly=False):
     """Runs BERT SQuAD training."""
+    assert tf.version.VERSION.startswith('2.')
     input_meta_data = self._read_input_meta_data_from_file()
-    strategy = self._get_distribution_strategy()
+    strategy = self._get_distribution_strategy(use_ds)
 
     run_squad.train_squad(
         strategy=strategy,
         input_meta_data=input_meta_data,
+        run_eagerly=run_eagerly,
         custom_callbacks=[self.timer_callback])
 
   @flagsaver.flagsaver
-  def _evaluate_squad(self):
+  def _evaluate_squad(self, use_ds=True):
     """Runs BERT SQuAD evaluation."""
+    assert tf.version.VERSION.startswith('2.')
     input_meta_data = self._read_input_meta_data_from_file()
-    strategy = self._get_distribution_strategy()
+    strategy = self._get_distribution_strategy(use_ds)
 
     run_squad.predict_squad(strategy=strategy, input_meta_data=input_meta_data)
 
@@ -124,11 +128,14 @@ class BertSquadBenchmarkReal(BertSquadBenchmarkBase):
     FLAGS.input_meta_data_path = SQUAD_SMALL_INPUT_META_DATA_PATH
     FLAGS.bert_config_file = MODEL_CONFIG_FILE_PATH
     FLAGS.num_train_epochs = 1
+    FLAGS.steps_per_loop = 1
 
-  def _run_and_report_benchmark(self):
+  def _run_and_report_benchmark(self,
+                                use_ds=True,
+                                run_eagerly=False):
     """Runs the benchmark and reports various metrics."""
     start_time_sec = time.time()
-    self._train_squad()
+    self._train_squad(use_ds=use_ds, run_eagerly=run_eagerly)
     wall_time_sec = time.time() - start_time_sec
 
     summary = self._read_training_summary_from_file()
@@ -148,6 +155,39 @@ class BertSquadBenchmarkReal(BertSquadBenchmarkBase):
     FLAGS.train_batch_size = 4
 
     self._run_and_report_benchmark()
+
+  def benchmark_1_gpu_xla(self):
+    """Tests BERT SQuAD model performance with 1 GPU with XLA."""
+
+    self._setup()
+    self.num_gpus = 1
+    FLAGS.model_dir = self._get_model_dir('benchmark_1_gpu_xla_squad')
+    # XLA runs out of memory when running with batch size 4.
+    FLAGS.train_batch_size = 3
+    FLAGS.enable_xla = True
+
+    self._run_and_report_benchmark()
+
+  def benchmark_1_gpu_no_dist_strat(self):
+    """Tests BERT SQuAD model performance with 1 GPU without DS."""
+
+    self._setup()
+    self.num_gpus = 1
+    FLAGS.model_dir = self._get_model_dir('benchmark_1_gpu_no_dist_strat_squad')
+    FLAGS.train_batch_size = 4
+
+    self._run_and_report_benchmark(use_ds=False)
+
+  def benchmark_1_gpu_eager_no_dist_strat(self):
+    """Tests BERT SQuAD model performance with 1 GPU with eager execution."""
+
+    self._setup()
+    self.num_gpus = 1
+    FLAGS.model_dir = self._get_model_dir(
+        'benchmark_1_gpu_eager_no_dist_strat_squad')
+    FLAGS.train_batch_size = 4
+
+    self._run_and_report_benchmark(use_ds=False, run_eagerly=True)
 
   def benchmark_2_gpu(self):
     """Tests BERT SQuAD model performance with 2 GPUs."""
@@ -179,6 +219,54 @@ class BertSquadBenchmarkReal(BertSquadBenchmarkBase):
 
     self._run_and_report_benchmark()
 
+  def benchmark_1_gpu_fp16(self):
+    """Tests BERT SQuAD model performance with 1 GPU and FP16."""
+
+    self._setup()
+    self.num_gpus = 1
+    FLAGS.model_dir = self._get_model_dir('benchmark_1_gpu_squad_fp16')
+    FLAGS.train_batch_size = 4
+    FLAGS.dtype = 'fp16'
+    FLAGS.loss_scale = 'dynamic'
+
+    self._run_and_report_benchmark()
+
+  def benchmark_2_gpu_fp16(self):
+    """Tests BERT SQuAD model performance with 2 GPUs and FP16."""
+
+    self._setup()
+    self.num_gpus = 2
+    FLAGS.model_dir = self._get_model_dir('benchmark_2_gpu_squad_fp16')
+    FLAGS.train_batch_size = 8
+    FLAGS.dtype = 'fp16'
+    FLAGS.loss_scale = 'dynamic'
+
+    self._run_and_report_benchmark()
+
+  def benchmark_4_gpu_fp16(self):
+    """Tests BERT SQuAD model performance with 4 GPUs and FP16."""
+
+    self._setup()
+    self.num_gpus = 4
+    FLAGS.model_dir = self._get_model_dir('benchmark_4_gpu_squad_fp16')
+    FLAGS.train_batch_size = 16
+    FLAGS.dtype = 'fp16'
+    FLAGS.loss_scale = 'dynamic'
+
+    self._run_and_report_benchmark()
+
+  def benchmark_8_gpu_fp16(self):
+    """Tests BERT SQuAD model performance with 8 GPUs."""
+
+    self._setup()
+    self.num_gpus = 8
+    FLAGS.model_dir = self._get_model_dir('benchmark_8_gpu_squad_fp16')
+    FLAGS.train_batch_size = 32
+    FLAGS.dtype = 'fp16'
+    FLAGS.loss_scale = 'dynamic'
+
+    self._run_and_report_benchmark()
+
 
 class BertSquadAccuracy(BertSquadBenchmarkBase):
   """Short accuracy test for BERT SQuAD model.
@@ -200,11 +288,14 @@ class BertSquadAccuracy(BertSquadBenchmarkBase):
     FLAGS.bert_config_file = MODEL_CONFIG_FILE_PATH
     FLAGS.init_checkpoint = PRETRAINED_CHECKPOINT_PATH
     FLAGS.num_train_epochs = 2
+    FLAGS.steps_per_loop = 1
 
-  def _run_and_report_benchmark(self):
+  def _run_and_report_benchmark(self,
+                                use_ds=True,
+                                run_eagerly=False):
     """Runs the benchmark and reports various metrics."""
     start_time_sec = time.time()
-    self._train_squad()
+    self._train_squad(use_ds=use_ds, run_eagerly=run_eagerly)
     self._evaluate_squad()
     wall_time_sec = time.time() - start_time_sec
 
@@ -214,8 +305,18 @@ class BertSquadAccuracy(BertSquadBenchmarkBase):
     super(BertSquadAccuracy, self)._report_benchmark(
         stats=summary,
         wall_time_sec=wall_time_sec,
-        min_accuracy=0.902,
-        max_accuracy=0.906)
+        min_accuracy=0.900,
+        max_accuracy=0.908)
+
+  def benchmark_1_gpu_eager(self):
+    """Tests BERT SQuAD model accuracy with 1 GPU with eager execution."""
+
+    self._setup()
+    self.num_gpus = 1
+    FLAGS.model_dir = self._get_model_dir('benchmark_1_gpu_squad_eager')
+    FLAGS.train_batch_size = 4
+
+    self._run_and_report_benchmark(use_ds=False, run_eagerly=True)
 
   def benchmark_8_gpu(self):
     """Tests BERT SQuAD model accuracy with 8 GPUs."""
@@ -224,6 +325,29 @@ class BertSquadAccuracy(BertSquadBenchmarkBase):
     self.num_gpus = 8
     FLAGS.model_dir = self._get_model_dir('benchmark_8_gpu_squad')
     FLAGS.train_batch_size = 32
+
+    self._run_and_report_benchmark()
+
+  def benchmark_8_gpu_fp16(self):
+    """Tests BERT SQuAD model accuracy with 8 GPUs and FP16."""
+
+    self._setup()
+    self.num_gpus = 8
+    FLAGS.model_dir = self._get_model_dir('benchmark_8_gpu_squad_fp16')
+    FLAGS.train_batch_size = 32
+    FLAGS.dtype = 'fp16'
+    FLAGS.loss_scale = 'dynamic'
+
+    self._run_and_report_benchmark()
+
+  def benchmark_8_gpu_xla(self):
+    """Tests BERT SQuAD model accuracy with 8 GPUs."""
+
+    self._setup()
+    self.num_gpus = 8
+    FLAGS.model_dir = self._get_model_dir('benchmark_8_gpu_squad_xla')
+    FLAGS.train_batch_size = 32
+    FLAGS.enable_xla = True
 
     self._run_and_report_benchmark()
 

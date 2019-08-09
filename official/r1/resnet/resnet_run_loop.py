@@ -29,7 +29,6 @@ import multiprocessing
 import os
 import traceback
 
-# pylint: disable=g-bad-import-order
 from absl import flags
 import tensorflow as tf
 
@@ -37,11 +36,12 @@ from autoscaling.agent import AutoscalingAgent
 from autoscaling.hook import AutoscalingHook
 from autoscaling.params import AutoscalingStatus
 from deploy import mpi_helper
-from official.resnet import resnet_model
-from official.utils.flags import core as flags_core
+from official.r1.resnet import imagenet_preprocessing
+from official.r1.resnet import resnet_model
 from official.utils.export import export
-from official.utils.logs import hooks_helper, logger
-from official.resnet import imagenet_preprocessing
+from official.utils.flags import core as flags_core
+from official.utils.logs import hooks_helper
+from official.utils.logs import logger
 from official.utils.misc import distribution_utils
 from official.utils.misc import model_helpers
 

@@ -24,8 +24,8 @@ from absl import app as absl_app
 from absl import flags
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 
-from official.resnet import resnet_model
-from official.resnet import resnet_run_loop
+from official.r1.resnet import resnet_model
+from official.r1.resnet import resnet_run_loop
 from official.utils.flags import core as flags_core
 from official.utils.logs import logger
 
@@ -114,7 +114,8 @@ def input_fn(is_training,
              dtype=tf.float32,
              datasets_num_private_threads=None,
              parse_record_fn=parse_record,
-             input_context=None):
+             input_context=None,
+             drop_remainder=False):
   """Input function which provides batches for train or eval.
 
   Args:
@@ -127,6 +128,8 @@ def input_fn(is_training,
     parse_record_fn: Function to use for parsing the records.
     input_context: A `tf.distribute.InputContext` object passed in by
       `tf.distribute.Strategy`.
+    drop_remainder: A boolean indicates whether to drop the remainder of the
+      batches. If True, the batch dimension will be static.
 
   Returns:
     A dataset that can be used for iteration.
@@ -149,7 +152,8 @@ def input_fn(is_training,
       parse_record_fn=parse_record_fn,
       num_epochs=num_epochs,
       dtype=dtype,
-      datasets_num_private_threads=datasets_num_private_threads
+      datasets_num_private_threads=datasets_num_private_threads,
+      drop_remainder=drop_remainder
   )
 
 

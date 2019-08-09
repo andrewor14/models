@@ -132,7 +132,7 @@ class TransformerTask(object):
       # We should have a better way in the tf.keras.mixed_precision API of doing
       # this.
       policy = tf.keras.mixed_precision.experimental.Policy(
-          'infer_float32_vars')
+          "infer_float32_vars")
       tf.keras.mixed_precision.experimental.set_policy(policy)
 
   def train(self):
@@ -152,13 +152,10 @@ class TransformerTask(object):
 
     model.summary()
 
-    # TODO(guptapriya): Figure out a way to structure input that works in both
-    # distributed and non distributed cases.
     train_ds = data_pipeline.train_input_fn(params)
-    if not self.distribution_strategy:
-      map_data_fn = data_pipeline.map_data_for_transformer_fn
-      train_ds = train_ds.map(
-          map_data_fn, num_parallel_calls=params["num_parallel_calls"])
+    map_data_fn = data_pipeline.map_data_for_transformer_fn
+    train_ds = train_ds.map(map_data_fn,
+                            num_parallel_calls=params["num_parallel_calls"])
 
     callbacks = self._create_callbacks(flags_obj.model_dir, 0, params)
 
@@ -167,6 +164,7 @@ class TransformerTask(object):
     iterations = flags_obj.train_steps // flags_obj.steps_between_evals
 
     cased_score, uncased_score = None, None
+    cased_score_history, uncased_score_history = [], []
     for i in range(1, iterations + 1):
       print("Start train iteration:{}/{}".format(i, iterations))
       history = model.fit(
@@ -187,13 +185,15 @@ class TransformerTask(object):
 
       if (flags_obj.bleu_source and flags_obj.bleu_ref):
         uncased_score, cased_score = self.eval()
-
-      print("BLEU: uncased={}, cased={}".format(uncased_score, cased_score))
+        cased_score_history.append([i, cased_score])
+        uncased_score_history.append([i, uncased_score])
 
     stats = misc.build_stats(history, callbacks)
     if uncased_score and cased_score:
       stats["bleu_uncased"] = uncased_score
       stats["bleu_cased"] = cased_score
+      stats["bleu_uncased_history"] = uncased_score_history
+      stats["bleu_cased_history"] = cased_score_history
     return stats
 
   def eval(self):
@@ -252,7 +252,7 @@ class TransformerTask(object):
   def _create_optimizer(self):
     """Creates optimizer."""
     params = self.params
-    opt = optimizer.LazyAdam(
+    opt = tf.keras.optimizers.Adam(
         params["learning_rate"],
         params["optimizer_adam_beta1"],
         params["optimizer_adam_beta2"],

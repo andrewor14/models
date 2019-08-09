@@ -88,8 +88,7 @@ def run_keras(flags_obj, do_run):
   # Always enable eager execution in the beginning
   keras_utils.set_session_config(
     enable_eager=flags_obj.enable_eager,
-    enable_xla=flags_obj.enable_xla,
-    enable_grappler_layout_optimizer=flags_obj.enable_grappler_layout_optimizer)
+    enable_xla=flags_obj.enable_xla)
 
   # Keep track of cluster membership changes through an autoscaling hook
   agent = AutoscalingAgent(flags_obj.num_gpus, flags_obj.use_horovod)

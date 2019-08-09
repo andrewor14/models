@@ -20,11 +20,12 @@ from __future__ import print_function
 
 from absl import app as absl_app
 from absl import flags
+from absl import logging
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 
 from autoscaling import autoscaling_helper, schedule_callback
 from autoscaling.params import AutoscalingStatus
-from official.resnet import imagenet_main
+from official.resnet.keras import imagenet_preprocessing
 from official.resnet.keras import keras_common
 from official.resnet.keras import resnet_model
 from official.resnet.keras import trivial_model
@@ -69,17 +70,6 @@ def learning_rate_schedule(current_epoch,
     else:
       break
   return learning_rate
-
-
-def parse_record_keras(raw_record, is_training, dtype):
-  """Adjust the shape of label."""
-  image, label = imagenet_main.parse_record(raw_record, is_training, dtype)
-
-  # Subtract one so that labels are in [0, 1000), and cast to float32 for
-  # Keras model.
-  label = tf.cast(tf.cast(tf.reshape(label, shape=[1]), dtype=tf.int32) - 1,
-                  dtype=tf.float32)
-  return image, label
 
 
 def do_run(flags_obj, autoscaling_callback):
@@ -138,15 +128,15 @@ def do_run(flags_obj, autoscaling_callback):
   if flags_obj.use_synthetic_data:
     distribution_utils.set_up_synthetic_data()
     input_fn = keras_common.get_synth_input_fn(
-        height=imagenet_main.DEFAULT_IMAGE_SIZE,
-        width=imagenet_main.DEFAULT_IMAGE_SIZE,
-        num_channels=imagenet_main.NUM_CHANNELS,
-        num_classes=imagenet_main.NUM_CLASSES,
+        height=imagenet_preprocessing.DEFAULT_IMAGE_SIZE,
+        width=imagenet_preprocessing.DEFAULT_IMAGE_SIZE,
+        num_channels=imagenet_preprocessing.NUM_CHANNELS,
+        num_classes=imagenet_preprocessing.NUM_CLASSES,
         dtype=dtype,
         drop_remainder=True)
   else:
     distribution_utils.undo_set_up_synthetic_data()
-    input_fn = imagenet_main.input_fn
+    input_fn = imagenet_preprocessing.input_fn
 
   # When `enable_xla` is True, we always drop the remainder of the batches
   # in the dataset, as XLA-GPU doesn't support dynamic shapes.
@@ -157,7 +147,7 @@ def do_run(flags_obj, autoscaling_callback):
       data_dir=flags_obj.data_dir,
       batch_size=flags_obj.batch_size,
       num_epochs=flags_obj.train_epochs,
-      parse_record_fn=parse_record_keras,
+      parse_record_fn=imagenet_preprocessing.parse_record,
       datasets_num_private_threads=flags_obj.datasets_num_private_threads,
       dtype=dtype,
       drop_remainder=drop_remainder,
@@ -171,7 +161,7 @@ def do_run(flags_obj, autoscaling_callback):
         data_dir=flags_obj.data_dir,
         batch_size=flags_obj.batch_size,
         num_epochs=flags_obj.train_epochs,
-        parse_record_fn=parse_record_keras,
+        parse_record_fn=imagenet_preprocessing.parse_record,
         dtype=dtype,
         drop_remainder=drop_remainder)
 
@@ -179,7 +169,7 @@ def do_run(flags_obj, autoscaling_callback):
   if flags_obj.use_tensor_lr:
     lr_schedule = keras_common.PiecewiseConstantDecayWithWarmup(
         batch_size=flags_obj.batch_size,
-        epoch_size=imagenet_main.NUM_IMAGES['train'],
+        epoch_size=imagenet_preprocessing.NUM_IMAGES['train'],
         warmup_epochs=LR_SCHEDULE[0][1],
         boundaries=list(p[1] for p in LR_SCHEDULE[1:]),
         multipliers=list(p[0] for p in LR_SCHEDULE),
@@ -195,23 +185,35 @@ def do_run(flags_obj, autoscaling_callback):
                                                           default_for_fp16=128))
 
     if flags_obj.use_trivial_model:
-      model = trivial_model.trivial_model(imagenet_main.NUM_CLASSES, dtype)
+      model = trivial_model.trivial_model(
+          imagenet_preprocessing.NUM_CLASSES, dtype)
     else:
       model = resnet_model.resnet50(
-          num_classes=imagenet_main.NUM_CLASSES,
-          dtype=dtype)
+          num_classes=imagenet_preprocessing.NUM_CLASSES, dtype=dtype)
 
-    model.compile(loss='sparse_categorical_crossentropy',
-                  optimizer=optimizer,
-                  metrics=(['sparse_categorical_accuracy']
-                           if flags_obj.report_accuracy_metrics else None),
-                  run_eagerly=flags_obj.run_eagerly,
-                  cloning=flags_obj.clone_model_in_keras_dist_strat)
+    # TODO(b/138957587): Remove when force_v2_in_keras_compile is on longer
+    # a valid arg for this model. Also remove as a valid flag.
+    if flags_obj.force_v2_in_keras_compile is not None:
+      model.compile(
+          loss='sparse_categorical_crossentropy',
+          optimizer=optimizer,
+          metrics=(['sparse_categorical_accuracy']
+                   if flags_obj.report_accuracy_metrics else None),
+          run_eagerly=flags_obj.run_eagerly,
+          experimental_run_tf_function=flags_obj.force_v2_in_keras_compile)
+    else:
+      model.compile(
+          loss='sparse_categorical_crossentropy',
+          optimizer=optimizer,
+          metrics=(['sparse_categorical_accuracy']
+                   if flags_obj.report_accuracy_metrics else None),
+          run_eagerly=flags_obj.run_eagerly)
     autoscaling_callback.set_model(model)
+
 
   callbacks = keras_common.get_callbacks(
       learning_rate_schedule,
-      imagenet_main.NUM_IMAGES['train'],
+      imagenet_preprocessing.NUM_IMAGES['train'],
       autoscaling_callback.num_batches_processed_this_epoch)
 
   # Add autoscaling callbacks
@@ -220,8 +222,8 @@ def do_run(flags_obj, autoscaling_callback):
   if autoscaling_schedule_callback is not None:
     callbacks.append(autoscaling_schedule_callback)
 
-  num_eval_steps = (imagenet_main.NUM_IMAGES['validation'] //
-                    flags_obj.batch_size)
+  num_eval_steps = (
+      imagenet_preprocessing.NUM_IMAGES['validation'] // flags_obj.batch_size)
 
   validation_data = eval_input_dataset
   if flags_obj.skip_eval:
@@ -245,7 +247,7 @@ def do_run(flags_obj, autoscaling_callback):
       [AutoscalingStatus.RESTARTING, AutoscalingStatus.TERMINATED]:
 
     (train_steps, train_epochs) = autoscaling_helper.get_train_steps_and_epochs(\
-      imagenet_main.NUM_IMAGES['train'], flags_obj, autoscaling_callback)
+      imagenet_preprocessing.NUM_IMAGES['train'], flags_obj, autoscaling_callback)
 
     history = model.fit(train_input_dataset,
                         epochs=train_epochs,
@@ -285,6 +287,6 @@ def main(_):
 
 
 if __name__ == '__main__':
-  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  logging.set_verbosity(logging.INFO)
   define_imagenet_keras_flags()
   absl_app.run(main)

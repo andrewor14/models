@@ -28,6 +28,9 @@ import tensorflow as tf
 
 from official.transformer.v2 import misc
 from official.transformer.v2 import transformer_main as tm
+from official.utils.misc import keras_utils
+
+from tensorflow.python.eager import context # pylint: disable=ungrouped-imports
 
 FLAGS = flags.FLAGS
 FIXED_TIMESTAMP = 'my_time_stamp'
@@ -76,11 +79,12 @@ class TransformerTaskTest(tf.test.TestCase):
   def _assert_exists(self, filepath):
     self.assertTrue(os.path.exists(filepath))
 
-  def test_train(self):
+  def test_train_no_dist_strat(self):
     t = tm.TransformerTask(FLAGS)
     t.train()
 
   def test_train_static_batch(self):
+    FLAGS.distribution_strategy = 'one_device'
     FLAGS.static_batch = True
     t = tm.TransformerTask(FLAGS)
     t.train()
@@ -92,7 +96,17 @@ class TransformerTaskTest(tf.test.TestCase):
     t.train()
 
   @unittest.skipUnless(tf.test.is_built_with_cuda(), 'requires GPU')
+  def test_train_fp16(self):
+    FLAGS.dtype = 'fp16'
+    t = tm.TransformerTask(FLAGS)
+    t.train()
+
+  @unittest.skipUnless(tf.test.is_built_with_cuda(), 'requires GPU')
   def test_train_2_gpu(self):
+    if context.num_gpus() < 2:
+      self.skipTest(
+          '{} GPUs are not available for this test. {} GPUs are available'.
+          format(2, context.num_gpus()))
     FLAGS.distribution_strategy = 'mirrored'
     FLAGS.num_gpus = 2
     FLAGS.param_set = 'base'
@@ -101,6 +115,10 @@ class TransformerTaskTest(tf.test.TestCase):
 
   @unittest.skipUnless(tf.test.is_built_with_cuda(), 'requires GPU')
   def test_train_2_gpu_fp16(self):
+    if context.num_gpus() < 2:
+      self.skipTest(
+          '{} GPUs are not available for this test. {} GPUs are available'.
+          format(2, context.num_gpus()))
     FLAGS.distribution_strategy = 'mirrored'
     FLAGS.num_gpus = 2
     FLAGS.param_set = 'base'

@@ -23,6 +23,7 @@ import time
 
 import tensorflow as tf
 from tensorflow.core.protobuf import rewriter_config_pb2
+from tensorflow.python import tf2
 from tensorflow.python.eager import profiler
 
 
@@ -46,39 +47,40 @@ class TimeHistory(tf.keras.callbacks.Callback):
 
     Args:
       batch_size: Total batch size.
-      log_steps: Interval of time history logs.
-
+      log_steps: Interval of steps between logging of batch level stats.
     """
     self.batch_size = batch_size
     super(TimeHistory, self).__init__()
     self.log_steps = log_steps
     self.starting_batch = starting_batch
+    self.global_steps = 0
 
-    # Logs start of step 0 then end of each step based on log_steps interval.
+    # Logs start of step 1 then end of each step based on log_steps interval.
     self.timestamp_log = []
 
-  def on_train_begin(self, logs=None):
-    self.record_batch = True
+    # Records the time each epoch takes to run from start to finish of epoch.
+    self.epoch_runtime_log = []
 
   def on_train_end(self, logs=None):
     self.train_finish_time = time.time()
 
+  def on_epoch_begin(self, epoch, logs=None):
+    self.epoch_start = time.time()
+
   def on_batch_begin(self, batch, logs=None):
-    timestamp = time.time()
-    self.start_time = timestamp
-    if self.record_batch:
-      self.record_batch = False
-      if batch == 0:
-        self.timestamp_log.append(BatchTimestamp(batch, timestamp))
+    self.start_time = time.time()
+    self.global_steps += 1
+    if self.global_steps == 1:
+      self.timestamp_log.append(BatchTimestamp(self.global_steps,
+                                               self.start_time))
 
   def on_batch_end(self, batch, logs=None):
-    if batch % self.log_steps == 0:
+    """Records elapse time of the batch and calculates examples per second."""
+    if self.global_steps % self.log_steps == 0:
       timestamp = time.time()
       elapsed_time = timestamp - self.start_time
       examples_per_second = (self.batch_size * self.log_steps) / elapsed_time
-      if batch != 0:
-        self.record_batch = True
-        self.timestamp_log.append(BatchTimestamp(batch, timestamp))
+      self.timestamp_log.append(BatchTimestamp(batch, timestamp))
       # Log stats
       log_str = "step = %d, time_taken = %f, examples_per_second = %f" %\
         (batch + self.starting_batch, elapsed_time, examples_per_second)
@@ -89,9 +91,15 @@ class TimeHistory(tf.keras.callbacks.Callback):
             metric = metric.replace("categorical_", "")
             log_str += ", %s = %f" % (metric, value)
       tf.compat.v1.logging.info(log_str)
+      self.start_time = timestamp
 
   def on_epoch_end(self, epoch, logs=None):
     self.starting_batch = 0
+    epoch_run_time = time.time() - self.epoch_start
+    self.epoch_runtime_log.append(epoch_run_time)
+    tf.compat.v1.logging.info(
+        "BenchmarkMetric: {'epoch':%d, 'time_taken': %f}" %
+        (epoch, epoch_run_time))
 
 def get_profiler_callback(model_dir, profile_steps, enable_tensorboard):
   """Validate profile_steps flag value and return profiler callback."""
@@ -142,17 +150,12 @@ class ProfilerCallback(tf.keras.callbacks.Callback):
 
 
 def set_session_config(enable_eager=False,
-                       enable_xla=False,
-                       enable_grappler_layout_optimizer=True):
+                       enable_xla=False):
   """Sets the session config."""
   if is_v2_0():
-    set_config_v2(
-        enable_xla=enable_xla,
-        enable_grappler_layout_optimizer=enable_grappler_layout_optimizer)
+    set_config_v2(enable_xla=enable_xla)
   else:
-    config = get_config_proto_v1(
-        enable_xla=enable_xla,
-        enable_grappler_layout_optimizer=enable_grappler_layout_optimizer)
+    config = get_config_proto_v1(enable_xla=enable_xla)
     if enable_eager:
       tf.compat.v1.enable_eager_execution(config=config)
     else:
@@ -160,7 +163,7 @@ def set_session_config(enable_eager=False,
       tf.keras.backend.set_session(sess)
 
 
-def get_config_proto_v1(enable_xla=False, enable_grappler_layout_optimizer=True):
+def get_config_proto_v1(enable_xla=False):
   """Return config proto according to flag settings, or None to use default."""
   config = None
   if enable_xla:
@@ -171,15 +174,6 @@ def get_config_proto_v1(enable_xla=False, enable_grappler_layout_optimizer=True)
     # OOM and performance regression.
     config.graph_options.rewrite_options.pin_to_host_optimization = (
         rewriter_config_pb2.RewriterConfig.OFF)
-  # TODO(b/76028325): Remove when generic layout optimizer will be ready.
-  if not enable_grappler_layout_optimizer:
-    if config is None:
-      config = tf.compat.v1.ConfigProto()
-    # Disable LayoutOptimizer in grappler, because it might de-optimize fp16
-    # graphs, and force NCHW data format in all convolutions and batch
-    # normalizations.
-    config.graph_options.rewrite_options.layout_optimizer = (
-        rewriter_config_pb2.RewriterConfig.OFF)
   # Note: no need to set visible_device_list here because we assume
   # this is already taken care of by CUDA_VISIBLE_DEVICES
   if config is None:
@@ -188,7 +182,7 @@ def get_config_proto_v1(enable_xla=False, enable_grappler_layout_optimizer=True)
   return config
 
 
-def set_config_v2(enable_xla=False, enable_grappler_layout_optimizer=False):
+def set_config_v2(enable_xla=False):
   """Config eager context according to flag values using TF 2.0 API."""
   if enable_xla:
     tf.config.optimizer.set_jit(True)
@@ -197,22 +191,13 @@ def set_config_v2(enable_xla=False, enable_grappler_layout_optimizer=False):
     tf.config.optimizer.set_experimental_options(
         {'pin_to_host_optimization': False}
     )
-  # TODO(b/76028325): Remove when generic layout optimizer will be ready.
-  if not enable_grappler_layout_optimizer:
-    # Disable LayoutOptimizer in grappler, because it might de-optimize fp16
-    # graphs, and force NCHW data format in all convolutions and batch
-    # normalizations.
-    tf.config.optimizer.set_experimental_options(
-        {'layout_optimizer': False}
-    )
   # Note: no need to set visible_device_list here because we assume
   # this is already taken care of by CUDA_VISIBLE_DEVICES
   for device in tf.config.experimental.list_physical_devices("GPU"):
     tf.config.experimental.set_memory_growth(device, True)
 
+
 def is_v2_0():
   """Returns true if using tf 2.0."""
-  if hasattr(tf, 'contrib'):
-    return False
-  else:
-    return True
+  return tf2.enabled()
+

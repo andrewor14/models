@@ -23,11 +23,11 @@ import traceback
 
 from absl import app as absl_app
 from absl import flags
-import tensorflow as tf  # pylint: disable=g-bad-import-order
+import tensorflow as tf
 
 from autoscaling import autoscaling_helper
 from autoscaling.params import AutoscalingStatus
-from official.resnet import cifar10_main as cifar_main
+from official.resnet.keras import cifar_preprocessing
 from official.resnet.keras import keras_common
 from official.resnet.keras import resnet_cifar_model
 from official.utils.flags import core as flags_core
@@ -69,28 +69,6 @@ def learning_rate_schedule(current_epoch,
   return learning_rate
 
 
-def parse_record_keras(raw_record, is_training, dtype):
-  """Parses a record containing a training example of an image.
-
-  The input record is parsed into a label and image, and the image is passed
-  through preprocessing steps (cropping, flipping, and so on).
-
-  This method converts the label to one hot to fit the loss function.
-
-  Args:
-    raw_record: scalar Tensor tf.string containing a serialized
-      Example protocol buffer.
-    is_training: A boolean denoting whether the input is for training.
-    dtype: Data type to use for input images.
-
-  Returns:
-    Tuple with processed image tensor and one-hot-encoded label tensor.
-  """
-  image, label = cifar_main.parse_record(raw_record, is_training, dtype)
-  label = tf.compat.v1.sparse_to_dense(label, (cifar_main.NUM_CLASSES,), 1)
-  return image, label
-
-
 def do_run(flags_obj, autoscaling_callback):
   """Run ResNet Cifar-10 training and eval loop using native Keras APIs.
 
@@ -103,6 +81,11 @@ def do_run(flags_obj, autoscaling_callback):
   Returns:
     Dictionary of training and eval stats.
   """
+  # Execute flag override logic for better model performance
+  if flags_obj.tf_gpu_thread_mode:
+    keras_common.set_gpu_thread_mode_and_count(flags_obj)
+  keras_common.set_cudnn_batchnorm_mode()
+
   dtype = flags_core.get_tf_dtype(flags_obj)
   if dtype == 'fp16':
     raise ValueError('dtype fp16 is not supported in Keras. Use the default '
@@ -121,51 +104,84 @@ def do_run(flags_obj, autoscaling_callback):
   else:
     strategy = distribution_utils.get_distribution_strategy(
       distribution_strategy=flags_obj.distribution_strategy,
-      num_gpus=flags_obj.num_gpus)
+      num_gpus=flags_obj.num_gpus,
+      num_workers=distribution_utils.configure_cluster(),
+      all_reduce_alg=flags_obj.all_reduce_alg,
+      num_packs=flags_obj.num_packs)
+
+  if strategy:
+    # flags_obj.enable_get_next_as_optional controls whether enabling
+    # get_next_as_optional behavior in DistributedIterator. If true, last
+    # partial batch can be supported.
+    strategy.extended.experimental_enable_get_next_as_optional = (
+        flags_obj.enable_get_next_as_optional
+    )
 
   strategy_scope = distribution_utils.get_strategy_scope(strategy)
 
   if flags_obj.use_synthetic_data:
     distribution_utils.set_up_synthetic_data()
     input_fn = keras_common.get_synth_input_fn(
-        height=cifar_main.HEIGHT,
-        width=cifar_main.WIDTH,
-        num_channels=cifar_main.NUM_CHANNELS,
-        num_classes=cifar_main.NUM_CLASSES,
-        dtype=flags_core.get_tf_dtype(flags_obj))
+        height=cifar_preprocessing.HEIGHT,
+        width=cifar_preprocessing.WIDTH,
+        num_channels=cifar_preprocessing.NUM_CHANNELS,
+        num_classes=cifar_preprocessing.NUM_CLASSES,
+        dtype=flags_core.get_tf_dtype(flags_obj),
+        drop_remainder=True)
   else:
     distribution_utils.undo_set_up_synthetic_data()
-    input_fn = cifar_main.input_fn
+    input_fn = cifar_preprocessing.input_fn
 
   train_input_dataset = input_fn(
       is_training=True,
       data_dir=flags_obj.data_dir,
       batch_size=flags_obj.batch_size,
       num_epochs=flags_obj.train_epochs,
-      parse_record_fn=parse_record_keras)
+      parse_record_fn=cifar_preprocessing.parse_record,
+      datasets_num_private_threads=flags_obj.datasets_num_private_threads,
+      dtype=dtype,
+      # Setting drop_remainder to avoid the partial batch logic in normalization
+      # layer, which triggers tf.where and leads to extra memory copy of input
+      # sizes between host and GPU.
+      drop_remainder=(not flags_obj.enable_get_next_as_optional))
 
-  eval_input_dataset = input_fn(
-      is_training=False,
-      data_dir=flags_obj.data_dir,
-      batch_size=flags_obj.batch_size,
-      num_epochs=flags_obj.train_epochs,
-      parse_record_fn=parse_record_keras)
+  eval_input_dataset = None
+  if not flags_obj.skip_eval:
+    eval_input_dataset = input_fn(
+        is_training=False,
+        data_dir=flags_obj.data_dir,
+        batch_size=flags_obj.batch_size,
+        num_epochs=flags_obj.train_epochs,
+        parse_record_fn=cifar_preprocessing.parse_record)
 
   with strategy_scope:
     optimizer = keras_common.get_optimizer()
     if flags_obj.use_horovod:
       import horovod.tensorflow as hvd
       optimizer = hvd.DistributedOptimizer(optimizer)
-    model = resnet_cifar_model.resnet56(classes=cifar_main.NUM_CLASSES)
-    model.compile(loss='categorical_crossentropy',
-                  optimizer=optimizer,
-                  run_eagerly=flags_obj.run_eagerly,
-                  metrics=['categorical_accuracy'])
-    autoscaling_callback.set_model(model)
+    model = resnet_cifar_model.resnet56(classes=cifar_preprocessing.NUM_CLASSES)
+
+    # TODO(b/138957587): Remove when force_v2_in_keras_compile is on longer
+    # a valid arg for this model. Also remove as a valid flag.
+    if flags_obj.force_v2_in_keras_compile is not None:
+      model.compile(
+          loss='categorical_crossentropy',
+          optimizer=optimizer,
+          metrics=(['categorical_accuracy']
+                   if flags_obj.report_accuracy_metrics else None),
+          run_eagerly=flags_obj.run_eagerly,
+          experimental_run_tf_function=flags_obj.force_v2_in_keras_compile)
+    else:
+      model.compile(
+          loss='categorical_crossentropy',
+          optimizer=optimizer,
+          metrics=(['categorical_accuracy']
+                   if flags_obj.report_accuracy_metrics else None),
+          run_eagerly=flags_obj.run_eagerly)
 
   callbacks = keras_common.get_callbacks(
       learning_rate_schedule,
-      cifar_main.NUM_IMAGES['train'],
+      cifar_preprocessing.NUM_IMAGES['train'],
       autoscaling_callback.num_batches_processed_this_epoch)
 
   # Add autoscaling callbacks
@@ -174,7 +190,7 @@ def do_run(flags_obj, autoscaling_callback):
   if autoscaling_schedule_callback is not None:
     callbacks.append(autoscaling_schedule_callback)
 
-  num_eval_steps = (cifar_main.NUM_IMAGES['validation'] //
+  num_eval_steps = (cifar_preprocessing.NUM_IMAGES['validation'] //
                     flags_obj.batch_size)
 
   validation_data = eval_input_dataset
@@ -196,7 +212,7 @@ def do_run(flags_obj, autoscaling_callback):
       [AutoscalingStatus.RESTARTING, AutoscalingStatus.TERMINATED]:
 
     (train_steps, train_epochs) = autoscaling_helper.get_train_steps_and_epochs(\
-      cifar_main.NUM_IMAGES['train'], flags_obj, autoscaling_callback)
+      cifar_preprocessing.NUM_IMAGES['train'], flags_obj, autoscaling_callback)
 
     history = model.fit(train_input_dataset,
                         epochs=train_epochs,
