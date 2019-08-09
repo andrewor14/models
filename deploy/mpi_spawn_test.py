@@ -20,19 +20,25 @@ def log(msg):
 
 def main():
   try:
-    algorithm2_eager(MPI.COMM_WORLD.Dup())
+    if os.getenv("ENABLE_EAGER", "") == "true":
+      algorithm2_eager(MPI.COMM_WORLD.Dup())
+    else:
+      algorithm2(MPI.COMM_WORLD.Dup())
   except Exception as e:
     log("##### ERROR #####")
     raise e
 
 def algorithm2(comm):
   import horovod.tensorflow as hvd
+  from tensorflow.python.keras import backend as K
   sub_comm = None
   my_rank = comm.rank
   for group_size in range(1, comm.size + 1):
     tf.keras.backend.clear_session()
     hvd.init(comm)
-    hvd.allreduce(tf.constant(my_rank))
+    with K.get_graph().as_default():
+      avg_rank = hvd.allreduce(tf.constant(my_rank))
+    log("Average rank in dummy allreduce was %s" % K.get_session().run(avg_rank))
     hvd.shutdown()
     tf.keras.backend.clear_session()
     if my_rank < group_size:
@@ -41,15 +47,16 @@ def algorithm2(comm):
       log("Rank %s: created group of size %s" % (my_rank, sub_comm.size))
       log("Rank %s: before hvd.init" % my_rank)
       hvd.init(sub_comm)
-      log("Rank %s: running hvd.allreduce" % my_rank)
-      avg_rank = hvd.allreduce(tf.constant(my_rank))
+      log("Rank %s: creating hvd.allreduce op" % my_rank)
+      with K.get_graph().as_default():
+        avg_rank = hvd.allreduce(tf.constant(my_rank))
+      log("Rank %s: running hvd.allreduce op" % my_rank)
+      log("Rank %s: average rank was %s" % (my_rank, K.get_session().run(avg_rank)))
       log("Rank %s: shutting down" % my_rank)
       hvd.shutdown()
-      log("Rank %s: average rank was %s" % (my_rank, avg_rank))
     else:
       log("Rank %s not participating in allreduce yet" % my_rank)
     comm.barrier()
-    tf.keras.backend.clear_session()
 
 def algorithm2_eager(comm):
   tf.enable_eager_execution()
@@ -66,8 +73,6 @@ def algorithm2_eager(comm):
       new_group = MPI.COMM_WORLD.group.Incl(list(range(group_size)))
       sub_comm = MPI.COMM_WORLD.Create_group(new_group)
       log("Rank %s: created group of size %s" % (my_rank, sub_comm.size))
-      #from tensorflow.python.keras import backend as K
-      #with K.get_graph().as_default():
       log("Rank %s: before hvd.init" % my_rank)
       hvd.init(sub_comm)
       log("Rank %s: running hvd.allreduce" % my_rank)
@@ -78,7 +83,6 @@ def algorithm2_eager(comm):
     else:
       log("Rank %s not participating in allreduce yet" % my_rank)
     comm.barrier()
-    tf.keras.backend.clear_session()
        
 def algorithm(comm):
   """
