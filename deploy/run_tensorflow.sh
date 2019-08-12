@@ -61,7 +61,7 @@ fi
 # Keras-specific configs
 if [[ "$USE_KERAS" == "true" ]]; then
   RUN_EAGERLY="${RUN_EAGERLY:=false}"
-  USE_HOROVOD="${USE_HOROVOD:=false}"
+  USE_HOROVOD="${USE_HOROVOD:=true}"
   LOG_STEPS="${LOG_STEPS:=100}"
 else
   RESNET_SIZE="${RESNET_SIZE:=56}"
@@ -71,6 +71,16 @@ fi
 # Set up working directories
 TRAIN_DIR="${TRAIN_DIR:=$BASE_TRAIN_DIR/$JOB_NAME}"
 mkdir -p "$TRAIN_DIR"
+
+# If we are using a small dataset, sync less often to allow faster training
+if [[ "$DATASET" == "cifar10" ]]; then
+  export AUTOSCALING_SYNC_INTERVAL_STEPS="${AUTOSCALING_SYNC_INTERVAL_STEPS:=10}"
+fi
+
+# When using Horovod, do not use a multi-worker distribution strategy
+if [[ "$USE_HOROVOD" == "true" ]]; then
+  export DISTRIBUTION_STRATEGY="mirrored"
+fi
 
 # Only allow positive number of parameter servers if we're running in parameter_server mode
 if [[ "$DISTRIBUTION_STRATEGY" != "parameter_server" ]] && [[ "$NUM_PARAMETER_SERVERS" != "0" ]]; then

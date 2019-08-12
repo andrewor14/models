@@ -102,17 +102,12 @@ def do_run(flags_obj, autoscaling_callback):
                    if tf.test.is_built_with_cuda() else 'channels_last')
   tf.keras.backend.set_image_data_format(data_format)
 
-  if flags_obj.use_horovod:
-    # We use horovod to synchronize the variables across replicas
-    # Each tensorflow process is unaware of other processes
-    strategy = None
-  else:
-    strategy = distribution_utils.get_distribution_strategy(
-      distribution_strategy=flags_obj.distribution_strategy,
-      num_gpus=flags_obj.num_gpus,
-      num_workers=distribution_utils.configure_cluster(),
-      all_reduce_alg=flags_obj.all_reduce_alg,
-      num_packs=flags_obj.num_packs)
+  strategy = distribution_utils.get_distribution_strategy(
+    distribution_strategy=flags_obj.distribution_strategy,
+    num_gpus=flags_obj.num_gpus,
+    num_workers=distribution_utils.configure_cluster(),
+    all_reduce_alg=flags_obj.all_reduce_alg,
+    num_packs=flags_obj.num_packs)
 
   if strategy:
     # flags_obj.enable_get_next_as_optional controls whether enabling
