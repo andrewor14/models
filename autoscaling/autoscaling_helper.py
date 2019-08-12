@@ -59,17 +59,25 @@ def get_schedule_callback(callback):
     return periodic_spawn_callback
   return None
 
-def initialize_horovod(flags_obj, comm):
+def initialize_horovod(comm):
   import horovod.tensorflow as hvd
+  from tensorflow.python.keras import backend as K
   # HACK: Horovod freezes when restarting with a larger communicator.
   # However, this issue goes away if we first restart with MPI.COMM_WORLD
   # and also clear any lingering state in tensorflow's keras backend.
   # Admittedly, it is unclear why this works, but it does!
   tf.keras.backend.clear_session()
+  log_fn("hvd: init WORLD")
   hvd.init(MPI.COMM_WORLD.Dup())
-  hvd.allreduce(tf.constant(hvd.rank()))
+  log_fn("hvd: creating allreduce op in WORLD")
+  with K.get_graph().as_default():
+    avg_rank_op = hvd.allreduce(tf.constant(hvd.rank()))
+  log_fn("hvd: running allreduce op in WORLD")
+  avg_rank = K.get_session().run(avg_rank_op)
+  log_fn("hvd: avg rank was %s" % avg_rank)
   hvd.shutdown()
   tf.keras.backend.clear_session()
+  log_fn("hvd: shut down WORLD, init new comm (size %s)" % comm.size)
   hvd.init(comm)
 
 def run_keras(flags_obj, do_run):
@@ -98,7 +106,7 @@ def run_keras(flags_obj, do_run):
     try:
       agent.initialize()
       if flags_obj.use_horovod:
-        initialize_horovod(flags_obj, agent.mpi_communicator)
+        initialize_horovod(agent.mpi_communicator)
       # Actually run the training
       # We expect this function to call model.fit
       result = do_run(flags_obj, callback)
