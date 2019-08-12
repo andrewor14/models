@@ -63,8 +63,8 @@ class AutoscalingService:
     Return whether the join request has been accepted.
     '''
     log_fn("Received join cluster request from %s" % host_port)
-    if not is_running(self.agent.status):
-      log_fn("Rejecting join cluster request from %s because we are initializing" % host_port)
+    if is_syncing(self.agent.status):
+      log_fn("Rejecting join request from %s because we are syncing cluster specs" % host_port)
       return False
     cluster_spec = self.get_cluster_spec()
     ps_hosts = cluster_spec["ps"] if "ps" in cluster_spec else []

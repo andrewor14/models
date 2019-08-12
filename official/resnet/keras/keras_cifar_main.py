@@ -177,10 +177,10 @@ def do_run(flags_obj, autoscaling_callback):
       autoscaling_callback.num_batches_processed_this_epoch)
 
   # Add autoscaling callbacks
-  callbacks.append(autoscaling_callback)
   autoscaling_schedule_callback = autoscaling_helper.get_schedule_callback(autoscaling_callback)
   if autoscaling_schedule_callback is not None:
     callbacks.append(autoscaling_schedule_callback)
+  callbacks.append(autoscaling_callback)
 
   num_eval_steps = (cifar_preprocessing.NUM_IMAGES['validation'] //
                     flags_obj.batch_size)

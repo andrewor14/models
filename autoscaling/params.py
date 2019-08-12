@@ -39,8 +39,19 @@ def is_running(status):
   """
   Return whether the given status represents one that is running and not pending to restart.
   """
-  return status in [\
-    AutoscalingStatus.RUNNING, AutoscalingStatus.NOT_PENDING_RESTART, AutoscalingStatus.NOT_READY_TO_RESTART]
+  return status in [
+    AutoscalingStatus.RUNNING,
+    AutoscalingStatus.NOT_PENDING_RESTART,
+    AutoscalingStatus.NOT_READY_TO_RESTART]
+
+def is_syncing(status):
+  """
+  Return whether the given status represents one that is syncing cluster specs.
+  """
+  return status in [
+    AutoscalingStatus.READY_TO_SYNC,
+    AutoscalingStatus.SYNCING,
+    AutoscalingStatus.SYNCED]
 
 def format_statuses(statuses):
   """

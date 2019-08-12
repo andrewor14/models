@@ -121,6 +121,16 @@ class AutoscalingAgent:
     This should be called on start up and after every time we restart.
     """
     log_fn("Initializing")
+    # Wait until all workers we previously spawned have joined
+    num_workers_joined = 0
+    num_workers_spawned = len(self.mpi_spawned_communicators)
+    while num_workers_joined != num_workers_spawned:
+      with self.pending_cluster_spec_lock:
+        if self.pending_cluster_spec is not None:
+          num_workers_joined =\
+            len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
+      log_fn("%s/%s workers spawned have joined" % (num_workers_joined, num_workers_spawned))
+      time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
     self.status = AutoscalingStatus.READY_TO_SYNC
     self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
     # Check if cluster membership changed. If so, update cluster spec accordingly.
