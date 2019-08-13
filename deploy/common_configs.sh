@@ -63,6 +63,7 @@ elif [[ -n "$IN_DOCKER_CONTAINER" ]]; then
   export BASE_TRAIN_DIR="/root/dev/train_data"
   export BASE_EVAL_DIR="/root/dev/eval_data"
   export PYTHON_COMMAND="python3"
+  export CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
   # It's OK to run MPI as root in a container
   export OMPI_ALLOW_RUN_AS_ROOT=1
   export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
