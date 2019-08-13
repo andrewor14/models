@@ -32,6 +32,7 @@ import tensorflow as tf
 
 # pylint: disable=g-bad-import-order
 from autoscaling import autoscaling_helper
+from autoscaling.params import AutoscalingStatus
 from deploy import mpi_helper
 from official.transformer import compute_bleu
 from official.transformer.utils import tokenizer
@@ -97,14 +98,9 @@ class TransformerTask(object):
 
     # Add flag-defined parameters to params object
     num_gpus = flags_core.get_num_gpus(flags_obj)
-    if flags_obj.use_horovod:
-      # We use horovod to synchronize the variables across replicas
-      # Each tensorflow process is unaware of other processes
-      self.distribution_strategy = None
-    else:
-      self.distribution_strategy = distribution_utils.get_distribution_strategy(
-        distribution_strategy=flags_obj.distribution_strategy,
-        num_gpus=flags_core.get_num_gpus(flags_obj))
+    self.distribution_strategy = distribution_utils.get_distribution_strategy(
+      distribution_strategy=flags_obj.distribution_strategy,
+      num_gpus=flags_core.get_num_gpus(flags_obj))
 
     print("Running transformer with num_gpus =", num_gpus)
     if self.distribution_strategy:
@@ -163,26 +159,43 @@ class TransformerTask(object):
     train_ds = train_ds.map(map_data_fn,
                             num_parallel_calls=params["num_parallel_calls"])
 
-    callbacks = self._create_callbacks(flags_obj.model_dir, 0, params)
-    callbacks.append(autoscaling_callback)
-
     if flags_obj.train_steps < flags_obj.steps_between_evals:
       flags_obj.steps_between_evals = flags_obj.train_steps
     iterations = flags_obj.train_steps // flags_obj.steps_between_evals
+    starting_iteration = autoscaling_callback.num_epochs_processed + 1
+    autoscaling_callback.num_batches_per_epoch = flags_obj.steps_between_evals
+
+    # Add callbacks
+    num_batches_processed_total =\
+      autoscaling_callback.num_batches_per_epoch * autoscaling_callback.num_epochs_processed +\
+      autoscaling_callback.num_batches_processed_this_epoch
+    num_batches_processed_this_epoch = autoscaling_callback.num_batches_processed_this_epoch
+    callbacks = self._create_callbacks(
+      flags_obj.model_dir, params, num_batches_processed_total, num_batches_processed_this_epoch)
+    autoscaling_schedule_callback = autoscaling_helper.get_schedule_callback(autoscaling_callback)
+    if autoscaling_schedule_callback is not None:
+      callbacks.append(autoscaling_schedule_callback)
+    callbacks.append(autoscaling_callback)
 
     cased_score, uncased_score = None, None
     cased_score_history, uncased_score_history = [], []
-    for i in range(1, iterations + 1):
+    for i in range(starting_iteration, iterations + 1):
       print("Start train iteration:{}/{}".format(i, iterations))
+      steps_to_train = autoscaling_callback.num_batches_per_epoch -\
+        autoscaling_callback.num_batches_processed_this_epoch
       history = model.fit(
           train_ds,
           initial_epoch=i-1,
           epochs=i,
-          steps_per_epoch=flags_obj.steps_between_evals,
+          steps_per_epoch=steps_to_train,
           callbacks=callbacks,
           # If TimeHistory is enabled, progress bar would be messy. Increase the
           # verbose level to get rid of it.
           verbose=(2 if flags_obj.enable_time_history else 1))
+
+      if autoscaling_callback.agent.status == AutoscalingStatus.RESTARTING:
+        break
+
       print("End train iteration:{}/{} global step:{}".format(
           i,
           iterations,
@@ -235,13 +248,14 @@ class TransformerTask(object):
     for i in range(length):
       translate.translate_from_input(val_outputs[i], subtokenizer)
 
-  def _create_callbacks(self, cur_log_dir, init_steps, params):
+  def _create_callbacks(
+      self, cur_log_dir, params, num_batches_processed_total, num_batches_processed_this_epoch):
     """Creates a list of callbacks."""
     sfunc = optimizer.LearningRateFn(params["learning_rate"],
                                      params["hidden_size"],
                                      params["learning_rate_warmup_steps"])
-    scheduler_callback = optimizer.LearningRateScheduler(sfunc, init_steps)
-    callbacks = misc.get_callbacks()
+    scheduler_callback = optimizer.LearningRateScheduler(sfunc, num_batches_processed_total)
+    callbacks = misc.get_callbacks(num_batches_processed_this_epoch)
     callbacks.append(scheduler_callback)
     ckpt_full_path = os.path.join(cur_log_dir, "cp-{epoch:04d}.ckpt")
     callbacks.append(tf.keras.callbacks.ModelCheckpoint(ckpt_full_path,

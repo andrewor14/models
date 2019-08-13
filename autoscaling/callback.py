@@ -2,6 +2,7 @@
 
 import tensorflow as tf
 from tensorflow.python import keras
+from tensorflow.python.keras import backend as K
 
 from autoscaling.agent import log_exceptions
 from autoscaling.params import AutoscalingStatus
@@ -61,7 +62,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
     Restore saved variables from memory, if any, before running the first step.
     """
     if self.agent.saved_variables is not None:
-      self.agent.restore_variables(self.get_trainable_variables())
+      self.agent.restore_variables(self.get_trainable_variables(), self.get_session())
 
   def do_on_batch_end(self, batch, logs):
     """
@@ -82,7 +83,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
     Save our variables for the next restart if we are not terminating.
     """
     if self.agent.status != AutoscalingStatus.TERMINATED:
-      self.agent.save_variables(self.get_trainable_variables())
+      self.agent.save_variables(self.get_trainable_variables(), self.get_session())
 
   def get_trainable_variables(self):
     """
@@ -102,6 +103,9 @@ class AutoscalingCallback(keras.callbacks.Callback):
 
   def on_train_end(self, logs=None):
     log_exceptions(lambda: self.do_on_train_end(logs))
+
+  def get_session(self):
+    return None if tf.executing_eagerly() else K.get_session()
 
 def log_fn(msg):
   tf.logging.info("[Autoscaling callback] %s" % msg)

@@ -15,6 +15,7 @@
 """Defines Transformer model parameters."""
 
 from collections import defaultdict
+import os
 
 
 BASE_PARAMS = defaultdict(
@@ -27,7 +28,10 @@ BASE_PARAMS = defaultdict(
 
     # Model params
     initializer_gain=1.0,  # Used in trainable variable initialization.
-    vocab_size=33708,  # Number of tokens defined in the vocabulary file.
+    # Number of tokens defined in the vocabulary file.
+    # Hack: set this to a larger number when training on CPUs, per
+    # https://github.com/tensorflow/tensorflow/issues/23698
+    vocab_size=50000 if int(os.getenv("NUM_GPUS_PER_WORKER", "0")) == 0 else 33708,
     hidden_size=512,  # Model dimension in the hidden layers.
     num_hidden_layers=6,  # Number of layers in the encoder and decoder stacks.
     num_heads=8,  # Number of heads to use in multi-headed attention.

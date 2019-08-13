@@ -44,6 +44,8 @@ elif [[ "$DATASET" == "imagenet" ]]; then
 elif [[ "$DATASET" == "wmt" ]]; then
   DATA_DIR="$WMT_DATA_DIR"
   RUN_SCRIPT="$MODELS_DIR/official/transformer/v2/transformer_main.py"
+  TRAIN_STEPS="${TRAIN_STEPS:=300000}"
+  STEPS_BETWEEN_EVALS="${STEPS_BETWEEN_EVALS:=$TRAIN_STEPS}"
   PARAM_SET="${PARAM_SET:=base}"
   VOCAB_FILE="${VOCAB_FILE:=$WMT_DATA_DIR/vocab.ende.32768}"
   MAX_LENGTH="${MAX_LENGTH:=64}"
@@ -126,6 +128,8 @@ fi
 
 if [[ "$DATASET" == "wmt" ]]; then
   FLAGS="$FLAGS"\
+"  --train_steps=$TRAIN_STEPS"\
+"  --steps_between_evals=$STEPS_BETWEEN_EVALS"\
 "  --param_set=$PARAM_SET"\
 "  --vocab_file=$VOCAB_FILE"\
 "  --max_length=$MAX_LENGTH"\
