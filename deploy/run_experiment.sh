@@ -20,7 +20,7 @@ export MAX_GPUS="${MAX_GPUS:=96}"
 
 # Set default batch size based on dataset
 if [[ "$DATASET" == "cifar10" ]]; then
-  export BATCH_SIZE="${BATCH_SIZE:=128}"
+  export BATCH_SIZE="${BATCH_SIZE:=1024}"
 elif [[ "$DATASET" == "imagenet" ]]; then
   export BATCH_SIZE="${BATCH_SIZE:=8192}"
 else
