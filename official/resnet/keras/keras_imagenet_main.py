@@ -84,6 +84,10 @@ def do_run(flags_obj, autoscaling_callback):
   Returns:
     Dictionary of training and eval stats.
   """
+  global_batch_size = flags_obj.batch_size
+  local_batch_size = global_batch_size // len(autoscaling_callback.agent.cluster_spec["worker"])
+  tf.logging.info("Local batch size = %s" % local_batch_size)
+
   # Execute flag override logic for better model performance
   if flags_obj.tf_gpu_thread_mode:
     keras_common.set_gpu_thread_mode_and_count(flags_obj)
@@ -140,7 +144,7 @@ def do_run(flags_obj, autoscaling_callback):
   train_input_dataset = input_fn(
       is_training=True,
       data_dir=flags_obj.data_dir,
-      batch_size=flags_obj.batch_size,
+      batch_size=local_batch_size,
       num_epochs=flags_obj.train_epochs,
       parse_record_fn=imagenet_preprocessing.parse_record,
       datasets_num_private_threads=flags_obj.datasets_num_private_threads,
@@ -154,7 +158,7 @@ def do_run(flags_obj, autoscaling_callback):
     eval_input_dataset = input_fn(
         is_training=False,
         data_dir=flags_obj.data_dir,
-        batch_size=flags_obj.batch_size,
+        batch_size=local_batch_size,
         num_epochs=flags_obj.train_epochs,
         parse_record_fn=imagenet_preprocessing.parse_record,
         dtype=dtype,
@@ -163,7 +167,7 @@ def do_run(flags_obj, autoscaling_callback):
   lr_schedule = 0.1
   if flags_obj.use_tensor_lr:
     lr_schedule = keras_common.PiecewiseConstantDecayWithWarmup(
-        batch_size=flags_obj.batch_size,
+        batch_size=global_batch_size,
         epoch_size=imagenet_preprocessing.NUM_IMAGES['train'],
         warmup_epochs=LR_SCHEDULE[0][1],
         boundaries=list(p[1] for p in LR_SCHEDULE[1:]),
@@ -217,8 +221,7 @@ def do_run(flags_obj, autoscaling_callback):
   callbacks.append(autoscaling_callback)
   autoscaling_callback.set_model(model)
 
-  num_eval_steps = (
-      imagenet_preprocessing.NUM_IMAGES['validation'] // flags_obj.batch_size)
+  num_eval_steps = (imagenet_preprocessing.NUM_IMAGES['validation'] // global_batch_size)
 
   validation_data = eval_input_dataset
   if flags_obj.skip_eval:

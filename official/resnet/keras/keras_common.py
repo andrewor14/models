@@ -183,7 +183,7 @@ def get_optimizer(learning_rate=0.1):
 def get_callbacks(learning_rate_schedule_fn, num_images, starting_batch=0, starting_epoch=0):
   """Returns common callbacks."""
   time_callback = keras_utils.TimeHistory(
-    FLAGS.batch_size, FLAGS.log_steps, starting_batch, starting_epoch)
+    FLAGS.batch_size, FLAGS.log_steps, starting_batch)
   callbacks = [time_callback]
 
   if not FLAGS.use_tensor_lr:
@@ -191,8 +191,8 @@ def get_callbacks(learning_rate_schedule_fn, num_images, starting_batch=0, start
         learning_rate_schedule_fn,
         batch_size=FLAGS.batch_size,
         num_images=num_images,
-        starting_batch,
-        starting_epoch)
+        starting_batch=starting_batch,
+        starting_epoch=starting_epoch)
     callbacks.append(lr_callback)
 
   if FLAGS.enable_tensorboard:

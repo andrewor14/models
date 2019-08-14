@@ -295,6 +295,8 @@ def _ensure_dir(log_dir):
 def do_run(flags_obj, autoscaling_callback):
   with logger.benchmark_context(flags_obj):
     task = TransformerTask(flags_obj)
+    task.params["batch_size"] =\
+      task.params["batch_size"] // len(autoscaling_callback.agent.cluster_spec["worker"])
     if flags_obj.mode == "train":
       task.train(autoscaling_callback)
     elif flags_obj.mode == "predict":

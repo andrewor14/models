@@ -81,6 +81,9 @@ def do_run(flags_obj, autoscaling_callback):
   Returns:
     Dictionary of training and eval stats.
   """
+  global_batch_size = flags_obj.batch_size
+  local_batch_size = global_batch_size // len(autoscaling_callback.agent.cluster_spec["worker"])
+
   # Execute flag override logic for better model performance
   if flags_obj.tf_gpu_thread_mode:
     keras_common.set_gpu_thread_mode_and_count(flags_obj)
@@ -130,7 +133,7 @@ def do_run(flags_obj, autoscaling_callback):
   train_input_dataset = input_fn(
       is_training=True,
       data_dir=flags_obj.data_dir,
-      batch_size=flags_obj.batch_size,
+      batch_size=local_batch_size,
       num_epochs=flags_obj.train_epochs,
       parse_record_fn=cifar_preprocessing.parse_record,
       datasets_num_private_threads=flags_obj.datasets_num_private_threads,
@@ -145,7 +148,7 @@ def do_run(flags_obj, autoscaling_callback):
     eval_input_dataset = input_fn(
         is_training=False,
         data_dir=flags_obj.data_dir,
-        batch_size=flags_obj.batch_size,
+        batch_size=local_batch_size,
         num_epochs=flags_obj.train_epochs,
         parse_record_fn=cifar_preprocessing.parse_record)
 
@@ -184,8 +187,7 @@ def do_run(flags_obj, autoscaling_callback):
   callbacks.append(autoscaling_callback)
   autoscaling_callback.set_model(model)
 
-  num_eval_steps = (cifar_preprocessing.NUM_IMAGES['validation'] //
-                    flags_obj.batch_size)
+  num_eval_steps = (cifar_preprocessing.NUM_IMAGES['validation'] // global_batch_size)
 
   validation_data = eval_input_dataset
   if flags_obj.skip_eval:
