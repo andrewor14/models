@@ -85,8 +85,6 @@ class AutoscalingCallback(keras.callbacks.Callback):
     if self.num_batches_processed_this_epoch == self.num_batches_per_epoch:
       self.num_epochs_processed += 1
       self.num_batches_processed_this_epoch = 0
-    if self.num_epochs_processed == self.num_epochs_total:
-      self.agent.status = AutoscalingStatus.TERMINATED
     # Check if we need to restart
     restarting = self.agent.step_end()
     if restarting:
@@ -96,6 +94,8 @@ class AutoscalingCallback(keras.callbacks.Callback):
     """
     Save our variables for the next restart if we are not terminating.
     """
+    if self.num_epochs_processed == self.num_epochs_total:
+      self.agent.status = AutoscalingStatus.TERMINATED
     if self.agent.status != AutoscalingStatus.TERMINATED:
       self.agent.save_variables(self.get_trainable_variables(), self.get_session())
     else:
@@ -132,8 +132,8 @@ class AutoscalingCallback(keras.callbacks.Callback):
     """
     checkpoint_dir = os.getenv("TRAIN_DIR")
     if is_checkpoint_restart_mode() and\
-        self.agent.checkpoint_restart_num_workers is not None and\
-        os.path.exists(checkpoint_dir):
+        os.path.exists(checkpoint_dir) and\
+        self.agent.status != AutoscalingStatus.TERMINATED:
       checkpoint_file = os.path.join(checkpoint_dir, AUTOSCALING_CHECKPOINT_FILE_NAME)
       checkpoint_metadata_file = os.path.join(
         checkpoint_dir, AUTOSCALING_CHECKPOINT_METADATA_FILE_NAME)
