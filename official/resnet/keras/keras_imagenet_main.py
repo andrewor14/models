@@ -203,8 +203,6 @@ def do_run(flags_obj, autoscaling_callback):
           metrics=(['sparse_categorical_accuracy']
                    if flags_obj.report_accuracy_metrics else None),
           run_eagerly=flags_obj.run_eagerly)
-    autoscaling_callback.set_model(model)
-
 
   callbacks = keras_common.get_callbacks(
       learning_rate_schedule,
@@ -216,6 +214,7 @@ def do_run(flags_obj, autoscaling_callback):
   if autoscaling_schedule_callback is not None:
     callbacks.append(autoscaling_schedule_callback)
   callbacks.append(autoscaling_callback)
+  autoscaling_callback.set_model(model)
 
   num_eval_steps = (
       imagenet_preprocessing.NUM_IMAGES['validation'] // flags_obj.batch_size)

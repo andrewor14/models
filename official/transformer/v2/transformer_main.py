@@ -176,6 +176,7 @@ class TransformerTask(object):
     if autoscaling_schedule_callback is not None:
       callbacks.append(autoscaling_schedule_callback)
     callbacks.append(autoscaling_callback)
+    autoscaling_callback.set_model(model)
 
     cased_score, uncased_score = None, None
     cased_score_history, uncased_score_history = [], []

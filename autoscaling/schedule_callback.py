@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-import os
-
 import tensorflow as tf
 from tensorflow.python import keras
 
@@ -30,8 +28,15 @@ class PeriodicSpawnScheduleCallback(keras.callbacks.Callback):
     if self.spawn_next_step or\
         (self.step_count % self.every_n_steps == 0 and\
         self.agent.mpi_communicator.size < self.max_workers):
-      spawned = self.agent.mpi_spawn_worker()
-      if not spawned:
-        log_fn("Warning: agent was not ready to spawn worker, trying again next step")
-      self.spawn_next_step = not spawned
+      # In 'checkpoint-restart' mode, we simply tell the all the workers to terminate
+      if is_checkpoint_restart_mode():
+        for server in self.agent.client.servers:
+          server.set_pending_cluster_spec({"worker":[]})
+        self.agent.checkpoint_restart_num_workers = len(self.agent.cluster_spec["worker"]) + 1
+      # Otherwise, spawn a worker on the master
+      else:
+        spawned = self.agent.mpi_spawn_worker()
+        if not spawned:
+          log_fn("Warning: agent was not ready to spawn worker, trying again next step")
+        self.spawn_next_step = not spawned
 

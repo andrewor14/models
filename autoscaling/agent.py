@@ -38,6 +38,7 @@ class AutoscalingAgent:
     #   (1) Number of batches processed in this epoch so far, and
     #   (2) Number of epochs processed so far.
     self.get_progress_method = None
+    self.checkpoint_restart_num_workers = None
     self.num_gpus_per_worker = num_gpus_per_worker
     self.use_horovod = use_horovod
 

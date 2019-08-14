@@ -181,6 +181,7 @@ def do_run(flags_obj, autoscaling_callback):
   if autoscaling_schedule_callback is not None:
     callbacks.append(autoscaling_schedule_callback)
   callbacks.append(autoscaling_callback)
+  autoscaling_callback.set_model(model)
 
   num_eval_steps = (cifar_preprocessing.NUM_IMAGES['validation'] //
                     flags_obj.batch_size)

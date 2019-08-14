@@ -112,17 +112,22 @@ class AutoscalingService:
     return self.agent.pending_cluster_spec
 
   def add_workers(self, host_ports):
-    log_fn("Handling add_workers request: %s" % host_ports)
+    log_fn("Handling add workers request: %s" % host_ports)
     with self.agent.pending_cluster_spec_lock:
       cluster_spec = self._get_or_create_pending_cluster_spec()
       cluster_spec["worker"].extend(host_ports)
 
   def remove_workers(self, host_ports):
-    log_fn("Handling remove_workers request: %s" % host_ports)
+    log_fn("Handling remove workers request: %s" % host_ports)
     with self.agent.pending_cluster_spec_lock:
       cluster_spec = self._get_or_create_pending_cluster_spec()
       for hp in host_ports:
         cluster_spec["worker"].remove(hp)
+
+  def set_pending_cluster_spec(self, cluster_spec):
+    log_fn("Handling set pending cluster spec request: %s" % cluster_spec)
+    with self.agent.pending_cluster_spec_lock:
+      self.agent.pending_cluster_spec = cluster_spec
 
   def spawn_worker(self):
     log_fn("Handling spawn_worker request")

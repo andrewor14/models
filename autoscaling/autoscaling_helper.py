@@ -115,6 +115,10 @@ def run_keras(flags_obj, do_run):
       # Hack: the tensorflow process does not terminate properly unless we do this
       os._exit(1)
 
+  # Make sure everyone exits together to avoid connection refused errors
+  if is_checkpoint_restart_mode():
+    agent.mpi_communicator.barrier()
+
   log_fn("Training complete")
   # Hack: the tensorflow process does not terminate properly unless we do this
   os._exit(0)
