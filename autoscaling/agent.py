@@ -376,6 +376,9 @@ class AutoscalingAgent:
 
     Return whether this process is restarting or terminating.
     """
+    # If we are already terminated, just return
+    if self.status == AutoscalingStatus.TERMINATED:
+      return True
     # Only sync every N steps
     self.step_count += 1
     if self.step_count % self.sync_interval_steps != 0:

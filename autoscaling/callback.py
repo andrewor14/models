@@ -16,6 +16,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
     self.agent = agent
     self.model = None
     self.num_batches_per_epoch = None
+    self.num_epochs_total = None
     self.num_batches_processed_this_epoch = 0
     self.num_epochs_processed = 0
     # Run this callback on all the workers
@@ -73,6 +74,8 @@ class AutoscalingCallback(keras.callbacks.Callback):
     if self.num_batches_processed_this_epoch == self.num_batches_per_epoch:
       self.num_epochs_processed += 1
       self.num_batches_processed_this_epoch = 0
+    if self.num_epochs_processed == self.num_epochs_total:
+      self.agent.status = AutoscalingStatus.TERMINATED
     # Check if we need to restart
     restarting = self.agent.step_end()
     if restarting:
