@@ -64,7 +64,6 @@ class AutoscalingClient:
     self.master_server = connect(master_host_port)
     self._cluster_spec = None
     self._servers = None
-    self._launch_worker_script = os.getenv(AUTOSCALING_LAUNCH_WORKER_SCRIPT)
     self.reset()
 
   def reset(self):
@@ -169,40 +168,4 @@ class AutoscalingClient:
       server.remove_workers(known_host_ports)
     for hp in known_host_ports:
       self._cluster_spec["worker"].remove(hp)
-
-  # TODO: Currently not used. Merge this with AutoscalingAgent.mpi_spawn_worker.
-  def launch_worker(self, args=[], env={}):
-    '''
-    Launch a worker process with the specified arguments and environment variables.
-    '''
-    if self._launch_worker_script is None:
-      raise Exception("Launch worker script is not set.")
-    # Set some necessary variables
-    env = env.copy()
-    user_env = env.copy()
-    env[AUTOSCALING_MASTER_HOST_PORT] = self.master_host_port
-    for var in ["PATH", "LD_LIBRARY_PATH"]:
-      if var in os.environ:
-        env[var] = os.environ[var]
-    # Make the script callable
-    cmd = self._launch_worker_script
-    if "/" not in cmd:
-      cmd = "./%s" % cmd
-    cmd = [cmd] + args
-    # Launch the process
-    log_fn("Launching worker with cmd %s, env = %s" % (cmd, user_env))
-    p = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = p.communicate()
-    # Print output of launch command
-    message = "Launched worker with cmd %s, env = %s" % (cmd, user_env)
-    indent = "    "
-    if stdout:
-      stdout = stdout.decode("utf-8")
-      stdout = indent + stdout.replace("\n", "\n" + indent)
-      message += ", stdout:\n%s" % stdout
-    if stderr:
-      stderr = stderr.decode("utf-8")
-      stderr = indent + stderr.replace("\n", "\n" + indent)
-      message += "\nstderr:\n%s" % stderr
-    log_fn(message)
 
