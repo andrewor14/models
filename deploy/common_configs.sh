@@ -41,6 +41,7 @@ elif [[ "$ENVIRONMENT" == "ns" ]]; then
   export BASE_TRAIN_DIR="/home/andrewor/train_data"
   export BASE_EVAL_DIR="/home/andrewor/eval_data"
   export PYTHON_COMMAND="/usr/licensed/anaconda3/5.2.0/bin/python3.6"
+  export CHECKPOINT_RESTART_SKIP_COPY="true"
   # No GPUs on this cluster
   export BYPASS_GPU_TEST="true"
   export MPI_HOME="/home/andrewor/lib/openmpi"

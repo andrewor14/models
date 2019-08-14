@@ -68,12 +68,28 @@ function set_job_name() {
 # In 'checkpoint-restart' mode, the job exits when adjusting its number of workers
 # Therefore, we have to run tensorflow in a loop and exit only when training is done
 if [[ "$MODE" == "checkpoint-restart" ]]; then
+  if [[ -z "$MPI_HOST_FILE" ]] && [[ "$CHECKPOINT_RESTART_SKIP_COPY" != "true" ]]; then
+    echo "ERROR: '$MODE' mode requires MPI_HOST_FILE to be set"
+    exit 1
+  fi
   while true; do
     set_job_name
     export TRAIN_DIR="$BASE_TRAIN_DIR/$JOB_NAME"
     ./deploy.sh
+    # Copy checkpoint files to all remote hosts
+    # This assumes all hosts have the exact same directory structures
+    if [[ "$CHECKPOINT_RESTART_SKIP_COPY" != "true" ]]; then
+      if [[ ! -f "$MPI_HOST_FILE" ]]; then
+        echo "ERROR: Host file $MPI_HOST_FILE does not exist"
+        exit 1
+      fi
+      echo "Copying checkpoints in $TRAIN_DIR to all hosts"
+      while read HOST; do
+        scp -r "$TRAIN_DIR" "$HOST":"$TRAIN_DIR" &
+      done < "$MPI_HOST_FILE"
+      wait
+    fi
     # If the checkpoint metadata file does not exist, then assume that training is done
-    # TODO: do we need to copy these checkpoint files to all the workers?
     METADATA_FILE="$TRAIN_DIR/checkpoint.metadata"
     if [[ ! -f "$METADATA_FILE" ]]; then
       break
