@@ -48,12 +48,13 @@ class LearningRateBatchScheduler(tf.keras.callbacks.Callback):
           output (float).
   """
 
-  def __init__(self, schedule, batch_size, num_images):
+  def __init__(self, schedule, batch_size, num_images, starting_batch=0, starting_epoch=0):
     super(LearningRateBatchScheduler, self).__init__()
     self.schedule = schedule
     self.batches_per_epoch = num_images / batch_size
     self.batch_size = batch_size
-    self.epochs = -1
+    self.starting_batch = starting_batch
+    self.epochs = starting_epoch - 1
     self.prev_lr = -1
 
   def on_epoch_begin(self, epoch, logs=None):
@@ -61,10 +62,13 @@ class LearningRateBatchScheduler(tf.keras.callbacks.Callback):
       raise ValueError('Optimizer must have a "learning_rate" attribute.')
     self.epochs += 1
 
+  def on_epoch_end(self, epoch, logs=None):
+    self.starting_batch = 0
+
   def on_batch_begin(self, batch, logs=None):
     """Executes before step begins."""
     lr = self.schedule(self.epochs,
-                       batch,
+                       self.starting_batch + batch,
                        self.batches_per_epoch,
                        self.batch_size)
     if not isinstance(lr, (float, np.float32, np.float64)):
@@ -176,17 +180,19 @@ def get_optimizer(learning_rate=0.1):
   return gradient_descent_v2.SGD(learning_rate=learning_rate, momentum=0.9)
 
 
-def get_callbacks(learning_rate_schedule_fn, num_images, starting_batch=0):
+def get_callbacks(learning_rate_schedule_fn, num_images, starting_batch=0, starting_epoch=0):
   """Returns common callbacks."""
   time_callback = keras_utils.TimeHistory(
-    FLAGS.batch_size, FLAGS.log_steps, starting_batch)
+    FLAGS.batch_size, FLAGS.log_steps, starting_batch, starting_epoch)
   callbacks = [time_callback]
 
   if not FLAGS.use_tensor_lr:
     lr_callback = LearningRateBatchScheduler(
         learning_rate_schedule_fn,
         batch_size=FLAGS.batch_size,
-        num_images=num_images)
+        num_images=num_images,
+        starting_batch,
+        starting_epoch)
     callbacks.append(lr_callback)
 
   if FLAGS.enable_tensorboard:

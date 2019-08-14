@@ -220,12 +220,12 @@ def define_transformer_flags():
   flags_core.require_cloud_storage(['data_dir', 'model_dir', 'export_dir'])
 
 
-def get_callbacks(num_batches_processed_this_epoch=0):
+def get_callbacks(starting_batch=0):
   """Returns common callbacks."""
   callbacks = []
   if FLAGS.enable_time_history:
     time_callback = keras_utils.TimeHistory(
-      FLAGS.batch_size, FLAGS.log_steps, num_batches_processed_this_epoch)
+      FLAGS.batch_size, FLAGS.log_steps, starting_batch)
     callbacks.append(time_callback)
 
   if FLAGS.enable_tensorboard:

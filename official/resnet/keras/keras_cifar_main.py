@@ -174,7 +174,8 @@ def do_run(flags_obj, autoscaling_callback):
   callbacks = keras_common.get_callbacks(
       learning_rate_schedule,
       cifar_preprocessing.NUM_IMAGES['train'],
-      autoscaling_callback.num_batches_processed_this_epoch)
+      autoscaling_callback.num_batches_processed_this_epoch,
+      autoscaling_callback.num_epochs_processed)
 
   # Add autoscaling callbacks
   autoscaling_schedule_callback = autoscaling_helper.get_schedule_callback(autoscaling_callback)
