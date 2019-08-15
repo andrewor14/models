@@ -29,6 +29,9 @@ def get_train_steps_and_epochs(num_total_samples, flags_obj, callback):
     train_epochs = 1
   callback.num_batches_per_epoch = train_steps
   callback.num_epochs_total = train_epochs
+  callback.agent.step_count =\
+    callback.num_batches_per_epoch * callback.num_epochs_processed +\
+    callback.num_batches_processed_this_epoch
   # If we restarted in the middle of an epoch, finish the rest of the batches in the
   # epoch first, then restart again with the original number of batches in an epoch
   original_train_steps = train_steps

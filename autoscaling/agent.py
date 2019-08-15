@@ -378,8 +378,9 @@ class AutoscalingAgent:
     Return whether this process is restarting or terminating.
     """
     # Only sync every N steps
+    # We use an offset of 1 step to avoid interfering with the schedule callback
     self.step_count += 1
-    if self.step_count % self.sync_interval_steps != 0:
+    if self.step_count % self.sync_interval_steps != 1:
       return False
     # Check if cluster membership has changed
     with self.pending_cluster_spec_lock:
