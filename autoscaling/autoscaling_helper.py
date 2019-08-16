@@ -95,7 +95,7 @@ def run_keras(flags_obj, do_run):
     enable_xla=flags_obj.enable_xla)
 
   # Keep track of cluster membership changes through an autoscaling hook
-  agent = AutoscalingAgent(flags_obj.num_gpus, flags_obj.use_horovod)
+  agent = AutoscalingAgent(flags_obj.num_gpus, flags_obj.use_horovod, flags_obj.batch_size)
   callback = AutoscalingCallback(agent)
 
   while agent.status != AutoscalingStatus.TERMINATED:

@@ -32,7 +32,7 @@ class AutoscalingAgent:
   among all the agents.
   """
 
-  def __init__(self, num_gpus_per_worker=0, use_horovod=False):
+  def __init__(self, num_gpus_per_worker=0, use_horovod=False, global_batch_size=None):
     self.saved_variables = None
     # A lambda that returns a 2-tuple of
     #   (1) Number of batches processed in this epoch so far, and
@@ -41,6 +41,7 @@ class AutoscalingAgent:
     self.checkpoint_restart_num_workers = None
     self.num_gpus_per_worker = num_gpus_per_worker
     self.use_horovod = use_horovod
+    self.global_batch_size = global_batch_size
 
     # Parse this process' host port from TF_CONFIG
     tf_config = get_tf_config()
