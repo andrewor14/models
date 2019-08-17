@@ -13,6 +13,7 @@ import tensorflow as tf
 from tensorflow.python.distribute import cross_device_utils, distribute_coordinator
 from tensorflow.python.eager import context
 
+from autoscaling import autoscaling_helper
 from autoscaling.client import convert_port, AutoscalingClient
 from autoscaling.service import listen_for_requests
 from autoscaling.params import *
@@ -417,7 +418,9 @@ class AutoscalingAgent:
         log_fn("Received signal to restart server")
         self.status = AutoscalingStatus.RESTARTING
         self.status_barrier(AutoscalingStatus.RESTARTING)
-      return True
+        self.initialize()
+        autoscaling_helper.reinitialize_horovod(self.mpi_communicator)
+      return False
 
 # ================== HELPER METHODS ==================
 

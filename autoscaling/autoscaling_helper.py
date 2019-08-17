@@ -14,6 +14,10 @@ from autoscaling.schedule_callback import PeriodicSpawnScheduleCallback
 from deploy import mpi_helper
 from official.utils.misc import keras_utils
 
+# Global variable that signals whether tensorflow should create a new function
+# This is useful for modifying a section of a graph without rebuilding the entire graph
+# For example, we currently set this after changing the size of the horovod communicator
+SHOULD_REFRESH_FUNCTION = False
 
 def log_fn(msg):
   tf.logging.info("[Autoscaling helper]: %s" % msg)
@@ -63,18 +67,17 @@ def get_schedule_callback(callback):
     return periodic_spawn_callback
   return None
 
-def initialize_horovod(flags_obj, comm):
+def reinitialize_horovod(comm):
+  """
+  Reinitialize horovod with a new communicator and signal to tensorflow to create a
+  new function.
+  """
+  log_fn("Reinitializing horovod with communicator (size = %s)" % comm.size)
   import horovod.tensorflow as hvd
-  # HACK: Horovod freezes when restarting with a larger communicator.
-  # However, this issue goes away if we first restart with MPI.COMM_WORLD
-  # and also clear any lingering state in tensorflow's keras backend.
-  # Admittedly, it is unclear why this works, but it does!
-  tf.keras.backend.clear_session()
-  hvd.init(MPI.COMM_WORLD.Dup())
-  hvd.allreduce(tf.constant(hvd.rank()))
   hvd.shutdown()
-  tf.keras.backend.clear_session()
   hvd.init(comm)
+  global SHOULD_REFRESH_FUNCTION
+  SHOULD_REFRESH_FUNCTION = True
 
 def run_keras(flags_obj, do_run):
   """ 
@@ -102,7 +105,8 @@ def run_keras(flags_obj, do_run):
     try:
       agent.initialize()
       if flags_obj.use_horovod:
-        initialize_horovod(flags_obj, agent.mpi_communicator)
+        import horovod.tensorflow as hvd
+        hvd.init(agent.mpi_communicator)
       # Actually run the training
       # We expect this function to call model.fit
       result = do_run(flags_obj, callback)
