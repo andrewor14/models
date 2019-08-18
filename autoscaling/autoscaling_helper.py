@@ -60,7 +60,8 @@ def get_schedule_callback(callback):
   autoscaling_max_workers = int(os.getenv(AUTOSCALING_MAX_WORKERS, -1))
   if autoscaling_spawn_every_n_steps > 0 and\
       autoscaling_max_workers > 0 and\
-      callback.agent.task_index == 0:
+      callback.agent.task_index == 0 and\
+      AUTOSCALING_MASTER_HOST_PORT not in os.environ:
     periodic_spawn_callback = PeriodicSpawnScheduleCallback(\
       callback.agent, autoscaling_spawn_every_n_steps, autoscaling_max_workers)
     periodic_spawn_callback.step_count = callback.num_batches_processed_this_epoch

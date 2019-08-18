@@ -18,15 +18,13 @@ class PeriodicSpawnScheduleCallback(keras.callbacks.Callback):
     self.agent = agent
     self.every_n_steps = every_n_steps
     self.max_workers = max_workers
-    self.step_count = 0
     self.spawn_next_step = False
     log_fn("Starting %s(every_n_steps = %s, max_workers = %s)" %\
       (self.__class__.__name__, every_n_steps, max_workers))
 
   def on_batch_end(self, batch, logs):
-    self.step_count += 1
     if self.spawn_next_step or\
-        (self.step_count % self.every_n_steps == 0 and\
+        (self.agent.step_count % self.every_n_steps == 0 and\
         self.agent.mpi_communicator.size < self.max_workers):
       # In 'checkpoint-restart' mode, we simply tell the all the workers to terminate
       if is_checkpoint_restart_mode():

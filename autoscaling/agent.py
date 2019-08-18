@@ -35,10 +35,12 @@ class AutoscalingAgent:
 
   def __init__(self, num_gpus_per_worker=0, use_horovod=False):
     self.saved_variables = None
-    # A lambda that returns a 2-tuple of
-    #   (1) Number of batches processed in this epoch so far, and
-    #   (2) Number of epochs processed so far.
+    # A lambda that returns a 3-tuple:
+    #  (1) Number of batches processed in this epoch so far,
+    #  (2) Number of epochs processed so far, and
+    #  (3) Number of batches per epoch
     self.get_progress_method = None
+    self.bootstrap_progress_method = None
     self.checkpoint_restart_num_workers = None
     self.num_gpus_per_worker = num_gpus_per_worker
     self.use_horovod = use_horovod
@@ -84,20 +86,13 @@ class AutoscalingAgent:
     listen_for_requests(self, convert_port(self.host_port))
 
     # Start autoscaling client, connected to the autoscaling server on the first worker
-    first_worker = os.getenv(AUTOSCALING_MASTER_HOST_PORT)
-    if first_worker is None:
-      first_worker = tf_config["cluster"]["worker"][0]
-      first_worker = convert_port(first_worker)
+    first_worker = tf_config["cluster"]["worker"][0]
+    first_worker = convert_port(first_worker)
     self.client = AutoscalingClient(first_worker)
 
-    # If we are not part of the original cluster, request to join it
-    # This fails if the master server is initializing, in which case we keep retrying
-    if AUTOSCALING_MASTER_HOST_PORT in os.environ:
-      log_fn("Joining cluster as %s" % self.host_port)
-      while not self.client.master_server.join_cluster(self.host_port):
-        log_fn("Master server is not ready to service our join request, trying again later.")
-        time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
-      log_fn("Master server accepted our join request")
+    # Spawned workers join after running one batch by themselves
+    # This avoids blocking existing workers while the spawned workers are starting up
+    self.joined = AUTOSCALING_MASTER_HOST_PORT not in os.environ
 
   @property
   def status(self):
@@ -155,7 +150,8 @@ class AutoscalingAgent:
     if self.use_horovod:
       del os.environ["TF_CONFIG"]
     # Check if we need to expand our communicator
-    self.maybe_expand_mpi_communicator()
+    if self.joined:
+      self.maybe_expand_mpi_communicator()
     self.status = AutoscalingStatus.RUNNING
     self.status_barrier(AutoscalingStatus.RUNNING)
 
@@ -198,11 +194,44 @@ class AutoscalingAgent:
       log_fn("Not spawning worker because we are initializing")
       return False
     new_worker_rank = self.mpi_communicator.size + len(self.mpi_spawned_communicators)
+    log_fn("SPAWNING mpi_communicator.size = %s, len(spawned_comms) = %s, new_worker_rank = %s" %\
+      (self.mpi_communicator.size, len(self.mpi_spawned_communicators), new_worker_rank))
     env = {AUTOSCALING_MASTER_HOST_PORT: self.client.master_host_port}
     spawned_communicator = mpi_helper.spawn(new_worker_rank, env=env)
     self.mpi_spawned_communicators.append(spawned_communicator)
     log_fn("Spawned new worker through MPI")
     return True
+
+  def join_cluster(self):
+    """
+    If we are not part of the original cluster, request to join it.
+    This fails if the master server is initializing, in which case we keep retrying.
+    """
+    if self.joined:
+      raise ValueError("Already joined cluster!")
+    master_host_port = os.getenv(AUTOSCALING_MASTER_HOST_PORT)
+    if master_host_port is None:
+      raise ValueError("AUTOSCALING_MASTER_HOST_PORT not set on spawned worker")
+    # Our client currently thinks we are the master, so we need to reset it
+    self.client.reset(master_host_port)
+    log_fn("Joining cluster as %s" % self.host_port)
+    while not self.client.master_server.join_cluster(self.host_port):
+      log_fn("Master server is not ready to service our join request, trying again later.")
+      time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
+    log_fn("Master server accepted our join request")
+    self.joined = True
+    # Fetch progress from the master so we can start on the same step as everyone else
+    # Note: we must wait until after the master is READY_TO_SYNC, otherwise we may get the
+    # wrong progress
+    self.status = AutoscalingStatus.READY_TO_SYNC
+    self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
+    (num_batches_processed_this_epoch, num_epochs_processed, num_batches_per_epoch) =\
+      self.bootstrap_progress_method()
+    self.step_count = num_epochs_processed * num_batches_per_epoch +\
+      num_batches_processed_this_epoch
+    # Other initialization
+    self.initialize()
+    autoscaling_helper.reinitialize_horovod(self.mpi_communicator)
 
   def on_restart(self):
     """
@@ -376,8 +405,13 @@ class AutoscalingAgent:
     actually not in the new cluster configuration. When this happens, the caller
     of this method should exit the training loop for this process.
 
-    Return whether this process is restarting or terminating.
+    Return whether this process should exit from the current training loop.
     """
+    log_fn("OUR STEP COUNT IS %s" % self.step_count)
+    # If this is a spawned worker, join the cluster after the first step
+    if not self.joined:
+      self.join_cluster()
+      return True
     # Only sync every N steps
     # We use an offset of 1 step to avoid interfering with the schedule callback
     self.step_count += 1
@@ -420,7 +454,7 @@ class AutoscalingAgent:
         self.status_barrier(AutoscalingStatus.RESTARTING)
         self.initialize()
         autoscaling_helper.reinitialize_horovod(self.mpi_communicator)
-      return False
+      return True
 
 # ================== HELPER METHODS ==================
 

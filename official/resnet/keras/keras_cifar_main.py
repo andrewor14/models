@@ -81,9 +81,6 @@ def do_run(flags_obj, autoscaling_callback):
   Returns:
     Dictionary of training and eval stats.
   """
-  global_batch_size = flags_obj.batch_size
-  local_batch_size = global_batch_size // len(autoscaling_callback.agent.cluster_spec["worker"])
-
   # Execute flag override logic for better model performance
   if flags_obj.tf_gpu_thread_mode:
     keras_common.set_gpu_thread_mode_and_count(flags_obj)
@@ -130,28 +127,6 @@ def do_run(flags_obj, autoscaling_callback):
     distribution_utils.undo_set_up_synthetic_data()
     input_fn = cifar_preprocessing.input_fn
 
-  train_input_dataset = input_fn(
-      is_training=True,
-      data_dir=flags_obj.data_dir,
-      batch_size=local_batch_size,
-      num_epochs=flags_obj.train_epochs,
-      parse_record_fn=cifar_preprocessing.parse_record,
-      datasets_num_private_threads=flags_obj.datasets_num_private_threads,
-      dtype=dtype,
-      # Setting drop_remainder to avoid the partial batch logic in normalization
-      # layer, which triggers tf.where and leads to extra memory copy of input
-      # sizes between host and GPU.
-      drop_remainder=(not flags_obj.enable_get_next_as_optional))
-
-  eval_input_dataset = None
-  if not flags_obj.skip_eval:
-    eval_input_dataset = input_fn(
-        is_training=False,
-        data_dir=flags_obj.data_dir,
-        batch_size=local_batch_size,
-        num_epochs=flags_obj.train_epochs,
-        parse_record_fn=cifar_preprocessing.parse_record)
-
   with strategy_scope:
     optimizer = keras_common.get_optimizer()
     model = resnet_cifar_model.resnet56(classes=cifar_preprocessing.NUM_CLASSES)
@@ -173,30 +148,7 @@ def do_run(flags_obj, autoscaling_callback):
           metrics=(['categorical_accuracy']
                    if flags_obj.report_accuracy_metrics else None),
           run_eagerly=flags_obj.run_eagerly)
-
-  callbacks = keras_common.get_callbacks(
-      learning_rate_schedule,
-      cifar_preprocessing.NUM_IMAGES['train'],
-      autoscaling_callback.num_batches_processed_this_epoch,
-      autoscaling_callback.num_epochs_processed)
-
-  # Add autoscaling callbacks
-  autoscaling_schedule_callback = autoscaling_helper.get_schedule_callback(autoscaling_callback)
-  if autoscaling_schedule_callback is not None:
-    callbacks.append(autoscaling_schedule_callback)
-  callbacks.append(autoscaling_callback)
   autoscaling_callback.set_model(model)
-
-  num_eval_steps = (cifar_preprocessing.NUM_IMAGES['validation'] // global_batch_size)
-
-  validation_data = eval_input_dataset
-  if flags_obj.skip_eval:
-    if flags_obj.set_learning_phase_to_train:
-      # TODO(haoyuzhang): Understand slowdown of setting learning phase when
-      # not using distribution strategy.
-      tf.keras.backend.set_learning_phase(1)
-    num_eval_steps = None
-    validation_data = None
 
   if not strategy and flags_obj.explicit_gpu_placement:
     # TODO(b/135607227): Add device scope automatically in Keras training loop
@@ -204,12 +156,59 @@ def do_run(flags_obj, autoscaling_callback):
     no_dist_strat_device = tf.device('/device:GPU:0')
     no_dist_strat_device.__enter__()
 
-  while autoscaling_callback.agent.status not in\
-      [AutoscalingStatus.RESTARTING, AutoscalingStatus.TERMINATED]:
+  # Repeatedly call `model.fit`, which exits every time the cluster membership changes
+  # In each iteration, we need to refresh things that may have changed, such as the
+  # local batch size (which affects the input data) and, for spawned workers, the step
+  # and epoch to begin training on.
+  while autoscaling_callback.agent.status != AutoscalingStatus.TERMINATED:
+    # Prepare input dataset for training and evaluation
+    local_batch_size = flags_obj.batch_size // len(autoscaling_callback.agent.cluster_spec["worker"])
+    train_input_dataset = input_fn(
+        is_training=True,
+        data_dir=flags_obj.data_dir,
+        batch_size=local_batch_size,
+        num_epochs=flags_obj.train_epochs,
+        parse_record_fn=cifar_preprocessing.parse_record,
+        datasets_num_private_threads=flags_obj.datasets_num_private_threads,
+        dtype=dtype,
+        # Setting drop_remainder to avoid the partial batch logic in normalization
+        # layer, which triggers tf.where and leads to extra memory copy of input
+        # sizes between host and GPU.
+        drop_remainder=(not flags_obj.enable_get_next_as_optional))
+    eval_input_dataset = None
+    if not flags_obj.skip_eval:
+      eval_input_dataset = input_fn(
+          is_training=False,
+          data_dir=flags_obj.data_dir,
+          batch_size=local_batch_size,
+          num_epochs=flags_obj.train_epochs,
+          parse_record_fn=cifar_preprocessing.parse_record)
+    validation_data = eval_input_dataset
+    if flags_obj.skip_eval:
+      if flags_obj.set_learning_phase_to_train:
+        # TODO(haoyuzhang): Understand slowdown of setting learning phase when
+        # not using distribution strategy.
+        tf.keras.backend.set_learning_phase(1)
+      num_eval_steps = None
+      validation_data = None
 
+    # Add callbacks
+    callbacks = keras_common.get_callbacks(
+        learning_rate_schedule,
+        cifar_preprocessing.NUM_IMAGES['train'],
+        autoscaling_callback.num_batches_processed_this_epoch,
+        autoscaling_callback.num_epochs_processed)
+    autoscaling_schedule_callback = autoscaling_helper.get_schedule_callback(autoscaling_callback)
+    if autoscaling_schedule_callback is not None:
+      callbacks.append(autoscaling_schedule_callback)
+    callbacks.append(autoscaling_callback)
+
+    # Determine number of steps and epochs to train or eval
     (train_steps, train_epochs) = autoscaling_helper.get_train_steps_and_epochs(\
       cifar_preprocessing.NUM_IMAGES['train'], flags_obj, autoscaling_callback)
+    num_eval_steps = (cifar_preprocessing.NUM_IMAGES['validation'] // flags_obj.batch_size)
 
+    # Actual training loop
     history = model.fit(train_input_dataset,
                         epochs=train_epochs,
                         steps_per_epoch=train_steps,
