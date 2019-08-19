@@ -14,10 +14,6 @@ from autoscaling.schedule_callback import PeriodicSpawnScheduleCallback
 from deploy import mpi_helper
 from official.utils.misc import keras_utils
 
-# Global variable that signals whether tensorflow should create a new function
-# This is useful for modifying a section of a graph without rebuilding the entire graph
-# For example, we currently set this after changing the size of the horovod communicator
-SHOULD_REFRESH_FUNCTION = False
 
 def log_fn(msg):
   tf.logging.info("[Autoscaling helper]: %s" % msg)
@@ -70,15 +66,12 @@ def get_schedule_callback(callback):
 
 def reinitialize_horovod(comm):
   """
-  Reinitialize horovod with a new communicator and signal to tensorflow to create a
-  new function.
+  Reinitialize horovod with a new communicator.
   """
   log_fn("Reinitializing horovod with communicator (size = %s)" % comm.size)
   import horovod.tensorflow as hvd
   hvd.shutdown()
   hvd.init(comm)
-  global SHOULD_REFRESH_FUNCTION
-  SHOULD_REFRESH_FUNCTION = True
 
 def run_keras(flags_obj, do_run):
   """ 
