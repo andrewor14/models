@@ -24,7 +24,7 @@ class PeriodicSpawnScheduleCallback(keras.callbacks.Callback):
 
   def on_batch_end(self, batch, logs):
     if self.spawn_next_step or\
-        (self.agent.step_count % self.every_n_steps == 0 and\
+        ((self.agent.step_count + 1) % self.every_n_steps == 0 and\
         self.agent.mpi_communicator.size < self.max_workers):
       # In 'checkpoint-restart' mode, we simply tell the all the workers to terminate
       if is_checkpoint_restart_mode():
