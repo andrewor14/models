@@ -63,14 +63,20 @@ class AutoscalingAgent:
     # The MPI communicator that Horovod will use
     self.mpi_communicator = MPI.COMM_WORLD.Dup()
 
+    # A lock for controlling spawn variables
+    # This must be acquired BEFORE `self.pending_cluster_spec_lock` to avoid deadlocks
+    self.spawn_lock = threading.Lock()
+
     # A list of MPI intercommunicators created from spawning worker processes
     # These communicators will be merged into `self.mpi_communicator` on restart
+    # Accesses must be guarded by `self.spawn_lock`
     self.mpi_spawned_communicators = []
 
     # A queue of the number of spawned workers to wait for on restart
     # The first item represents the number of workers to wait for the next
     # time `self.initialize` is called. A new item is appended every time
     # `self.mpi_spawn_workers` succeeds.
+    # Accesses must be guarded by `self.spawn_lock`
     self.num_spawned_workers_to_wait_for = []
 
     # ========= Autoscaling stuff ==========
@@ -128,38 +134,40 @@ class AutoscalingAgent:
     # Wait for all the workers spawned in the last round to join
     num_workers_joined = 0
     num_workers_to_wait_for = 0
-    if len(self.num_spawned_workers_to_wait_for) > 0:
-      num_workers_to_wait_for = self.num_spawned_workers_to_wait_for[0]
-      log_fn("Waiting for %s spawned worker(s) to join" % num_workers_to_wait_for)
-      while num_workers_joined < num_workers_to_wait_for:
-        with self.pending_cluster_spec_lock:
-          if self.pending_cluster_spec is not None:
-            num_workers_joined =\
-              len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
-        time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
-    self.status = AutoscalingStatus.READY_TO_SYNC
-    self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
+    with self.spawn_lock:
+      if len(self.num_spawned_workers_to_wait_for) > 0:
+        num_workers_to_wait_for = self.num_spawned_workers_to_wait_for[0]
+        log_fn("Waiting for %s spawned worker(s) to join" % num_workers_to_wait_for)
+        while num_workers_joined < num_workers_to_wait_for:
+          with self.pending_cluster_spec_lock:
+            if self.pending_cluster_spec is not None:
+              num_workers_joined =\
+                len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
+          time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
+      self.status = AutoscalingStatus.READY_TO_SYNC
+      self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
 
     # Check if cluster membership changed. If so, update cluster spec accordingly.
-    with self.pending_cluster_spec_lock:
-      if self.pending_cluster_spec is not None:
-        num_workers_joined =\
-          len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
-        log_fn("%s spawned worker(s) have joined" % num_workers_joined)
-        # Update the number of workers we need to wait for next time
-        # Note: we can't just pop the first item of `self.num_spawned_workers_to_wait_for`
-        # because more workers may have joined in addition to the ones we were waiting for.
-        if len(self.num_spawned_workers_to_wait_for) > 0:
-          num_workers_to_pop = num_workers_joined
-          while num_workers_to_pop > 0:
-            if num_workers_to_pop >= self.num_spawned_workers_to_wait_for[0]:
-              num_workers_to_pop -= self.num_spawned_workers_to_wait_for.pop(0)
-            else:
-              self.num_spawned_workers_to_wait_for[0] -= num_workers_to_pop
-              num_workers_to_pop = 0
-        # Apply pending cluster spec
-        self.apply_cluster_spec(self.pending_cluster_spec)
-        self.pending_cluster_spec = None
+    with self.spawn_lock:
+      with self.pending_cluster_spec_lock:
+        if self.pending_cluster_spec is not None:
+          num_workers_joined =\
+            len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
+          log_fn("%s spawned worker(s) have joined" % num_workers_joined)
+          # Update the number of workers we need to wait for next time
+          # Note: we can't just pop the first item of `self.num_spawned_workers_to_wait_for`
+          # because more workers may have joined in addition to the ones we were waiting for.
+          if len(self.num_spawned_workers_to_wait_for) > 0:
+            num_workers_to_pop = num_workers_joined
+            while num_workers_to_pop > 0:
+              if num_workers_to_pop >= self.num_spawned_workers_to_wait_for[0]:
+                num_workers_to_pop -= self.num_spawned_workers_to_wait_for.pop(0)
+              else:
+                self.num_spawned_workers_to_wait_for[0] -= num_workers_to_pop
+                num_workers_to_pop = 0
+          # Apply pending cluster spec
+          self.apply_cluster_spec(self.pending_cluster_spec)
+          self.pending_cluster_spec = None
     self.sync_cluster_spec()
     self.task_index = self.cluster_spec["worker"].index(self.host_port)
 
@@ -177,7 +185,8 @@ class AutoscalingAgent:
       del os.environ["TF_CONFIG"]
     # Check if we need to expand our communicator
     if self.joined:
-      self.maybe_expand_mpi_communicator(num_workers_joined)
+      with self.spawn_lock:
+        self.maybe_expand_mpi_communicator(num_workers_joined)
     self.status = AutoscalingStatus.RUNNING
     self.status_barrier(AutoscalingStatus.RUNNING)
 
@@ -189,6 +198,8 @@ class AutoscalingAgent:
     in the final communicator. The process is driven by the root, where `n_times`
     specifies the number of times to expand the communicator. This value is not
     read on other processes.
+
+    Must be called while holding `self.spawn_lock`.
     """
     # First, figure out our role
     comm = self.mpi_communicator
@@ -224,23 +235,24 @@ class AutoscalingAgent:
 
     The spawned workers, if any, are added to `self.mpi_spawned_communicators`.
     This succeeds only if called on the root while the root is running batches.
-    Return whether the workers were successfully spawned.
+    Return whether spawn was attempted.
     """
     if self.mpi_communicator.rank > 0:
       raise ValueError("Only the root can spawn workers")
     if not is_running(self.status):
       log_fn("Not spawning worker because we are initializing")
       return False
-    # TODO: spawn workers in parallel
-    for _ in range(num_workers):
-      new_worker_rank = self.mpi_communicator.size + len(self.mpi_spawned_communicators)
-      log_fn("SPAWNING mpi_communicator.size = %s, len(spawned_comms) = %s, new_worker_rank = %s" %\
-        (self.mpi_communicator.size, len(self.mpi_spawned_communicators), new_worker_rank))
+    log_fn("Spawning %s worker(s) through MPI" % num_workers)
+    with self.spawn_lock:
+      starting_rank = self.mpi_communicator.size + len(self.mpi_spawned_communicators)
+    def do_spawn(new_worker_rank):
       env = {AUTOSCALING_MASTER_HOST_PORT: self.client.master_host_port}
       spawned_communicator = mpi_helper.spawn(new_worker_rank, env=env)
-      self.mpi_spawned_communicators.append(spawned_communicator)
-    self.num_spawned_workers_to_wait_for.append(num_workers)
-    log_fn("Spawned %s worker(s) through MPI" % num_workers)
+      with self.spawn_lock:
+        self.mpi_spawned_communicators.append(spawned_communicator)
+        self.num_spawned_workers_to_wait_for.append(num_workers)
+    for i in range(num_workers):
+      threading.Thread(target=do_spawn, args=[starting_rank + i]).start()
     return True
 
   def join_cluster(self):
