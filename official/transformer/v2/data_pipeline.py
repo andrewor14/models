@@ -264,7 +264,7 @@ def _read_and_batch_from_files(
 
 def _generate_synthetic_data(params):
   """Create synthetic data based on the parameter batch size."""
-  batch = length = int(math.sqrt(params["batch_size"]))
+  batch = length = int(math.sqrt(params["local_batch_size"]))
   dataset = model_helpers.generate_synthetic_data(
       input_shape=tf.TensorShape([length]),
       input_value=1,
@@ -282,7 +282,7 @@ def train_input_fn(params):
   if params["use_synthetic_data"]:
     return _generate_synthetic_data(params)
   return _read_and_batch_from_files(
-      file_pattern, params["batch_size"], params["max_length"],
+      file_pattern, params["local_batch_size"], params["max_length"],
       params["num_parallel_calls"], shuffle=True,
       repeat=params["repeat_dataset"], static_batch=params["static_batch"],
       num_replicas=params["num_gpus"])
@@ -294,7 +294,7 @@ def eval_input_fn(params):
   if params["use_synthetic_data"]:
     return _generate_synthetic_data(params)
   return _read_and_batch_from_files(
-      file_pattern, params["batch_size"], params["max_length"],
+      file_pattern, params["local_batch_size"], params["max_length"],
       params["num_parallel_calls"], shuffle=False, repeat=1,
       static_batch=params["static_batch"], num_replicas=params["num_gpus"])
 

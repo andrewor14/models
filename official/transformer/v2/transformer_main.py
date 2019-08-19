@@ -151,63 +151,76 @@ class TransformerTask(object):
         import horovod.tensorflow as hvd
         opt = hvd.DistributedOptimizer(opt)
       model.compile(opt, run_eagerly=flags_obj.run_eagerly)
+    autoscaling_callback.set_model(model)
 
     model.summary()
 
-    train_ds = data_pipeline.train_input_fn(params)
-    map_data_fn = data_pipeline.map_data_for_transformer_fn
-    train_ds = train_ds.map(map_data_fn,
-                            num_parallel_calls=params["num_parallel_calls"])
+    # Repeatedly call `model.fit`, which exits every time the cluster membership changes
+    # In each iteration, we need to refresh things that may have changed, such as the
+    # local batch size (which affects the input data) and, for spawned workers, the step
+    # and epoch to begin training on.
+    while autoscaling_callback.agent.status != AutoscalingStatus.TERMINATED:
 
-    if flags_obj.train_steps < flags_obj.steps_between_evals:
-      flags_obj.steps_between_evals = flags_obj.train_steps
-    iterations = flags_obj.train_steps // flags_obj.steps_between_evals
-    starting_iteration = autoscaling_callback.num_epochs_processed + 1
-    autoscaling_callback.num_batches_per_epoch = flags_obj.steps_between_evals
+      # Prepare input dataset for training
+      self.params["local_batch_size"] = self.params["batch_size"] //\
+        len(autoscaling_callback.agent.cluster_spec["worker"])
+      train_ds = data_pipeline.train_input_fn(params)
+      map_data_fn = data_pipeline.map_data_for_transformer_fn
+      train_ds = train_ds.map(map_data_fn, num_parallel_calls=params["num_parallel_calls"])
 
-    # Add callbacks
-    num_batches_processed_total =\
-      autoscaling_callback.num_batches_per_epoch * autoscaling_callback.num_epochs_processed +\
-      autoscaling_callback.num_batches_processed_this_epoch
-    num_batches_processed_this_epoch = autoscaling_callback.num_batches_processed_this_epoch
-    callbacks = self._create_callbacks(
-      flags_obj.model_dir, params, num_batches_processed_total, num_batches_processed_this_epoch)
-    autoscaling_schedule_callback = autoscaling_helper.get_schedule_callback(autoscaling_callback)
-    if autoscaling_schedule_callback is not None:
-      callbacks.append(autoscaling_schedule_callback)
-    callbacks.append(autoscaling_callback)
-    autoscaling_callback.set_model(model)
+      # Determine the number of iterations to train for
+      if flags_obj.train_steps < flags_obj.steps_between_evals:
+        flags_obj.steps_between_evals = flags_obj.train_steps
+      num_iterations = flags_obj.train_steps // flags_obj.steps_between_evals
+      starting_iteration = autoscaling_callback.num_epochs_processed + 1
+      autoscaling_callback.num_batches_per_epoch = flags_obj.steps_between_evals
+      autoscaling_callback.num_epochs_total = num_iterations
 
-    cased_score, uncased_score = None, None
-    cased_score_history, uncased_score_history = [], []
-    for i in range(starting_iteration, iterations + 1):
-      print("Start train iteration:{}/{}".format(i, iterations))
-      steps_to_train = autoscaling_callback.num_batches_per_epoch -\
+      # Add callbacks
+      num_batches_processed_total =\
+        autoscaling_callback.num_batches_per_epoch * autoscaling_callback.num_epochs_processed +\
         autoscaling_callback.num_batches_processed_this_epoch
-      history = model.fit(
-          train_ds,
-          initial_epoch=i-1,
-          epochs=i,
-          steps_per_epoch=steps_to_train,
-          callbacks=callbacks,
-          # If TimeHistory is enabled, progress bar would be messy. Increase the
-          # verbose level to get rid of it.
-          verbose=(2 if flags_obj.enable_time_history else 1))
+      num_batches_processed_this_epoch = autoscaling_callback.num_batches_processed_this_epoch
+      callbacks = self._create_callbacks(
+        flags_obj.model_dir, params, num_batches_processed_total, num_batches_processed_this_epoch)
+      autoscaling_schedule_callback = autoscaling_helper.get_schedule_callback(autoscaling_callback)
+      if autoscaling_schedule_callback is not None:
+        callbacks.append(autoscaling_schedule_callback)
+      callbacks.append(autoscaling_callback)
 
-      if autoscaling_callback.agent.status == AutoscalingStatus.RESTARTING:
-        break
+      cased_score, uncased_score = None, None
+      cased_score_history, uncased_score_history = [], []
+      for i in range(starting_iteration, num_iterations + 1):
+        print("Start train iteration:{}/{}".format(i, num_iterations))
+        steps_to_train = autoscaling_callback.num_batches_per_epoch -\
+          autoscaling_callback.num_batches_processed_this_epoch
 
-      print("End train iteration:{}/{} global step:{}".format(
-          i,
-          iterations,
-          i*flags_obj.steps_between_evals))
-      tf.compat.v1.logging.info("Train history: {}".format(history.history))
-      stats = misc.build_stats(history, callbacks)
+        # Actual training loop
+        history = model.fit(
+            train_ds,
+            initial_epoch=i-1,
+            epochs=i,
+            steps_per_epoch=steps_to_train,
+            callbacks=callbacks,
+            # If TimeHistory is enabled, progress bar would be messy. Increase the
+            # verbose level to get rid of it.
+            verbose=(2 if flags_obj.enable_time_history else 1))
 
-      if (flags_obj.bleu_source and flags_obj.bleu_ref):
-        uncased_score, cased_score = self.eval()
-        cased_score_history.append([i, cased_score])
-        uncased_score_history.append([i, uncased_score])
+        # If we exited in the middle of training, then we're not ready to eval yet
+        if autoscaling_callback.num_batches_processed_this_epoch > 0:
+          break
+
+        print("End train iteration:{}/{} global step:{}".format(
+            i,
+            iterations,
+            i*flags_obj.steps_between_evals))
+        tf.compat.v1.logging.info("Train history: {}".format(history.history))
+        stats = misc.build_stats(history, callbacks)
+
+        if (flags_obj.bleu_source and flags_obj.bleu_ref):
+          uncased_score, cased_score = self.eval()
+          cased_score_history.append([i, cased_score])
+          uncased_score_history.append([i, uncased_score])
 
     stats = misc.build_stats(history, callbacks)
     if uncased_score and cased_score:
@@ -295,8 +308,6 @@ def _ensure_dir(log_dir):
 def do_run(flags_obj, autoscaling_callback):
   with logger.benchmark_context(flags_obj):
     task = TransformerTask(flags_obj)
-    task.params["batch_size"] =\
-      task.params["batch_size"] // len(autoscaling_callback.agent.cluster_spec["worker"])
     if flags_obj.mode == "train":
       task.train(autoscaling_callback)
     elif flags_obj.mode == "predict":
