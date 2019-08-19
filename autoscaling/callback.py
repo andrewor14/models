@@ -17,8 +17,8 @@ class AutoscalingCallback(keras.callbacks.Callback):
   def __init__(self, agent):
     self.agent = agent
     self.model = None
-    self.num_batches_per_epoch = None
-    self.num_epochs_total = None
+    self.num_batches_per_epoch = 0
+    self.num_epochs_total = 0
     self.num_batches_processed_this_epoch =\
       int(os.getenv(AUTOSCALING_NUM_BATCHES_PROCESSED_THIS_EPOCH, 0))
     self.num_epochs_processed = int(os.getenv(AUTOSCALING_NUM_EPOCHS_PROCESSED, 0))
@@ -26,7 +26,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
     self._chief_worker_only = False
     # Expose our progress method to the autoscaling service through our agent
     self.agent.get_progress_method = self.get_progress
-    self.bootstrap_progress()
+    self.agent.bootstrap_progress_method = self.bootstrap_progress
     # In 'checkpoint-restart' mode, we need to load the model from checkpoints
     # However, we cannot load the model in a distribution strategy scope.
     # See https://github.com/tensorflow/tensorflow/issues/30850.
@@ -41,30 +41,39 @@ class AutoscalingCallback(keras.callbacks.Callback):
 
   def get_progress(self):
     """
-    Return a 2-tuple of
-      (1) Number of batches processed in this epoch so far, and
-      (2) Number of epochs processed so far.
+    Return a 3-tuple:
+      (1) Number of batches processed in this epoch so far,
+      (2) Number of epochs processed so far, and
+      (3) Number of batches per epoch
     """
-    return (self.num_batches_processed_this_epoch, self.num_epochs_processed)
+    return (
+      self.num_batches_processed_this_epoch,
+      self.num_epochs_processed,
+      self.num_batches_per_epoch)
 
   def bootstrap_progress(self):
     """
     Bootstrap this worker so it can start on the same step as everyone else.
 
     We do this by fetching the progress from the master autoscaling server.
-    Note: we must do this after the master is READY_TO_SYNC, otherwise the
-    progress may be wrong if the master is still running.
+    Note: the caller should ensure that we do this after the master is READY_TO_SYNC,
+    otherwise the progress may be wrong if the master is still running batches.
+
+    Return a 3-tuple:
+      (1) Number of batches processed in this epoch so far,
+      (2) Number of epochs processed so far, and
+      (3) Number of batches per epoch
     """
-    self.agent.status_barrier(AutoscalingStatus.READY_TO_SYNC)
-    num_batches_processed_this_epoch, num_epochs_processed =\
-      self.agent.client.master_server.get_progress()
-    if num_batches_processed_this_epoch is not None and num_epochs_processed is not None:
+    progress = self.agent.client.master_server.get_progress()
+    if progress is not None:
+      self.num_batches_processed_this_epoch = progress[0]
+      self.num_epochs_processed = progress[1]
+      self.num_batches_per_epoch = progress[2]
       log_fn("Fetched progress from master server = (%s steps, %s epochs)" %\
-        (num_batches_processed_this_epoch, num_epochs_processed))
-      self.num_batches_processed_this_epoch = num_batches_processed_this_epoch
-      self.num_epochs_processed = num_epochs_processed
+        (self.num_batches_processed_this_epoch, self.num_epochs_processed))
     else:
       log_fn("Warning: unable to fetch progress from master server")
+    return progress
 
   def do_on_batch_begin(self, batch, logs):
     """

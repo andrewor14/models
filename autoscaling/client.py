@@ -60,17 +60,20 @@ def connect(host_port):
 class AutoscalingClient:
 
   def __init__(self, master_host_port):
-    self.master_host_port = master_host_port
-    self.master_server = connect(master_host_port)
+    self.master_host_port = None
+    self.master_server = None
     self._cluster_spec = None
     self._servers = None
-    self.reset()
+    self.reset(master_host_port)
 
-  def reset(self):
+  def reset(self, new_master_host_port=None):
     '''
     Open a connection to each server in the system, found by fetching the cluster spec
     from the given master host port.
     '''
+    if new_master_host_port is not None:
+      self.master_host_port = new_master_host_port
+      self.master_server = connect(new_master_host_port)
     cluster_spec = self.master_server.get_cluster_spec()
     self._cluster_spec = cluster_spec
     self._servers = {}

@@ -47,13 +47,14 @@ class AutoscalingService:
 
   def get_progress(self):
     '''
-    Return a 2-tuple of
-      (1) Number of batches processed in this epoch so far, and
-      (2) Number of epochs processed so far.
+    Return a 3-tuple:
+      (1) Number of batches processed in this epoch so far,
+      (2) Number of epochs processed so far, and
+      (3) Number of batches per epoch
     '''
     if self.agent.get_progress_method is not None:
       return self.agent.get_progress_method()
-    return (None, None)
+    return (None, None, None)
 
   def join_cluster(self, host_port):
     '''
@@ -129,7 +130,7 @@ class AutoscalingService:
     with self.agent.pending_cluster_spec_lock:
       self.agent.pending_cluster_spec = cluster_spec
 
-  def spawn_worker(self):
+  def spawn_workers(self, num_workers):
     log_fn("Handling spawn_worker request")
-    return self.agent.mpi_spawn_worker()
+    return self.agent.mpi_spawn_workers(num_workers)
 
