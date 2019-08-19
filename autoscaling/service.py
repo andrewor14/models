@@ -130,7 +130,7 @@ class AutoscalingService:
     with self.agent.pending_cluster_spec_lock:
       self.agent.pending_cluster_spec = cluster_spec
 
-  def spawn_worker(self):
+  def spawn_workers(self, num_workers):
     log_fn("Handling spawn_worker request")
-    return self.agent.mpi_spawn_worker()
+    return self.agent.mpi_spawn_workers(num_workers)
 

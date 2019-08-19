@@ -67,6 +67,11 @@ class AutoscalingAgent:
     # These communicators will be merged into `self.mpi_communicator` on restart
     self.mpi_spawned_communicators = []
 
+    # A queue of the number of spawned workers to wait for on restart
+    # A new number is appended every time `self.mpi_spawn_workers` succeeds,
+    # and the first number is removed every time `self.initialize` is called
+    self.num_spawned_workers_to_wait_for = []
+
     # ========= Autoscaling stuff ==========
 
     # Status to synchronize cluster membership changes
@@ -118,25 +123,43 @@ class AutoscalingAgent:
     This should be called on start up and after every time we restart.
     """
     log_fn("Initializing")
-    # Wait until all workers we previously spawned have joined
+
+    # Wait for all the workers spawned in the last round to join before proceeding
     num_workers_joined = 0
-    num_workers_spawned = len(self.mpi_spawned_communicators)
-    while num_workers_joined != num_workers_spawned:
-      with self.pending_cluster_spec_lock:
-        if self.pending_cluster_spec is not None:
-          num_workers_joined =\
-            len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
-      log_fn("%s/%s workers spawned have joined" % (num_workers_joined, num_workers_spawned))
-      time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
+    num_workers_to_wait_for = 0
+    log_fn("BEFORE self.num_spawned_workers_to_wait_for = %s" % self.num_spawned_workers_to_wait_for)
+    if len(self.num_spawned_workers_to_wait_for) > 0:
+      num_workers_to_wait_for = self.num_spawned_workers_to_wait_for[0]
+      while num_workers_joined < num_workers_to_wait_for:
+        with self.pending_cluster_spec_lock:
+          if self.pending_cluster_spec is not None:
+            num_workers_joined =\
+              len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
+        log_fn("%s spawned worker(s) have joined (was waiting for %s)" %\
+          (num_workers_joined, num_workers_to_wait_for))
+        time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
     self.status = AutoscalingStatus.READY_TO_SYNC
     self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
+
     # Check if cluster membership changed. If so, update cluster spec accordingly.
     with self.pending_cluster_spec_lock:
       if self.pending_cluster_spec is not None:
         self.apply_cluster_spec(self.pending_cluster_spec)
+        num_workers_joined =\
+          len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
+        # Update the number of workers we need to wait for next time
+        num_workers_popped = num_workers_joined
+        while num_workers_popped > 0:
+          if num_workers_popped >= self.num_spawned_workers_to_wait_for[0]:
+            num_workers_popped -= self.num_spawned_workers_to_wait_for.pop(0)
+          else:
+            self.num_spawned_workers_to_wait_for[0] -= num_workers_popped
+            num_workers_popped = 0
         self.pending_cluster_spec = None
+    log_fn("AFTER self.num_spawned_workers_to_wait_for = %s" % self.num_spawned_workers_to_wait_for)
     self.sync_cluster_spec()
     self.task_index = self.cluster_spec["worker"].index(self.host_port)
+
     # Set TF_CONFIG using the synced cluster spec
     new_tf_config = {"cluster": self.cluster_spec,\
       "task": {"type": self.task_type, "index": self.task_index}}
@@ -151,11 +174,11 @@ class AutoscalingAgent:
       del os.environ["TF_CONFIG"]
     # Check if we need to expand our communicator
     if self.joined:
-      self.maybe_expand_mpi_communicator()
+      self.maybe_expand_mpi_communicator(num_workers_joined)
     self.status = AutoscalingStatus.RUNNING
     self.status_barrier(AutoscalingStatus.RUNNING)
 
-  def maybe_expand_mpi_communicator(self):
+  def maybe_expand_mpi_communicator(self, n_times):
     """
     Merge newly spawned workers, if any, into our existing communicator.
     """
@@ -163,6 +186,10 @@ class AutoscalingAgent:
     comm = self.mpi_communicator
     is_joining = comm.rank == 0 and AUTOSCALING_MASTER_HOST_PORT in os.environ
     is_root = comm.rank == 0 and not is_joining
+    # If we're the root, make sure we can expand the requested number of times
+    if n_times > len(self.mpi_spawned_communicators):
+      raise ValueError("Cannot expand %s times when we only spawned %s workers" %\
+        (n_times, len(self.mpi_spawned_communicators)))
     # If we're joining, then expand once first
     if is_joining:
       comm = mpi_helper.expand(comm, MPI.Comm.Get_parent())
@@ -171,7 +198,7 @@ class AutoscalingAgent:
     # communicators waiting to join. If so, all members of the existing communicator
     # will participate in a round of expansion.
     while True:
-      should_expand = len(self.mpi_spawned_communicators) > 0 if is_root else False
+      should_expand = n_times > 0 if is_root else False
       should_expand = comm.bcast(should_expand, root=0)
       if not should_expand:
         break
@@ -180,12 +207,15 @@ class AutoscalingAgent:
         comm = mpi_helper.expand(comm, spawned_comm)
       else:
         comm = mpi_helper.expand(comm)
+      n_times -= 1
     self.mpi_communicator = comm
 
-  def mpi_spawn_worker(self):
+  def mpi_spawn_workers(self, num_workers):
     """
-    Spawn a worker process through MPI, succeeds only if called while running.
-    The spawned worker, if any, is added to `self.mpi_spawned_communicators`.
+    Spawn one or more worker processes through MPI.
+
+    The spawned workers, if any, are added to `self.mpi_spawned_communicators`.
+    This succeeds only if called while running.
     Return whether a worker was successfully spawned.
     """
     if self.mpi_communicator.rank > 0:
@@ -193,13 +223,16 @@ class AutoscalingAgent:
     if not is_running(self.status):
       log_fn("Not spawning worker because we are initializing")
       return False
-    new_worker_rank = self.mpi_communicator.size + len(self.mpi_spawned_communicators)
-    log_fn("SPAWNING mpi_communicator.size = %s, len(spawned_comms) = %s, new_worker_rank = %s" %\
-      (self.mpi_communicator.size, len(self.mpi_spawned_communicators), new_worker_rank))
-    env = {AUTOSCALING_MASTER_HOST_PORT: self.client.master_host_port}
-    spawned_communicator = mpi_helper.spawn(new_worker_rank, env=env)
-    self.mpi_spawned_communicators.append(spawned_communicator)
-    log_fn("Spawned new worker through MPI")
+    # TODO: spawn workers in parallel
+    for _ in range(num_workers):
+      new_worker_rank = self.mpi_communicator.size + len(self.mpi_spawned_communicators)
+      log_fn("SPAWNING mpi_communicator.size = %s, len(spawned_comms) = %s, new_worker_rank = %s" %\
+        (self.mpi_communicator.size, len(self.mpi_spawned_communicators), new_worker_rank))
+      env = {AUTOSCALING_MASTER_HOST_PORT: self.client.master_host_port}
+      spawned_communicator = mpi_helper.spawn(new_worker_rank, env=env)
+      self.mpi_spawned_communicators.append(spawned_communicator)
+    self.num_spawned_workers_to_wait_for.append(num_workers)
+    log_fn("Spawned %s worker(s) through MPI" % num_workers)
     return True
 
   def join_cluster(self):

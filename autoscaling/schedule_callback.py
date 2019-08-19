@@ -33,7 +33,7 @@ class PeriodicSpawnScheduleCallback(keras.callbacks.Callback):
         self.agent.checkpoint_restart_num_workers = len(self.agent.cluster_spec["worker"]) + 1
       # Otherwise, spawn a worker on the master
       else:
-        spawned = self.agent.mpi_spawn_worker()
+        spawned = self.agent.mpi_spawn_workers(1)
         if not spawned:
           log_fn("Warning: agent was not ready to spawn worker, trying again next step")
         self.spawn_next_step = not spawned
