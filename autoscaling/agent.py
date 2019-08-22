@@ -73,6 +73,11 @@ class AutoscalingAgent:
     # Accesses must be guarded by `self.spawn_lock`
     self.mpi_spawned_communicators = []
 
+    # The unique rank assigned to the next spawned worker, incremented every time a
+    # worker is spawned. Only set on the master server.
+    # Accesses must be guarded by `self.spawn_lock`.
+    self.mpi_next_rank = None
+
     # A queue of the number of spawned workers to wait for on restart
     # The first item represents the number of workers to wait for the next
     # time `self.initialize` is called. A new item is appended every time
@@ -249,7 +254,10 @@ class AutoscalingAgent:
       return False
     log_fn("Spawning %s worker(s) through MPI" % num_workers)
     with self.spawn_lock:
-      starting_rank = self.mpi_communicator.size + len(self.mpi_spawned_communicators)
+      if self.mpi_next_rank is None:
+        self.mpi_next_rank = len(self.cluster_spec["worker"])
+      starting_rank = self.mpi_next_rank
+      self.mpi_next_rank += num_workers
     def do_spawn(new_worker_rank):
       env = {AUTOSCALING_MASTER_HOST_PORT: self.client.master_host_port}
       spawned_communicator = mpi_helper.spawn(new_worker_rank, env=env)
