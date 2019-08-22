@@ -33,7 +33,7 @@ class AutoscalingAgent:
   among all the agents.
   """
 
-  def __init__(self, num_gpus_per_worker=0, use_horovod=False):
+  def __init__(self, num_gpus_per_worker=0, global_batch_size=0, use_horovod=False):
     self.saved_variables = None
     # A lambda that returns a 3-tuple:
     #  (1) Number of batches processed in this epoch so far,
@@ -43,6 +43,7 @@ class AutoscalingAgent:
     self.bootstrap_progress_method = None
     self.checkpoint_restart_num_workers = None
     self.num_gpus_per_worker = num_gpus_per_worker
+    self.global_batch_size = global_batch_size
     self.use_horovod = use_horovod
 
     # Parse this process' host port from TF_CONFIG
@@ -187,6 +188,10 @@ class AutoscalingAgent:
     if self.joined:
       with self.spawn_lock:
         self.maybe_expand_mpi_communicator(num_workers_joined)
+    # Tell tensorflow our batch size has changed
+    autoscaling_helper.LOCAL_BATCH_SIZE =\
+      self.global_batch_size // len(self.cluster_spec["worker"])
+    log_fn("Local batch size is now %s" % autoscaling_helper.LOCAL_BATCH_SIZE)
     self.status = AutoscalingStatus.RUNNING
     self.status_barrier(AutoscalingStatus.RUNNING)
 
@@ -284,7 +289,7 @@ class AutoscalingAgent:
       num_batches_processed_this_epoch
     # Other initialization
     self.initialize()
-    autoscaling_helper.reinitialize_horovod(self.mpi_communicator)
+    autoscaling_helper.initialize_horovod(self.mpi_communicator, restarting=True)
 
   def on_restart(self):
     """
@@ -463,7 +468,7 @@ class AutoscalingAgent:
     # If this is a spawned worker, join the cluster after the first step
     if not self.joined:
       self.join_cluster()
-      return True
+      return False
     # Only sync every N steps
     self.step_count += 1
     if self.step_count % self.sync_interval_steps != 0:
@@ -504,8 +509,8 @@ class AutoscalingAgent:
         self.status = AutoscalingStatus.RESTARTING
         self.status_barrier(AutoscalingStatus.RESTARTING)
         self.initialize()
-        autoscaling_helper.reinitialize_horovod(self.mpi_communicator)
-      return True
+        autoscaling_helper.initialize_horovod(self.mpi_communicator, restarting=True)
+      return False
 
 # ================== HELPER METHODS ==================
 
