@@ -15,8 +15,85 @@ from deploy import mpi_helper
 from official.utils.misc import keras_utils
 
 
+# A tensorflow function that averages a list of gradients with horovod
+# We refresh this function every time the cluster membership changes
+# instead of rebuilding the entire graph to speed up the restart process
+HOROVOD_ALLREDUCE_FUNCTION = None
+
+# Current local batch size read by tensorflow, updated on restart
+LOCAL_BATCH_SIZE = None
+
+# Step and epoch numbers read by tensorflow, updated when a worker joins
+# an existing cluster and fetches the progress from the master
+EPOCH_NUMBER = None
+STEP_NUMBER = None
+
 def log_fn(msg):
   tf.logging.info("[Autoscaling helper]: %s" % msg)
+
+class BufferedIterator:
+  """
+  An iterator that wraps another iterator and buffers its values.
+
+  The wrapped iterator is expected to return either a tensor or a tuple of
+  tensors on each call to `next`. This is useful for changing the batch size
+  for an existing iterator created from an already batched tensorflow dataset.
+  """
+
+  def __init__(self, iterator, buffer_size):
+    self.iterator = iterator
+    self.initial_buffer_size = buffer_size
+    self.buffer_size = buffer_size
+    # A tuple of tensors, one for each item returned from `self.iterator`
+    self.buf = None
+
+  def __next__(self):
+    """
+    Read from the wrapped iterator, return `self.buffer_size` amount of data,
+    and buffer the remaining values for the next call to `__next__`.
+
+    The first dimension of all returned tensors is always `self.initial_buffer_size`,
+    padding with zeros if necessary. This allows the caller to pass the return value
+    into a tensorflow function without retracing the function even when
+    `self.buffer_size` changes.
+    """
+    while self.buf is None or self.buf[0].shape[0].value < self.buffer_size:
+      next_value = next(self.iterator)
+      # We assume that `self.iterator` can return a tuple of tensors.
+      # If it turns out that only one tensor is returned, we force it
+      # to be a tuple for simpler handling.
+      if not isinstance(next_value, tuple):
+        next_value = (next_value,)
+      if self.buf is None:
+        self.buf = next_value
+      else:
+        # Merge existing and new values into the respective buffer
+        new_buf_values = []
+        for i in range(len(self.buf)):
+          new_buf_values.append(tf.concat([self.buf[i], next_value[i]], 0))
+        self.buf = tuple(new_buf_values)
+    # Split each buffer into data to be returned to the user this round
+    # and data to be buffered for future invocations of this method
+    results = []
+    new_buf_values = []
+    for i in range(len(self.buf)):
+      results.append(self.buf[i][:self.buffer_size])
+      new_buf_values.append(self.buf[i][self.buffer_size:])
+    self.buf = tuple(new_buf_values)
+    # Always return tensors whose first dimension is `self.initial_buffer_size`,
+    # filling with zeros if necessary
+    for i in range(len(results)):
+      num_zeros = self.initial_buffer_size - results[i].shape[0].value
+      zero_shape = tf.TensorShape([num_zeros] + results[i].shape.as_list()[1:])
+      zeros = tf.zeros(zero_shape, dtype=results[i].dtype)
+      results[i] = tf.concat([results[i], zeros], axis=0)
+    return tuple(results)
+
+  def get_next(self):
+    return self.__next__()
+
+  def set_buffer_size(self, buffer_size):
+    self.buffer_size = buffer_size
 
 def get_train_steps_and_epochs(num_total_samples, flags_obj, callback):
   """
@@ -64,14 +141,34 @@ def get_schedule_callback(callback):
     return periodic_spawn_callback
   return None
 
-def reinitialize_horovod(comm):
+def initialize_horovod(comm, restarting=False):
   """
-  Reinitialize horovod with a new communicator.
+  Initialize horovod with the given communicator and set the allreduce function for
+  tensorflow to call during training.
   """
-  log_fn("Reinitializing horovod with communicator (size = %s)" % comm.size)
+  log_fn("Initializing horovod with communicator (size = %s)" % comm.size)
   import horovod.tensorflow as hvd
-  hvd.shutdown()
+  if restarting:
+    hvd.shutdown()
   hvd.init(comm)
+  # Truncate tensor for printing
+  @tf.function
+  def truncate_tensor(t):
+    return tf.reshape(t, [-1])[:5]
+  # Allreduce function
+  @tf.function
+  def allreduce(grads):
+    import horovod.tensorflow as hvd
+    tf.logging.info("Averaging gradients with horovod (size %s)" % hvd.size())
+    verbose = os.getenv("AUTOSCALING_HOROVOD_VERBOSE", "").lower() == "true"
+    if verbose:
+      tf.print("First gradient before horovod allreduce: ", truncate_tensor(grads[0]))
+    grads = [hvd.allreduce(grad) for grad in grads]
+    if verbose:
+      tf.print("First gradient after horovod allreduce: ", truncate_tensor(grads[0]))
+    return grads
+  global HOROVOD_ALLREDUCE_FUNCTION
+  HOROVOD_ALLREDUCE_FUNCTION = allreduce
 
 def run_keras(flags_obj, do_run):
   """ 
@@ -92,15 +189,15 @@ def run_keras(flags_obj, do_run):
     enable_xla=flags_obj.enable_xla)
 
   # Keep track of cluster membership changes through an autoscaling hook
-  agent = AutoscalingAgent(flags_obj.num_gpus, flags_obj.use_horovod)
+  agent = AutoscalingAgent(flags_obj.num_gpus, flags_obj.batch_size, flags_obj.use_horovod)
   callback = AutoscalingCallback(agent)
 
+  # TODO: no need for this loop anymore?
   while agent.status != AutoscalingStatus.TERMINATED:
     try:
       agent.initialize()
       if flags_obj.use_horovod:
-        import horovod.tensorflow as hvd
-        hvd.init(agent.mpi_communicator)
+        initialize_horovod(agent.mpi_communicator)
       # Actually run the training
       # We expect this function to call model.fit
       result = do_run(flags_obj, callback)
