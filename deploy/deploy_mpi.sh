@@ -79,8 +79,12 @@ ALL_ENV_VARS="$(echo "$ALL_ENV_VARS" | grep -v "BASH\|SSH\|HOSTNAME\|TERMCAP\|_$
 ENV_FLAG="-x $(echo "$ALL_ENV_VARS" | tr '\n' ',' | sed 's/,$/\n/g' | sed 's/,/ \-x /g')"
 
 # Horovod flags: see https://github.com/horovod/horovod/blob/master/docs/mpirun.rst
-ENV_FLAG="$ENV_FLAG -x NCCL_DEBUG=INFO -x NCCL_SOCKET_IFNAME=^lo,docker0"
-HOROVOD_FLAGS="-mca pml ob1 -mca btl ^openib -mca btl_tcp_if_exclude lo,docker0 "
+INTERFACES_TO_EXCLUDE="lo,docker0"
+if [[ "$IN_DOCKER_CONTAINER" == "true" ]]; then
+  INTERFACES_TO_EXCLUDE="$INTERFACES_TO_EXCLUDE,eth1"
+fi
+ENV_FLAG="$ENV_FLAG -x NCCL_DEBUG=INFO -x NCCL_SOCKET_IFNAME=^$INTERFACES_TO_EXCLUDE"
+HOROVOD_FLAGS="-mca pml ob1 -mca btl ^openib -mca btl_tcp_if_exclude $INTERFACES_TO_EXCLUDE "
 HOROVOD_FLAGS="$HOROVOD_FLAGS --bind-to none --map-by slot "
 
 # Verbosity settings
