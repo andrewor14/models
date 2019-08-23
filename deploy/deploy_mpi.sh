@@ -94,8 +94,11 @@ if [[ "$MPI_SILENCE_OUTPUT" == "true" ]]; then
   STDOUT_DEVICE="/dev/null"
   STDERR_DEVICE="/dev/null"
 fi
+if [[ "$RUNNING_EXPERIMENT" == "true" ]]; then
+  echo -e "   > Launching MPI job, logging to $LOG_DIR/$JOB_NAME"
+  echo -e "   > MPI host flag: $HOST_FLAG"
+fi
 
-# TODO: silence this call; it's very noisy
 # Note: setting --bind-to to "none" (default was "core") significantly improves MPI performance
 # for multi-threaded applications. See https://www.open-mpi.org/doc/v1.8/man1/mpirun.1.php
 mpirun\

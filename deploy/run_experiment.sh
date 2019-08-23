@@ -33,7 +33,9 @@ export USE_KERAS="true"
 export USE_HOROVOD="true"
 export RUN_EAGERLY="false"
 export NUM_PARAMETER_SERVERS="0"
-export MPI_SILENCE_OUTPUT="true"
+export RUNNING_EXPERIMENT="true"
+export MPI_SILENCE_OUTPUT="${MPI_SILENCE_OUTPUT:=true}"
+export PARALLEL_STATIC_MODE="${PARALLEL_STATIC_MODE:=false}"
 
 # Run the experiment
 export NUM_WORKERS_LIST=`seq $MIN_GPUS $NUM_GPUS_INCREMENT $MAX_GPUS`
@@ -51,7 +53,9 @@ echo "==========================================================="
 # that we do not take advantage of idle *slots* (GPUs) on non-idle nodes, so as to
 # avoid interfering with the network used by existing jobs.
 # Note: This assumes we have SSH access to all nodes defined in the host file.
-if [[ "$MODE" == "static" ]] && [[ -f "$MPI_HOST_FILE" ]]; then
+if [[ "$MODE" == "static" ]] &&\
+    [[ -f "$MPI_HOST_FILE" ]] &&\
+    [[ "$PARALLEL_STATIC_MODE" == "true" ]]; then
   WAIT_FOR_MPI_SECONDS="5"
   RETRY_MPI_INTERVAL_SECONDS="5"
 
@@ -95,12 +99,6 @@ if [[ "$MODE" == "static" ]] && [[ -f "$MPI_HOST_FILE" ]]; then
 
 else
   # Otherwise, just launch the jobs one after another
-  if [[ "$MODE" == "static" ]]; then
-    echo "Warning: NOT running jobs in parallel in 'static' mode."
-    echo "Alternatively, you can set MPI_HOST_FILE and this script "
-    echo "will automatically find idle hosts to run the remaining "
-    echo "jobs on in parallel."
-  fi
   for NUM_WORKERS in $NUM_WORKERS_LIST; do
     echo " * Running with $NUM_WORKERS workers"
     export NUM_WORKERS
