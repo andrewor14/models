@@ -6,6 +6,7 @@ import tensorflow as tf
 from tensorflow.python import keras
 from tensorflow.python.keras import backend as K
 
+from autoscaling import autoscaling_helper
 from autoscaling.agent import log_exceptions
 from autoscaling.params import *
 
@@ -79,9 +80,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
     """
     Restore saved variables from memory, if any, before running the first step.
     """
-    if self.agent.saved_variables is not None:
-      self.agent.restore_variables(self.get_trainable_variables(), self.get_session())
-    elif self.loaded_model is not None:
+    if self.loaded_model is not None:
       self.model.set_weights(self.loaded_model.get_weights())
       self.loaded_model = None
 
@@ -94,10 +93,18 @@ class AutoscalingCallback(keras.callbacks.Callback):
     if self.num_batches_processed_this_epoch == self.num_batches_per_epoch:
       self.num_epochs_processed += 1
       self.num_batches_processed_this_epoch = 0
-    # Check if we need to restart
-    restarting = self.agent.step_end()
-    if restarting:
-      self.model.stop_training = True
+    # Check if we need to reinitialize
+    is_new_worker = not self.agent.joined
+    should_initialize = self.agent.step_end()
+    # If so, the new worker should fetch and restore variables from existing workers
+    if should_initialize:
+      if is_new_worker:
+        self.agent.restore_variables(self.get_trainable_variables())
+      else:
+        self.agent.save_variables(self.get_trainable_variables(), compress=True)
+      self.agent.initialize()
+      autoscaling_helper.initialize_horovod(self.agent.mpi_communicator, restarting=True)
+      self.agent.joined = True
 
   def do_on_train_end(self, logs):
     """
@@ -105,9 +112,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
     """
     if self.num_epochs_processed == self.num_epochs_total:
       self.agent.status = AutoscalingStatus.TERMINATED
-    if self.agent.status != AutoscalingStatus.TERMINATED:
-      self.agent.save_variables(self.get_trainable_variables(), self.get_session())
-    else:
+    if self.agent.status == AutoscalingStatus.TERMINATED:
       self.maybe_save_model()
 
   def get_trainable_variables(self):
@@ -169,9 +174,6 @@ class AutoscalingCallback(keras.callbacks.Callback):
 
   def on_train_end(self, logs=None):
     log_exceptions(lambda: self.do_on_train_end(logs))
-
-  def get_session(self):
-    return None if tf.executing_eagerly() else K.get_session()
 
 def log_fn(msg):
   tf.logging.info("[Autoscaling callback] %s" % msg)

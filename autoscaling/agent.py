@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 
 import errno
+import io
 import json
 import os
 import socket
 import threading
 import time
 import traceback
+import xmlrpc.client
 
 from mpi4py import MPI
+import numpy as np
 import tensorflow as tf
 from tensorflow.python.distribute import cross_device_utils, distribute_coordinator
 from tensorflow.python.eager import context
@@ -150,8 +153,8 @@ class AutoscalingAgent:
               num_workers_joined =\
                 len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
           time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
-      self.status = AutoscalingStatus.READY_TO_SYNC
-      self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
+    self.status = AutoscalingStatus.READY_TO_SYNC
+    self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
 
     # Check if cluster membership changed. If so, update cluster spec accordingly.
     with self.spawn_lock:
@@ -286,7 +289,6 @@ class AutoscalingAgent:
       log_fn("Master server is not ready to service our join request, trying again later.")
       time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
     log_fn("Master server accepted our join request")
-    self.joined = True
     # Fetch progress from the master so we can start on the same step as everyone else
     # Note: we must wait until after the master is READY_TO_SYNC, otherwise we may get the
     # wrong progress
@@ -296,12 +298,17 @@ class AutoscalingAgent:
       self.bootstrap_progress_method()
     self.step_count = num_epochs_processed * num_batches_per_epoch +\
       num_batches_processed_this_epoch
+    # Fetch model parameters from existing workers
+    # TODO: fetch from everyone, not just the master
+    log_fn("Fetching model parameters from existing workers")
+    fetch_start = time.time()
+    self.saved_variables = self.client.master_server_rpc(lambda s: s.get_saved_variables())
+    log_fn("Fetched %s model parameters, took %s seconds" %\
+      (len(self.saved_variables), time.time() - fetch_start))
     # Tell tensorflow which step and epoch to restart from
     autoscaling_helper.STEP_NUMBER = num_batches_processed_this_epoch
     autoscaling_helper.EPOCH_NUMBER = num_epochs_processed
-    # Other initialization
-    self.initialize()
-    autoscaling_helper.initialize_horovod(self.mpi_communicator, restarting=True)
+    self.joined = True
 
   def on_restart(self):
     """
@@ -404,7 +411,7 @@ class AutoscalingAgent:
       log_fn("... barrier not reached: %s" % format_statuses(statuses))
       time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
 
-  def save_variables(self, variables, session=None):
+  def save_variables(self, variables, session=None, compress=False):
     """
     Save the values of the given variables to memory.
 
@@ -422,7 +429,12 @@ class AutoscalingAgent:
     save_end = time.time()
     self.saved_variables = {}
     for i, v in enumerate(variables):
-      self.saved_variables[v.name] = values[i]
+      value = values[i]
+      if compress:
+        buf = io.BytesIO()
+        np.savez_compressed(buf, value=value)
+        value = buf.getvalue()
+      self.saved_variables[v.name] = value
     log_fn("Saved %s variables in memory, took %s seconds" %\
       (len(self.saved_variables), save_end - save_start))
 
@@ -444,6 +456,14 @@ class AutoscalingAgent:
       restore_start = time.time()
       for var in variables:
         val = self.saved_variables[var.name]
+        # Value may be compressed, in which case it will be in bytes
+        if isinstance(val, xmlrpc.client.Binary):
+          val = val.data
+        if isinstance(val, bytes):
+          data = np.load(io.BytesIO(val))
+          if len(data.files) != 1:
+            raise ValueError("Unknown compression format")
+          val = data[data.files[0]]
         update_fn = lambda var, val: var.assign(val)
         restore_ops.append(
           tf.distribute.get_strategy().extended.update(var, update_fn, args=(val,)))
@@ -474,13 +494,14 @@ class AutoscalingAgent:
     actually not in the new cluster configuration. When this happens, the caller
     of this method should exit the training loop for this process.
 
-    Return whether this process should exit from the current training loop.
-    TODO: remove return value, which is currently always False.
+    Return whether this process should reinitialize. New workers should
+    reinitialize after the first step and existing workers should reinitialize
+    if there are new workers and everyone is aware of their existence.
     """
     # If this is a spawned worker, join the cluster after the first step
     if not self.joined:
       self.join_cluster()
-      return False
+      return True
     # Only sync every N steps
     self.step_count += 1
     if self.step_count % self.sync_interval_steps != 0:
@@ -520,9 +541,7 @@ class AutoscalingAgent:
         log_fn("Received signal to restart server")
         self.status = AutoscalingStatus.RESTARTING
         self.status_barrier(AutoscalingStatus.RESTARTING)
-        self.initialize()
-        autoscaling_helper.initialize_horovod(self.mpi_communicator, restarting=True)
-      return False
+      return True
 
 # ================== HELPER METHODS ==================
 

@@ -57,6 +57,14 @@ class AutoscalingService:
       return self.agent.get_progress_method()
     return (None, None, None)
 
+  def get_saved_variables(self):
+    '''
+    Return a map of saved model variables indexed by variable name.
+    This is used for bootstrapping new workers.
+    TODO: don't send all the variables, just send the chunk we are responsible for.
+    '''
+    return self.agent.saved_variables
+
   def join_cluster(self, host_port):
     '''
     Handle a join request, only called on the master server.
