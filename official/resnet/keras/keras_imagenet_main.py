@@ -188,71 +188,65 @@ def do_run(flags_obj, autoscaling_callback):
     no_dist_strat_device = tf.device('/device:GPU:0')
     no_dist_strat_device.__enter__()
 
-  # Repeatedly call `model.fit`, which exits every time the cluster membership changes
-  # In each iteration, we need to refresh things that may have changed, such as the
-  # local batch size (which affects the input data) and, for spawned workers, the step
-  # and epoch to begin training on.
-  while autoscaling_callback.agent.status != AutoscalingStatus.TERMINATED:
+  # Add callbacks
+  callbacks = keras_common.get_callbacks(
+    learning_rate_schedule,
+    imagenet_preprocessing.NUM_IMAGES['train'],
+    autoscaling_callback.num_batches_processed_this_epoch,
+    autoscaling_callback.num_epochs_processed)
+  autoscaling_schedule_callback = autoscaling_helper.get_schedule_callback(autoscaling_callback)
+  if autoscaling_schedule_callback is not None:
+    callbacks.append(autoscaling_schedule_callback)
+  callbacks.append(autoscaling_callback)
 
-    # Prepare input dataset for training and evaluation
-    local_batch_size = flags_obj.batch_size // len(autoscaling_callback.agent.cluster_spec["worker"])
-    train_input_dataset = input_fn(
-      is_training=True,
+  # Determine number of steps and epochs to train or eval
+  (train_steps, train_epochs) = autoscaling_helper.get_train_steps_and_epochs(\
+    imagenet_preprocessing.NUM_IMAGES['train'], flags_obj, autoscaling_callback)
+  num_eval_steps = (imagenet_preprocessing.NUM_IMAGES['validation'] // flags_obj.batch_size)
+
+  # Prepare input dataset for training and evaluation
+  local_batch_size = flags_obj.batch_size // len(autoscaling_callback.agent.cluster_spec["worker"])
+  train_input_dataset = input_fn(
+    is_training=True,
+    data_dir=flags_obj.data_dir,
+    batch_size=local_batch_size,
+    num_epochs=flags_obj.train_epochs,
+    parse_record_fn=imagenet_preprocessing.parse_record,
+    datasets_num_private_threads=flags_obj.datasets_num_private_threads,
+    dtype=dtype,
+    drop_remainder=drop_remainder,
+    tf_data_experimental_slack=flags_obj.tf_data_experimental_slack)
+  eval_input_dataset = None
+  if not flags_obj.skip_eval:
+    eval_input_dataset = input_fn(
+      is_training=False,
       data_dir=flags_obj.data_dir,
       batch_size=local_batch_size,
       num_epochs=flags_obj.train_epochs,
       parse_record_fn=imagenet_preprocessing.parse_record,
-      datasets_num_private_threads=flags_obj.datasets_num_private_threads,
       dtype=dtype,
-      drop_remainder=drop_remainder,
-      tf_data_experimental_slack=flags_obj.tf_data_experimental_slack)
-    eval_input_dataset = None
-    if not flags_obj.skip_eval:
-      eval_input_dataset = input_fn(
-        is_training=False,
-        data_dir=flags_obj.data_dir,
-        batch_size=local_batch_size,
-        num_epochs=flags_obj.train_epochs,
-        parse_record_fn=imagenet_preprocessing.parse_record,
-        dtype=dtype,
-        drop_remainder=drop_remainder)
-    validation_data = eval_input_dataset
-    if flags_obj.skip_eval:
-      # Only build the training graph. This reduces memory usage introduced by
-      # control flow ops in layers that have different implementations for
-      # training and inference (e.g., batch norm).
-      if flags_obj.set_learning_phase_to_train:
-        # TODO(haoyuzhang): Understand slowdown of setting learning phase when
-        # not using distribution strategy.
-        tf.keras.backend.set_learning_phase(1)
-      num_eval_steps = None
-      validation_data = None
+      drop_remainder=drop_remainder)
+  validation_data = eval_input_dataset
+  if flags_obj.skip_eval:
+    # Only build the training graph. This reduces memory usage introduced by
+    # control flow ops in layers that have different implementations for
+    # training and inference (e.g., batch norm).
+    if flags_obj.set_learning_phase_to_train:
+      # TODO(haoyuzhang): Understand slowdown of setting learning phase when
+      # not using distribution strategy.
+      tf.keras.backend.set_learning_phase(1)
+    num_eval_steps = None
+    validation_data = None
 
-    # Add callbacks
-    callbacks = keras_common.get_callbacks(
-      learning_rate_schedule,
-      imagenet_preprocessing.NUM_IMAGES['train'],
-      autoscaling_callback.num_batches_processed_this_epoch,
-      autoscaling_callback.num_epochs_processed)
-    autoscaling_schedule_callback = autoscaling_helper.get_schedule_callback(autoscaling_callback)
-    if autoscaling_schedule_callback is not None:
-      callbacks.append(autoscaling_schedule_callback)
-    callbacks.append(autoscaling_callback)
-
-    # Determine number of steps and epochs to train or eval
-    (train_steps, train_epochs) = autoscaling_helper.get_train_steps_and_epochs(\
-      imagenet_preprocessing.NUM_IMAGES['train'], flags_obj, autoscaling_callback)
-    num_eval_steps = (imagenet_preprocessing.NUM_IMAGES['validation'] // flags_obj.batch_size)
-
-    # Actual training loop
-    history = model.fit(train_input_dataset,
-                        epochs=train_epochs,
-                        steps_per_epoch=train_steps,
-                        callbacks=callbacks,
-                        validation_steps=num_eval_steps,
-                        validation_data=validation_data,
-                        validation_freq=flags_obj.epochs_between_evals,
-                        verbose=2)
+  # Actual training loop
+  history = model.fit(train_input_dataset,
+    epochs=train_epochs,
+    steps_per_epoch=train_steps,
+    callbacks=callbacks,
+    validation_steps=num_eval_steps,
+    validation_data=validation_data,
+    validation_freq=flags_obj.epochs_between_evals,
+    verbose=2)
 
   # If we finished all the epochs already, then signal to above that we're terminating
   eval_output = None
