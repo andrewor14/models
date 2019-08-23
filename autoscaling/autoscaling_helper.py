@@ -194,30 +194,21 @@ def run_keras(flags_obj, do_run):
 
   # TODO: no need for this loop anymore?
   while agent.status != AutoscalingStatus.TERMINATED:
-    try:
-      agent.initialize()
-      if flags_obj.use_horovod:
-        initialize_horovod(agent.mpi_communicator)
-      # Actually run the training
-      # We expect this function to call model.fit
-      result = do_run(flags_obj, callback)
-      agent.on_restart()
-      callback.reset()
-      if flags_obj.use_horovod:
-        import horovod.tensorflow as hvd
-        hvd.shutdown()
-    except Exception as e:
-      tf.logging.error("Exception in resnet_main: %s (%s)" %\
-        (e, e.__class__.__name__))
-      traceback.print_exc()
-      # Hack: the tensorflow process does not terminate properly unless we do this
-      os._exit(1)
+    agent.initialize()
+    if flags_obj.use_horovod:
+      initialize_horovod(agent.mpi_communicator)
+    # Actually run the training
+    # We expect this function to call model.fit
+    result = do_run(flags_obj, callback)
+    agent.on_restart()
+    callback.reset()
+    if flags_obj.use_horovod:
+      import horovod.tensorflow as hvd
+      hvd.shutdown()
 
   # Make sure everyone exits together to avoid connection refused errors
   if is_checkpoint_restart_mode():
     agent.mpi_communicator.barrier()
 
   log_fn("Training complete")
-  # Hack: the tensorflow process does not terminate properly unless we do this
-  os._exit(0)
 

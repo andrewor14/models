@@ -29,8 +29,9 @@ def listen_for_requests(agent, host_port):
   server.register_introspection_functions()
   server.register_multicall_functions()
   server.register_instance(AutoscalingService(agent))
-  threading.Thread(target=server.serve_forever).start()
-
+  t = threading.Thread(target=server.serve_forever)
+  t.daemon = True
+  t.start()
 
 class AutoscalingService:
   '''
