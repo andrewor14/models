@@ -81,10 +81,7 @@ class AutoscalingService:
       # Note: Calling client.add_worker directly will hang because this server
       # is single threaded and so cannot process the add_workers request asynchronously.
       # Thus, we need to treat the master server (ourselves) separately.
-      client = self.agent.client
-      for server in client.servers:
-        if server != client.master_server:
-          server.add_workers([host_port])
+      self.agent.client.all_servers_rpc(lambda s: s.add_workers([host_port]), except_master=True)
       self.add_workers([host_port])
       # Note: There may be pending workers that are not part of the autoscaling client yet.
       # Here we manually tell them to add this new worker. In the future there may be a
@@ -97,8 +94,8 @@ class AutoscalingService:
             pending_workers.remove(host_port)
           for pending_worker in pending_workers:
             log_fn("Telling pending worker %s to add worker %s" % (pending_worker, host_port))
-            server = connect(convert_port(pending_worker))
-            server.add_workers([host_port])
+            self.agent.client.rpc_without_connection_problems(
+              lambda: connect(convert_port(pending_worker)).add_workers([host_port]))
     else:
       log_fn("Warning: received join request from a worker who had already joined: %s" % host_port)
     return True

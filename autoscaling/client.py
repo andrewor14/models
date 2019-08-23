@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import copy
+import http.client
 import json
 import os
 import xmlrpc.client
@@ -73,9 +74,8 @@ class AutoscalingClient:
     '''
     if new_master_host_port is not None:
       self.master_host_port = new_master_host_port
-      self.master_server = connect(new_master_host_port)
-    cluster_spec = self.master_server.get_cluster_spec()
-    self._cluster_spec = cluster_spec
+    self.master_server = connect(self.master_host_port)
+    self._cluster_spec = self.master_server.get_cluster_spec()
     self._servers = {}
 
   @property
@@ -121,6 +121,41 @@ class AutoscalingClient:
       raise ValueError("Number of hosts is different from number of server proxies!\n" +
         "Hosts: %s\nServer proxies: %s" % (self.hosts, self._servers.keys()))
     return [self._servers[k] for k in sorted(self._servers.keys())]
+
+  def rpc_without_connection_problems(self, rpc_closure, max_attempts=10):
+    """
+    Run a closure with guards against common transient connection problems.
+    """
+    num_attempts = 0
+    while num_attempts < max_attempts:
+      error = None
+      try:
+        return rpc_closure()
+      except (http.client.ResponseNotReady, http.client.CannotSendRequest) as e:
+        error = e
+      except xmlrpc.client.Fault as e:
+        if "CannotSendRequest" in e.faultString:
+          error = e
+        else:
+          raise e
+      log_fn("Warning: RPC failed with the following exception, trying again")
+      log_fn("%s: %s" % (error.__class__.__name__, error))
+      num_attempts += 1
+
+  def all_servers_rpc(self, rpc_closure, except_master=False):
+    """
+    Run the specified RPC on all servers.
+    """
+    wrapped_closure = lambda: [rpc_closure(s) for s in self.servers\
+      if not except_master or s != self.master_server]
+    return self.rpc_without_connection_problems(wrapped_closure)
+
+  def master_server_rpc(self, rpc_closure):
+    """
+    Run the specified RPC on the master server.
+    """
+    wrapped_closure = lambda: rpc_closure(self.master_server)
+    return self.rpc_without_connection_problems(wrapped_closure)
 
   def add_worker(self, host_port):
     '''

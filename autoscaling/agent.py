@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 import errno
-import os
 import json
+import os
 import socket
 import threading
 import time
@@ -280,8 +280,9 @@ class AutoscalingAgent:
       raise ValueError("AUTOSCALING_MASTER_HOST_PORT not set on spawned worker")
     # Our client currently thinks we are the master, so we need to reset it
     self.client.reset(master_host_port)
+    # Wait until master is ready to accept our join request
     log_fn("Joining cluster as %s" % self.host_port)
-    while not self.client.master_server.join_cluster(self.host_port):
+    while not self.client.master_server_rpc(lambda s: s.join_cluster(self.host_port)):
       log_fn("Master server is not ready to service our join request, trying again later.")
       time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
     log_fn("Master server accepted our join request")
@@ -348,9 +349,9 @@ class AutoscalingAgent:
         failure_message = "... cluster spec does not contain this host (%s)" % self.host_port
       # (2) Do we have the same cluster spec as everyone else?
       if not failure_message:
-        for server in self.client.servers:
-          their_cluster_spec = json.dumps(server.get_cluster_spec())
-          if my_cluster_spec != their_cluster_spec:
+        cluster_specs = self.client.all_servers_rpc(lambda s: json.dumps(s.get_cluster_spec()))
+        for cluster_spec in cluster_specs:
+          if cluster_spec != my_cluster_spec:
             failure_message = "... cluster spec sync failed"
       # If no failure so far, then we are synced, so we should transition to SYNCED
       if not failure_message:
@@ -396,8 +397,7 @@ class AutoscalingAgent:
       acceptable_statuses.extend(get_next_statuses(t))
     log_fn("Waiting for everyone to reach %s" % format_statuses(targets))
     while True:
-      servers = self.client.servers
-      statuses = [AutoscalingStatus(server.get_status()) for server in servers]
+      statuses = self.client.all_servers_rpc(lambda s: AutoscalingStatus(s.get_status()))
       if all([status in acceptable_statuses for status in statuses]):
         log_fn("... barrier reached! %s" % format_statuses(statuses))
         return statuses
