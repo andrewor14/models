@@ -53,6 +53,7 @@ if [[ "$MODE" == "autoscaling" ]] || [[ "$MODE" == "checkpoint-restart" ]]; then
   fi
   export AUTOSCALING_SPAWN_EVERY_N_STEPS="${AUTOSCALING_SPAWN_EVERY_N_STEPS:=10}"
   export AUTOSCALING_MAX_WORKERS="${AUTOSCALING_MAX_WORKERS:=60}"
+  export AUTOSCALING_MIN_STEPS_BETWEEN_RESTART="$AUTOSCALING_SPAWN_EVERY_N_STEPS"
 fi
 
 # Set a unique job name to identify the experiment

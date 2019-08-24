@@ -27,7 +27,6 @@ class AutoscalingCallback(keras.callbacks.Callback):
     self._chief_worker_only = False
     # Expose our progress method to the autoscaling service through our agent
     self.agent.get_progress_method = self.get_progress
-    self.agent.bootstrap_progress_method = self.bootstrap_progress
     # In 'checkpoint-restart' mode, we need to load the model from checkpoints
     # However, we cannot load the model in a distribution strategy scope.
     # See https://github.com/tensorflow/tensorflow/issues/30850.
@@ -59,22 +58,19 @@ class AutoscalingCallback(keras.callbacks.Callback):
     We do this by fetching the progress from the master autoscaling server.
     Note: the caller should ensure that we do this after the master is READY_TO_SYNC,
     otherwise the progress may be wrong if the master is still running batches.
-
-    Return a 3-tuple:
-      (1) Number of batches processed in this epoch so far,
-      (2) Number of epochs processed so far, and
-      (3) Number of batches per epoch
     """
     progress = self.agent.client.master_server.get_progress()
     if progress is not None:
       self.num_batches_processed_this_epoch = progress[0]
       self.num_epochs_processed = progress[1]
       self.num_batches_per_epoch = progress[2]
+      # Tell tensorflow which step and epoch to restart from
+      autoscaling_helper.STEP_NUMBER = self.num_batches_processed_this_epoch
+      autoscaling_helper.EPOCH_NUMBER = self.num_epochs_processed
       log_fn("Fetched progress from master server = (%s steps, %s epochs)" %\
         (self.num_batches_processed_this_epoch, self.num_epochs_processed))
     else:
       log_fn("Warning: unable to fetch progress from master server")
-    return progress
 
   def do_on_batch_begin(self, batch, logs):
     """
@@ -95,10 +91,17 @@ class AutoscalingCallback(keras.callbacks.Callback):
       self.num_batches_processed_this_epoch = 0
     # Check if we need to reinitialize
     is_new_worker = not self.agent.joined
-    should_initialize = self.agent.step_end()
-    # If so, the new worker should fetch and restore variables from existing workers
+    total_steps_processed = self.num_epochs_processed * self.num_batches_per_epoch +\
+      self.num_batches_processed_this_epoch
+    should_initialize = self.agent.step_end(total_steps_processed)
+    # If we are removed from the cluster, exit training loop
+    if self.agent.status == AutoscalingStatus.TERMINATED:
+      self.model.stop_training = True
+      return
+    # If we are reinitializing, the new worker should restore variables from existing workers
     if should_initialize:
       if is_new_worker:
+        self.bootstrap_progress()
         self.agent.restore_variables(self.get_trainable_variables())
       else:
         self.agent.save_variables(self.get_trainable_variables(), compress=True)

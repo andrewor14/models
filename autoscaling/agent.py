@@ -48,6 +48,8 @@ class AutoscalingAgent:
     self.num_gpus_per_worker = num_gpus_per_worker
     self.global_batch_size = global_batch_size
     self.use_horovod = use_horovod
+    self.last_step_restarted = 0
+    self.min_steps_between_restart = int(os.getenv(AUTOSCALING_MIN_STEPS_BETWEEN_RESTART, 1))
 
     # Parse this process' host port from TF_CONFIG
     tf_config = get_tf_config()
@@ -56,6 +58,10 @@ class AutoscalingAgent:
     self.cluster_spec = tf_config["cluster"]
     self.host_port = self.cluster_spec[self.task_type][self.task_index]
     self.host_port = find_available_port(self.host_port)
+
+    # If we are using horovod, unset TF_CONFIG to avoid interference from tensorflow
+    if self.use_horovod:
+      del os.environ["TF_CONFIG"]
 
     # ========= MPI stuff ==========
 
@@ -134,6 +140,7 @@ class AutoscalingAgent:
     This should be called on start up and after every time we restart.
     """
     log_fn("Initializing")
+    self.mpi_communicator.barrier()
 
     # Wait for all the workers spawned in the last round to join
     num_workers_joined = 0
@@ -149,7 +156,7 @@ class AutoscalingAgent:
                 len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
           time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
     self.status = AutoscalingStatus.READY_TO_SYNC
-    self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
+    self.mpi_communicator.barrier()
 
     # Check if cluster membership changed. If so, update cluster spec accordingly.
     with self.spawn_lock:
@@ -172,31 +179,28 @@ class AutoscalingAgent:
           # Apply pending cluster spec
           self.apply_cluster_spec(self.pending_cluster_spec)
           self.pending_cluster_spec = None
-    self.sync_cluster_spec()
-    self.task_index = self.cluster_spec["worker"].index(self.host_port)
 
-    # Set TF_CONFIG using the synced cluster spec
-    new_tf_config = {"cluster": self.cluster_spec,\
-      "task": {"type": self.task_type, "index": self.task_index}}
-    new_tf_config = json.dumps(new_tf_config)
-    log_fn("Setting TF_CONFIG = %s" % new_tf_config)
-    os.environ["TF_CONFIG"] = new_tf_config
-    # Update CUDA_VISIBLE_DEVICES with respect to new TF_CONFIG
-    if self.num_gpus_per_worker > 0:
-      cuda_helper.set_cuda_visible_devices(self.num_gpus_per_worker)
-    # When using horovod, delete TF_CONFIG to avoid interference from tensorflow
-    if self.use_horovod:
-      del os.environ["TF_CONFIG"]
     # Check if we need to expand our communicator
     if self.joined:
       with self.spawn_lock:
         self.maybe_expand_mpi_communicator(num_workers_joined)
+
+    # Sync cluster spec and update relevant variables
+    self.sync_cluster_spec()
+    self.task_index = self.cluster_spec["worker"].index(self.host_port)
+    if self.num_gpus_per_worker > 0:
+      new_tf_config = {
+        "cluster": self.cluster_spec,
+        "task": {"type": self.task_type, "index": self.task_index}
+      }
+      cuda_helper.set_cuda_visible_devices(self.num_gpus_per_worker, new_tf_config)
+
     # Tell tensorflow our batch size has changed
     autoscaling_helper.LOCAL_BATCH_SIZE =\
       self.global_batch_size // len(self.cluster_spec["worker"])
     log_fn("Local batch size = %s" % autoscaling_helper.LOCAL_BATCH_SIZE)
     self.status = AutoscalingStatus.RUNNING
-    self.status_barrier(AutoscalingStatus.RUNNING)
+    self.mpi_communicator.barrier()
 
   def maybe_expand_mpi_communicator(self, n_times):
     """
@@ -208,6 +212,7 @@ class AutoscalingAgent:
     read on other processes.
 
     Must be called while holding `self.spawn_lock`.
+    TODO: handle removed workers
     """
     # First, figure out our role
     comm = self.mpi_communicator
@@ -284,13 +289,12 @@ class AutoscalingAgent:
       log_fn("Master server is not ready to service our join request, trying again later.")
       time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
     log_fn("Master server accepted our join request")
-    # Fetch progress from the master so we can start on the same step as everyone else
-    # Note: we must wait until after the master is READY_TO_SYNC, otherwise we may get the
-    # wrong progress
-    self.status = AutoscalingStatus.READY_TO_SYNC
-    self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
-    (num_batches_processed_this_epoch, num_epochs_processed, num_batches_per_epoch) =\
-      self.bootstrap_progress_method()
+    # Wait until master is READY_TO_SYNC before we fetch model parameters
+    status = None
+    while status != AutoscalingStatus.READY_TO_SYNC:
+      status = AutoscalingStatus(self.client.master_server_rpc(lambda s: s.get_status()))
+      log_fn("Waiting for master to reach READY_TO_SYNC")
+      time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
     # Fetch model parameters from existing workers
     # TODO: fetch from everyone, not just the master
     log_fn("Fetching model parameters from existing workers")
@@ -298,9 +302,6 @@ class AutoscalingAgent:
     self.saved_variables = self.client.master_server_rpc(lambda s: s.get_saved_variables())
     log_fn("Fetched %s model parameters, took %s seconds" %\
       (len(self.saved_variables), time.time() - fetch_start))
-    # Tell tensorflow which step and epoch to restart from
-    autoscaling_helper.STEP_NUMBER = num_batches_processed_this_epoch
-    autoscaling_helper.EPOCH_NUMBER = num_epochs_processed
     self.joined = True
 
   def on_restart(self):
@@ -340,31 +341,33 @@ class AutoscalingAgent:
     """
     log_fn("Attempting to sync cluster spec with everyone")
     self.status = AutoscalingStatus.SYNCING
-    self.status_barrier(AutoscalingStatus.SYNCING)
+    self.mpi_communicator.barrier()
     while True:
       failure_message = None
       my_cluster_spec = json.dumps(self.client.cluster_spec)
       # (1) Does our cluster spec contain our host name?
       if self.host_port not in self.client.hosts:
-        failure_message = "... cluster spec does not contain this host (%s)" % self.host_port
-      # (2) Do we have the same cluster spec as everyone else?
-      if not failure_message:
-        cluster_specs = self.client.all_servers_rpc(lambda s: json.dumps(s.get_cluster_spec()))
-        for cluster_spec in cluster_specs:
+        failure_message = "cluster spec does not contain this host (%s)" % self.host_port
+        _ = self.mpi_communicator.allgather(None)
+      else:
+        # (2) Do we have the same cluster spec as everyone else?
+        for cluster_spec in self.mpi_communicator.allgather(json.dumps(self.cluster_spec)):
           if cluster_spec != my_cluster_spec:
-            failure_message = "... cluster spec sync failed"
-      # If no failure so far, then we are synced, so we should transition to SYNCED
-      if not failure_message:
+            failure_message = "cluster spec sync failed"
+      synced = all(self.mpi_communicator.allgather(failure_message is None))
+      if synced:
         log_fn("... cluster spec synced: %s" % my_cluster_spec)
         self.status = AutoscalingStatus.SYNCED
-        self.status_barrier(AutoscalingStatus.SYNCED)
+        self.mpi_communicator.barrier()
         return
       # On failure, reset client with cluster spec from the master autoscaling server
-      log_fn("%s, trying again in %s second(s)" %\
+      failure_message = failure_message or "not everyone is synced"
+      log_fn("... %s, trying again in %s second(s)" %\
         (failure_message, AUTOSCALING_RETRY_INTERVAL_SECONDS))
       time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
-      self.client.reset()
-      self.apply_cluster_spec(self.client.cluster_spec)
+      master_cluster_spec = self.mpi_communicator.bcast(self.cluster_spec, root=0)
+      self.apply_cluster_spec(master_cluster_spec)
+      self.client.reset(new_cluster_spec=master_cluster_spec)
 
   def apply_cluster_spec(self, cluster_spec):
     """
@@ -374,35 +377,6 @@ class AutoscalingAgent:
     tasks = cluster_spec[self.task_type]
     if self.host_port in tasks:
       self.task_index = tasks.index(self.host_port)
-
-  def status_barrier(self, target, quiet=False):
-    """
-    Wait until everyone has reached the target autoscaling status(es).
-
-    The given target can be one status or a list of statuses.
-    This requires the caller to already be in one of the target statuses.
-    Return the list of everyone's status once the target is reached.
-    """
-    targets = [target] if not isinstance(target, list) else target
-    log_fn = lambda _: None if quiet else log_fn
-    # Check if we have reached the target ourselves
-    my_status = self.status
-    if my_status not in targets:
-      raise ValueError("Current autoscaling status %s must match barrier target(s): %s" %\
-        (my_status, targets))
-    # A process may have passed the same barrier already, in which case it will be in
-    # one of the next statuses and that's OK. Terminated is also accepted.
-    acceptable_statuses = targets + [AutoscalingStatus.TERMINATED]
-    for t in targets:
-      acceptable_statuses.extend(get_next_statuses(t))
-    log_fn("Waiting for everyone to reach %s" % format_statuses(targets))
-    while True:
-      statuses = self.client.all_servers_rpc(lambda s: AutoscalingStatus(s.get_status()))
-      if all([status in acceptable_statuses for status in statuses]):
-        log_fn("... barrier reached! %s" % format_statuses(statuses))
-        return statuses
-      log_fn("... barrier not reached: %s" % format_statuses(statuses))
-      time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
 
   def save_variables(self, variables, session=None, compress=False):
     """
@@ -469,7 +443,7 @@ class AutoscalingAgent:
     finally:
       self.saved_variables = None
 
-  def step_end(self):
+  def step_end(self, step_count):
     """
     Listen for changes in cluster membership and react by reinitializing the server.
 
@@ -486,10 +460,15 @@ class AutoscalingAgent:
     if not self.joined:
       self.join_cluster()
       return True
-    # Do a two-phase synchronization to make sure that everyone agrees on whether
-    # or not to restart.
+    # We need to restart if
+    # (1) there is a pending cluster spec, and
+    # (2) we last restarted more than N steps ago
     with self.pending_cluster_spec_lock:
       should_restart = self.pending_cluster_spec is not None
+    if step_count - self.last_step_restarted < self.min_steps_between_restart:
+      should_restart = False
+    # Do a two-phase synchronization to make sure that everyone agrees on whether
+    # or not to restart.
     ready_to_restart = all(self.mpi_communicator.allgather(should_restart))
     restarting = all(self.mpi_communicator.allgather(ready_to_restart))
     if restarting:
@@ -503,7 +482,7 @@ class AutoscalingAgent:
       else:
         log_fn("Received signal to restart server")
         self.status = AutoscalingStatus.RESTARTING
-        self.status_barrier(AutoscalingStatus.RESTARTING)
+      self.last_step_restarted = step_count
     return restarting
 
 # ================== HELPER METHODS ==================

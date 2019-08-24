@@ -13,6 +13,7 @@ AUTOSCALING_RPC_PORT_OFFSET = 7000
 AUTOSCALING_MIN_WORKERS = "AUTOSCALING_MIN_WORKERS"
 AUTOSCALING_MAX_WORKERS = "AUTOSCALING_MAX_WORKERS"
 AUTOSCALING_SPAWN_EVERY_N_STEPS = "AUTOSCALING_SPAWN_EVERY_N_STEPS"
+AUTOSCALING_MIN_STEPS_BETWEEN_RESTART = "AUTOSCALING_MIN_STEPS_BETWEEN_RESTART"
 
 # Checkpoint restart
 AUTOSCALING_CHECKPOINT_DIR = "AUTOSCALING_CHECKPOINT_DIR"
@@ -49,18 +50,6 @@ class AutoscalingStatus(Enum):
   RESTARTING = 5
   TERMINATED = -1
 
-def get_next_statuses(status):
-  """
-  Return the next autoscaling status(es) given the current status.
-  """
-  if status == AutoscalingStatus.RUNNING:
-    return [AutoscalingStatus.RESTARTING, AutoscalingStatus.TERMINATED]
-  if status == AutoscalingStatus.RESTARTING:
-    return [AutoscalingStatus.READY_TO_SYNC]
-  if status == AutoscalingStatus.TERMINATED:
-    return [status]
-  return [AutoscalingStatus(status.value + 1)]
-
 def is_syncing(status):
   """
   Return whether the given status represents one that is syncing cluster specs.
@@ -69,10 +58,4 @@ def is_syncing(status):
     AutoscalingStatus.READY_TO_SYNC,
     AutoscalingStatus.SYNCING,
     AutoscalingStatus.SYNCED]
-
-def format_statuses(statuses):
-  """
-  Format the given list of statuses in a nice string.
-  """
-  return [str(status).split(".")[-1] for status in statuses]
 
