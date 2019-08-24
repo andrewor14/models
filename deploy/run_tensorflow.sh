@@ -74,11 +74,6 @@ fi
 TRAIN_DIR="${TRAIN_DIR:=$BASE_TRAIN_DIR/$JOB_NAME}"
 mkdir -p "$TRAIN_DIR"
 
-# If we are using a small dataset, sync less often to allow faster training
-if [[ "$DATASET" == "cifar10" ]]; then
-  export AUTOSCALING_SYNC_INTERVAL_STEPS="${AUTOSCALING_SYNC_INTERVAL_STEPS:=10}"
-fi
-
 # When using Horovod, do not use a multi-worker distribution strategy
 if [[ "$USE_HOROVOD" == "true" ]]; then
   export DISTRIBUTION_STRATEGY="mirrored"

@@ -57,11 +57,6 @@ class AutoscalingAgent:
     self.host_port = self.cluster_spec[self.task_type][self.task_index]
     self.host_port = find_available_port(self.host_port)
 
-    # Syncing at the end of each step adds some overhead
-    # If we are running a tiny dataset, we may want to sync less often
-    self.step_count = 0
-    self.sync_interval_steps = int(os.getenv(AUTOSCALING_SYNC_INTERVAL_STEPS, "1"))
-
     # ========= MPI stuff ==========
 
     # The MPI communicator that Horovod will use
@@ -252,7 +247,7 @@ class AutoscalingAgent:
     """
     if self.mpi_communicator.rank > 0:
       raise ValueError("Only the root can spawn workers")
-    if not is_running(self.status):
+    if self.status != AutoscalingStatus.RUNNING:
       log_fn("Not spawning worker because we are initializing")
       return False
     log_fn("Spawning %s worker(s) through MPI" % num_workers)
@@ -296,8 +291,6 @@ class AutoscalingAgent:
     self.status_barrier(AutoscalingStatus.READY_TO_SYNC)
     (num_batches_processed_this_epoch, num_epochs_processed, num_batches_per_epoch) =\
       self.bootstrap_progress_method()
-    self.step_count = num_epochs_processed * num_batches_per_epoch +\
-      num_batches_processed_this_epoch
     # Fetch model parameters from existing workers
     # TODO: fetch from everyone, not just the master
     log_fn("Fetching model parameters from existing workers")
@@ -478,21 +471,12 @@ class AutoscalingAgent:
 
   def step_end(self):
     """
-    Listen for changes in cluster membership and react by restarting the server.
+    Listen for changes in cluster membership and react by reinitializing the server.
 
-    This method is called at the end of each step. Each process undergoes three
-    state changes:
-      (1) From RUNNING to [NOT_]PENDING_RESTART, which specifies whether
-          this process has observed the cluster membership change, and
-      (2) From that to [NOT_]READY_TO_RESTART, which specifies whether
-          this process has observed that *everyone* is pending restart.
-      (3) From that to either RUNNING, RESTARTING, or TERMINATED
-
-    Each of these state changes are followed by a synchronization barrier to
-    ensure that the processes either all restart or keep running. The only
-    exception is TERMINATED, which happens when a process realizes that he is
-    actually not in the new cluster configuration. When this happens, the caller
-    of this method should exit the training loop for this process.
+    This method is called at the end of each step and involves two synchronization
+    barriers: one to see whether everyone has seen the new pending cluster spec,
+    and another to see whether everyone has observed that everyone has seen it.
+    This guarantees that all workers make the same decision on whether to restart.
 
     Return whether this process should reinitialize. New workers should
     reinitialize after the first step and existing workers should reinitialize
@@ -502,34 +486,13 @@ class AutoscalingAgent:
     if not self.joined:
       self.join_cluster()
       return True
-    # Only sync every N steps
-    self.step_count += 1
-    if self.step_count % self.sync_interval_steps != 0:
-      return False
-    # Check if cluster membership has changed
+    # Do a two-phase synchronization to make sure that everyone agrees on whether
+    # or not to restart.
     with self.pending_cluster_spec_lock:
-      if self.pending_cluster_spec is not None:
-        self.status = AutoscalingStatus.PENDING_RESTART
-      else:
-        self.status = AutoscalingStatus.NOT_PENDING_RESTART
-    # Check if everyone has seen the cluster membership change
-    statuses = self.status_barrier(\
-      [AutoscalingStatus.PENDING_RESTART, AutoscalingStatus.NOT_PENDING_RESTART],
-      quiet=True)
-    if AutoscalingStatus.NOT_PENDING_RESTART in statuses:
-      self.status = AutoscalingStatus.NOT_READY_TO_RESTART
-    else:
-      self.status = AutoscalingStatus.READY_TO_RESTART
-    # Check if everyone is ready to restart
-    statuses = self.status_barrier(\
-      [AutoscalingStatus.READY_TO_RESTART, AutoscalingStatus.NOT_READY_TO_RESTART],
-      quiet=True)
-    # If even one worker is not ready to restart, then we just keep running
-    if AutoscalingStatus.NOT_READY_TO_RESTART in statuses:
-      self.status = AutoscalingStatus.RUNNING
-      self.status_barrier(AutoscalingStatus.RUNNING, quiet=True)
-      return False
-    else:
+      should_restart = self.pending_cluster_spec is not None
+    ready_to_restart = all(self.mpi_communicator.allgather(should_restart))
+    restarting = all(self.mpi_communicator.allgather(ready_to_restart))
+    if restarting:
       # If the new cluster spec does not contain us, then that means we are removed
       should_terminate = False
       with self.pending_cluster_spec_lock:
@@ -541,7 +504,7 @@ class AutoscalingAgent:
         log_fn("Received signal to restart server")
         self.status = AutoscalingStatus.RESTARTING
         self.status_barrier(AutoscalingStatus.RESTARTING)
-      return True
+    return restarting
 
 # ================== HELPER METHODS ==================
 

@@ -46,39 +46,20 @@ class AutoscalingStatus(Enum):
   SYNCING = 2
   SYNCED = 3
   RUNNING = 4
-  PENDING_RESTART = 5.1
-  NOT_PENDING_RESTART = 5.2
-  READY_TO_RESTART = 6.1
-  NOT_READY_TO_RESTART = 6.2
-  RESTARTING = 7
+  RESTARTING = 5
   TERMINATED = -1
 
 def get_next_statuses(status):
   """
   Return the next autoscaling status(es) given the current status.
   """
-  maybe_pending_restart = [AutoscalingStatus.PENDING_RESTART, AutoscalingStatus.NOT_PENDING_RESTART]
-  maybe_ready_to_restart = [AutoscalingStatus.READY_TO_RESTART, AutoscalingStatus.NOT_READY_TO_RESTART]
   if status == AutoscalingStatus.RUNNING:
-    return maybe_pending_restart
-  if status in maybe_pending_restart:
-    return maybe_ready_to_restart
-  if status in maybe_ready_to_restart:
-    return [AutoscalingStatus.RUNNING, AutoscalingStatus.RESTARTING, AutoscalingStatus.TERMINATED]
+    return [AutoscalingStatus.RESTARTING, AutoscalingStatus.TERMINATED]
   if status == AutoscalingStatus.RESTARTING:
     return [AutoscalingStatus.READY_TO_SYNC]
   if status == AutoscalingStatus.TERMINATED:
     return [status]
   return [AutoscalingStatus(status.value + 1)]
-
-def is_running(status):
-  """
-  Return whether the given status represents one that is running and not pending to restart.
-  """
-  return status in [
-    AutoscalingStatus.RUNNING,
-    AutoscalingStatus.NOT_PENDING_RESTART,
-    AutoscalingStatus.NOT_READY_TO_RESTART]
 
 def is_syncing(status):
   """

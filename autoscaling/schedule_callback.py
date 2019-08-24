@@ -27,8 +27,7 @@ class PeriodicSpawnScheduleCallback(keras.callbacks.Callback):
       num_expected_workers = self.agent.mpi_communicator.size +\
         len(self.agent.mpi_spawned_communicators)
     if self.spawn_next_step or\
-        ((self.agent.step_count + 1) % self.every_n_steps == 0 and\
-        num_expected_workers < self.max_workers):
+        ((batch + 1) % self.every_n_steps == 0 and num_expected_workers < self.max_workers):
       # In 'checkpoint-restart' mode, we simply tell the all the workers to terminate
       if is_checkpoint_restart_mode():
         self.agent.client.all_servers_rpc(lambda s: s.set_pending_cluster_spec({"worker":[]}))
