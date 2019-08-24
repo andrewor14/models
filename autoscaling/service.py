@@ -61,7 +61,6 @@ class AutoscalingService:
     '''
     Return a map of saved model variables indexed by variable name.
     This is used for bootstrapping new workers.
-    TODO: don't send all the variables, just send the chunk we are responsible for.
     '''
     return self.agent.saved_variables
 
