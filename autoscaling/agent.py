@@ -299,10 +299,23 @@ class AutoscalingAgent:
     self.step_count = num_epochs_processed * num_batches_per_epoch +\
       num_batches_processed_this_epoch
     # Fetch model parameters from existing workers
-    # TODO: fetch from everyone, not just the master
+    # Note: we must reset `self.client` because the cluster spec may have changed between
+    # now and the last time we reset it. Otherwise, we may miss the slice of parameters
+    # from the new worker.
     log_fn("Fetching model parameters from existing workers")
+    self.client.reset()
     fetch_start = time.time()
-    self.saved_variables = self.client.master_server_rpc(lambda s: s.get_saved_variables())
+    self.saved_variables = {}
+    for var_map in self.client.all_servers_rpc(\
+        lambda s: s.get_saved_variables(), parallel=True):
+      # The saved variables can be None if we fetched from another new worker
+      # that just joined the cluster. We can safely ignore this case.
+      if var_map is not None:
+        log_fn("  ANDREW fetched map of size %s" % len(var_map))
+        self.saved_variables.update(var_map)
+        log_fn("    ANDREW aggregate map is now size %s" % len(self.saved_variables))
+      else:
+        log_fn("  ANDREW got a NONE VAR MAP!!!")
     log_fn("Fetched %s model parameters, took %s seconds" %\
       (len(self.saved_variables), time.time() - fetch_start))
     # Tell tensorflow which step and epoch to restart from
@@ -411,15 +424,29 @@ class AutoscalingAgent:
       log_fn("... barrier not reached: %s" % format_statuses(statuses))
       time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
 
-  def save_variables(self, variables, session=None, compress=False):
+  def save_variables(self, variables, session=None, for_new_worker=False):
     """
     Save the values of the given variables to memory.
 
     If `session` is provided, use it to compute the value of the variables.
     Otherwise, we assume this is running in eager mode, in which case we can
     just directly access the values of the variables.
+
+    If `for_new_worker` is true, then we will only save the slice of
+    variables this rank is assigned, and the values will be compressed.
     """
     save_start = time.time()
+    # Find the variables in the slice assigned to this process
+    if for_new_worker:
+      num_chunks = self.mpi_communicator.size
+      chunk_index = self.mpi_communicator.rank
+      all_indexes = np.array_split(np.array(range(len(variables))), num_chunks)
+      my_indexes = all_indexes[chunk_index].tolist()
+      new_variables = []
+      for i in my_indexes:
+        new_variables.append(variables[i])
+      variables = new_variables
+    # Compute the values for these variables
     if session is not None:
       session.graph._finalized = False
       values = session.run(variables)
@@ -430,7 +457,8 @@ class AutoscalingAgent:
     self.saved_variables = {}
     for i, v in enumerate(variables):
       value = values[i]
-      if compress:
+      if for_new_worker:
+        # If this is for new workers, compress it so we can send less data
         buf = io.BytesIO()
         np.savez_compressed(buf, value=value)
         value = buf.getvalue()

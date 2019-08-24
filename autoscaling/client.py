@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 
+from concurrent.futures import ThreadPoolExecutor, wait
 import copy
 import http.client
 import json
 import os
-import xmlrpc.client
 import re
 import subprocess
 import sys
 import time
+import threading
+import xmlrpc.client
 
 import tensorflow as tf
 
@@ -65,6 +67,7 @@ class AutoscalingClient:
     self.master_server = None
     self._cluster_spec = None
     self._servers = None
+    self._thread_pool_executor = None
     self.reset(master_host_port)
 
   def reset(self, new_master_host_port=None):
@@ -75,8 +78,19 @@ class AutoscalingClient:
     if new_master_host_port is not None:
       self.master_host_port = new_master_host_port
     self.master_server = connect(self.master_host_port)
+    old_num_hosts = len(self.hosts) if self._cluster_spec is not None else 0
     self._cluster_spec = self.master_server.get_cluster_spec()
     self._servers = {}
+    # If number of hosts changed, shutdown the previous thread pool executor and
+    # start a new one
+    if len(self.hosts) != old_num_hosts:
+      if self._thread_pool_executor is not None:
+        log_fn("ANDREW shutting down thread pool executor")
+        start = time.time()
+        self._thread_pool_executor.shutdown()
+        log_fn("ANDREW shut down thread pool executor, took %s seconds" % (time.time() - start))
+      log_fn("ANDREW creating new thread pool executor")
+      self._thread_pool_executor = ThreadPoolExecutor(len(self.hosts))
 
   @property
   def ps_hosts(self):
@@ -141,14 +155,27 @@ class AutoscalingClient:
       log_fn("Warning: RPC failed with the following exception, trying again")
       log_fn("%s: %s" % (error.__class__.__name__, error))
       num_attempts += 1
+      time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
 
-  def all_servers_rpc(self, rpc_closure, except_master=False):
+  def all_servers_rpc(self, rpc_closure, except_master=False, parallel=False):
     """
     Run the specified RPC on all servers.
+    Return a list of results collected from each server.
     """
-    wrapped_closure = lambda: [rpc_closure(s) for s in self.servers\
-      if not except_master or s != self.master_server]
-    return self.rpc_without_connection_problems(wrapped_closure)
+    if parallel:
+      servers = [s for s in self.servers if not except_master or s != self.master_server]
+      results = [None] * len(servers)
+      futures = []
+      for i, s in enumerate(servers):
+        def func(index, server):
+          results[index] = self.rpc_without_connection_problems(lambda: rpc_closure(server))
+        futures.append(self._thread_pool_executor.submit(func, i, s))
+      wait(futures)
+      return results
+    else:
+      wrapped_closure = lambda: [rpc_closure(s) for s in self.servers\
+        if not except_master or s != self.master_server]
+      return self.rpc_without_connection_problems(wrapped_closure)
 
   def master_server_rpc(self, rpc_closure):
     """
