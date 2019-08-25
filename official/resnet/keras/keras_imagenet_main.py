@@ -205,7 +205,8 @@ def do_run(flags_obj, autoscaling_callback):
   num_eval_steps = (imagenet_preprocessing.NUM_IMAGES['validation'] // flags_obj.batch_size)
 
   # Prepare input dataset for training and evaluation
-  local_batch_size = flags_obj.batch_size // len(autoscaling_callback.agent.cluster_spec["worker"])
+  local_batch_size = autoscaling_helper.local_batch_size(
+    flags_obj.batch_size, autoscaling_callback.agent.mpi_communicator)
   train_input_dataset = input_fn(
     is_training=True,
     data_dir=flags_obj.data_dir,

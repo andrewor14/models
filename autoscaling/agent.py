@@ -186,7 +186,7 @@ class AutoscalingAgent:
 
     # Tell tensorflow our batch size has changed
     autoscaling_helper.LOCAL_BATCH_SIZE =\
-      self.global_batch_size // len(self.cluster_spec["worker"])
+      autoscaling_helper.local_batch_size(self.global_batch_size, self.mpi_communicator)
     log_fn("Local batch size = %s" % autoscaling_helper.LOCAL_BATCH_SIZE)
     self.status = AutoscalingStatus.RUNNING
     self.mpi_communicator.barrier()
