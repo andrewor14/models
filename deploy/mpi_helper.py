@@ -12,6 +12,7 @@ from autoscaling.params import *
 
 # Environment variables
 PYTHONPATH = "PYTHONPATH"
+MODELS_DIR = "MODELS_DIR"
 OMPI_MCA_orte_output_filename = "OMPI_MCA_orte_output_filename"
 OMPI_MCA_initial_wdir = "OMPI_MCA_initial_wdir"
 MPI_SPAWN_LOG_DIR = "MPI_SPAWN_LOG_DIR"
@@ -116,7 +117,7 @@ def spawn(spawned_rank, launch_script=None, args=[], env={}):
   """
   # Set environment variables
   env = env.copy()
-  env[PYTHONPATH] = os.getenv(PYTHONPATH)
+  env[PYTHONPATH] = os.getenv(MODELS_DIR)
   env[MPI_SPAWN_LOG_DIR] = os.getenv(OMPI_MCA_orte_output_filename)
   env[MPI_SPAWN_RANK] = spawned_rank
   # Note: there is a max character limit for the value of MPI.Info!

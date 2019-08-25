@@ -107,7 +107,6 @@ class AutoscalingCallback(keras.callbacks.Callback):
         self.agent.save_variables(self.get_trainable_variables(), for_new_worker=True)
       self.agent.initialize()
       autoscaling_helper.initialize_horovod(self.agent.mpi_communicator, restarting=True)
-      self.agent.joined = True
 
   def do_on_train_end(self, logs):
     """

@@ -185,8 +185,11 @@ class AutoscalingAgent:
       cuda_helper.set_cuda_visible_devices(self.num_gpus_per_worker, new_tf_config)
 
     # Tell tensorflow our batch size has changed
-    autoscaling_helper.LOCAL_BATCH_SIZE =\
-      autoscaling_helper.local_batch_size(self.global_batch_size, self.mpi_communicator)
+    if not self.joined:
+      autoscaling_helper.LOCAL_BATCH_SIZE = int(os.environ[AUTOSCALING_LOCAL_BATCH_SIZE])
+    else:
+      autoscaling_helper.LOCAL_BATCH_SIZE = autoscaling_helper.local_batch_size(
+        self.global_batch_size, self.mpi_communicator.size, self.mpi_communicator.rank)
     log_fn("Local batch size = %s" % autoscaling_helper.LOCAL_BATCH_SIZE)
     self.status = AutoscalingStatus.RUNNING
     self.mpi_communicator.barrier()
@@ -252,13 +255,27 @@ class AutoscalingAgent:
       self.spawned_ranks_to_wait_for.append(spawn_ranks)
       self.mpi_next_rank += num_workers
     def do_spawn(new_worker_rank):
-      env = {AUTOSCALING_MASTER_HOST_PORT: self.client.master_host_port}
+      starting_local_batch_size = autoscaling_helper.local_batch_size(
+        self.global_batch_size, self.num_expected_workers(), new_worker_rank)
+      env = {
+        AUTOSCALING_MASTER_HOST_PORT: self.client.master_host_port,
+        AUTOSCALING_LOCAL_BATCH_SIZE: starting_local_batch_size
+      }
       spawned_communicator = mpi_helper.spawn(new_worker_rank, env=env)
       with self.spawn_lock:
         self.mpi_spawned_communicators[new_worker_rank] = spawned_communicator
     for r in spawn_ranks:
       threading.Thread(target=do_spawn, args=[r]).start()
     return True
+
+  def num_expected_workers(self):
+    """
+    Return the number of expected workers after all spawned workers have joined.
+    """
+    with self.spawn_lock:
+      # Flatten
+      num_pending_workers = len(np.hstack(self.spawned_ranks_to_wait_for or [[]]))
+      return self.mpi_communicator.size + num_pending_workers
 
   def join_cluster(self):
     """

@@ -137,12 +137,10 @@ def get_schedule_callback(callback):
     return periodic_spawn_callback
   return None
 
-def local_batch_size(global_batch_size, mpi_communicator):
+def local_batch_size(global_batch_size, size, rank):
   """
   Compute this rank's local batch size.
   """
-  size = mpi_communicator.size
-  rank = mpi_communicator.rank
   return global_batch_size // size + int(global_batch_size % size > rank)
 
 def initialize_horovod(comm, restarting=False):
