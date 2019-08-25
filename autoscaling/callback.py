@@ -100,12 +100,14 @@ class AutoscalingCallback(keras.callbacks.Callback):
       return
     # If we are reinitializing, the new worker should restore variables from existing workers
     if should_initialize:
+      if not is_new_worker:
+        self.agent.save_variables(self.get_trainable_variables(), for_new_worker=True)
+      # This call gathers `self.agent.saved_variables` across the cluster
+      # Therefore, we save the variables before this call and restore them after this call
+      self.agent.initialize()
       if is_new_worker:
         self.bootstrap_progress()
         self.agent.restore_variables(self.get_trainable_variables())
-      else:
-        self.agent.save_variables(self.get_trainable_variables(), for_new_worker=True)
-      self.agent.initialize()
       autoscaling_helper.initialize_horovod(self.agent.mpi_communicator, restarting=True)
 
   def do_on_train_end(self, logs):

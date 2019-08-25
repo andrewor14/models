@@ -185,6 +185,20 @@ class AutoscalingAgent:
     self.sync_cluster_spec()
     self.task_index = self.cluster_spec["worker"].index(self.host_port)
 
+    # Transfer saved model parameters to new workers
+    # Here we use allgather instead of gather in case there are multiple workers joining
+    if self.joined:
+      fetch_start = time.time()
+      all_saved_variables = self.mpi_communicator.allgather(self.saved_variables)
+      if self.saved_variables is None:
+        self.saved_variables = {}
+        for var_map in all_saved_variables:
+          # Ignore the values from new workers, including ourselves
+          if var_map is not None:
+            self.saved_variables.update(var_map)
+        log_fn("Fetched %s variables, took %s seconds" %\
+          (len(self.saved_variables), time.time() - fetch_start))
+
     # Set CUDA_VISIBLE_DEVICES, assigned by master
     # This assumes CUDA_VISIBLE_DEVICES assignment will never change
     if self.num_gpus_per_worker > 0 and self.host_port not in self.cuda_visible_devices_map:
@@ -314,27 +328,6 @@ class AutoscalingAgent:
       log_fn("Master server is not ready to service our join request, trying again later.")
       time.sleep(AUTOSCALING_JOIN_RETRY_INTERVAL_SECONDS)
     log_fn("Master server accepted our join request")
-    # Wait until master is READY_TO_SYNC before we fetch model parameters
-    status = None
-    while status != AutoscalingStatus.READY_TO_SYNC:
-      status = AutoscalingStatus(self.client.master_server_rpc(lambda s: s.get_status()))
-      log_fn("Waiting for master to reach READY_TO_SYNC")
-      time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
-    # Fetch model parameters from existing workers
-    # Note: we must reset `self.client` because the cluster spec may have changed between
-    # now and the last time we reset it. Otherwise, we may miss the slice of parameters
-    # from the new worker.
-    log_fn("Fetching model parameters from existing workers")
-    self.client.reset()
-    fetch_start = time.time()
-    self.saved_variables = {}
-    for var_map in self.client.all_servers_rpc(lambda s: s.get_saved_variables()):
-      # The saved variables can be None if we fetched from another new worker
-      # that just joined the cluster. We can safely ignore this case.
-      if var_map is not None:
-        self.saved_variables.update(var_map)
-    log_fn("Fetched %s model parameters, took %s seconds" %\
-      (len(self.saved_variables), time.time() - fetch_start))
     self.joined = True
 
   def on_restart(self):
