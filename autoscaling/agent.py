@@ -58,10 +58,7 @@ class AutoscalingAgent:
     self.cluster_spec = tf_config["cluster"]
     self.host_port = self.cluster_spec[self.task_type][self.task_index]
     self.host_port = find_available_port(self.host_port)
-
-    # If we are using horovod, unset TF_CONFIG to avoid interference from tensorflow
-    if self.use_horovod:
-      del os.environ["TF_CONFIG"]
+    self.cluster_spec[self.task_type][self.task_index] = self.host_port
 
     # ========= MPI stuff ==========
 
@@ -183,6 +180,13 @@ class AutoscalingAgent:
         "task": {"type": self.task_type, "index": self.task_index}
       }
       cuda_helper.set_cuda_visible_devices(self.num_gpus_per_worker, new_tf_config)
+
+    # If we are using horovod, reset TF_CONFIG to avoid interference from tensorflow
+    if self.use_horovod:
+      os.environ["TF_CONFIG"] = json.dumps({
+        "cluster": {"worker": [self.host_port]},
+        "task": {"type": "worker", "index": 0}
+      })
 
     # Tell tensorflow our batch size has changed
     if not self.joined:
