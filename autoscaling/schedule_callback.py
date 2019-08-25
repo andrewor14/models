@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import numpy as np
 import tensorflow as tf
 from tensorflow.python import keras
 
@@ -24,8 +25,9 @@ class PeriodicSpawnScheduleCallback(keras.callbacks.Callback):
 
   def on_batch_end(self, batch, logs):
     with self.agent.spawn_lock:
-      num_expected_workers = self.agent.mpi_communicator.size +\
-        len(self.agent.mpi_spawned_communicators)
+      # Flatten
+      num_pending_workers = len(np.hstack(self.agent.spawned_ranks_to_wait_for or [[]]))
+      num_expected_workers = self.agent.mpi_communicator.size + num_pending_workers
     if self.spawn_next_step or\
         ((batch + 1) % self.every_n_steps == 0 and num_expected_workers < self.max_workers):
       # In 'checkpoint-restart' mode, we simply tell the all the workers to terminate

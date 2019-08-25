@@ -64,7 +64,7 @@ class AutoscalingService:
     '''
     return self.agent.saved_variables
 
-  def join_cluster(self, host_port):
+  def join_cluster(self, host_port, rank):
     '''
     Handle a join request, only called on the master server.
 
@@ -72,9 +72,21 @@ class AutoscalingService:
     Return whether the join request has been accepted.
     '''
     log_fn("Received join cluster request from %s" % host_port)
+    # Prevent unexpected workers from interfering with cluster spec sync
     if is_syncing(self.agent.status):
       log_fn("Rejecting join request from %s because we are syncing cluster specs" % host_port)
       return False
+    # Only let the specific ranks we are waiting for join our cluster
+    # Note: we assume the only time consuming operations requiring `spawn_lock` occur when
+    # the process is in one of the syncing statuses. This means it is OK for us to hold this
+    # lock here without blocking for too long, since we already make sure that join requests
+    # that happen during syncing won't even get to this point.
+    with self.agent.spawn_lock:
+      if len(self.agent.spawned_ranks_to_wait_for) > 0 and\
+          rank not in self.agent.spawned_ranks_to_wait_for[0]:
+        log_fn("Rejecting join request from %s (rank %s) because it is not one of %s" %\
+          (host_port, rank, self.agent.spawned_ranks_to_wait_for[0]))
+        return False
     cluster_spec = self.get_cluster_spec()
     ps_hosts = cluster_spec["ps"] if "ps" in cluster_spec else []
     worker_hosts = cluster_spec["worker"]

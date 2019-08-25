@@ -69,25 +69,24 @@ class AutoscalingAgent:
     self.mpi_communicator = MPI.COMM_WORLD.Dup()
 
     # A lock for controlling spawn variables
-    # This must be acquired BEFORE `self.pending_cluster_spec_lock` to avoid deadlocks
     self.spawn_lock = threading.Lock()
 
-    # A list of MPI intercommunicators created from spawning worker processes
+    # A map from rank to MPI intercommunicators created from spawning worker processes
     # These communicators will be merged into `self.mpi_communicator` on restart
     # Accesses must be guarded by `self.spawn_lock`
-    self.mpi_spawned_communicators = []
+    self.mpi_spawned_communicators = {}
 
     # The unique rank assigned to the next spawned worker, incremented every time a
     # worker is spawned. Only set on the master server.
     # Accesses must be guarded by `self.spawn_lock`.
     self.mpi_next_rank = None
 
-    # A queue of the number of spawned workers to wait for on restart
-    # The first item represents the number of workers to wait for the next
-    # time `self.initialize` is called. A new item is appended every time
+    # A queue of lists of spawned ranks to wait for on restart
+    # The first item is a list of numbers that represent the ranks to wait for the
+    # next time `self.initialize` is called. A new item is appended every time
     # `self.mpi_spawn_workers` succeeds.
     # Accesses must be guarded by `self.spawn_lock`
-    self.num_spawned_workers_to_wait_for = []
+    self.spawned_ranks_to_wait_for = []
 
     # ========= Autoscaling stuff ==========
 
@@ -144,46 +143,36 @@ class AutoscalingAgent:
 
     # Wait for all the workers spawned in the last round to join
     num_workers_joined = 0
-    num_workers_to_wait_for = 0
+    ranks_to_wait_for = []
     with self.spawn_lock:
-      if len(self.num_spawned_workers_to_wait_for) > 0:
-        num_workers_to_wait_for = self.num_spawned_workers_to_wait_for[0]
-        log_fn("Waiting for %s spawned worker(s) to join" % num_workers_to_wait_for)
-        while num_workers_joined < num_workers_to_wait_for:
-          with self.pending_cluster_spec_lock:
-            if self.pending_cluster_spec is not None:
-              num_workers_joined =\
-                len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
-          time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
-    self.status = AutoscalingStatus.READY_TO_SYNC
-    self.mpi_communicator.barrier()
-
-    # Check if cluster membership changed. If so, update cluster spec accordingly.
-    with self.spawn_lock:
+      if len(self.spawned_ranks_to_wait_for) > 0:
+        # Note: do not pop yet; we need wait until after we transition to READY_TO_SYNC,
+        # otherwise we may accept join requests from unexpected workers and they can
+        # interfere with our cluster spec sync
+        ranks_to_wait_for = self.spawned_ranks_to_wait_for[0]
+    while num_workers_joined != len(ranks_to_wait_for):
       with self.pending_cluster_spec_lock:
         if self.pending_cluster_spec is not None:
           num_workers_joined =\
             len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
-          log_fn("%s spawned worker(s) have joined" % num_workers_joined)
-          # Update the number of workers we need to wait for next time
-          # Note: we can't just pop the first item of `self.num_spawned_workers_to_wait_for`
-          # because more workers may have joined in addition to the ones we were waiting for.
-          if len(self.num_spawned_workers_to_wait_for) > 0:
-            num_workers_to_pop = num_workers_joined
-            while num_workers_to_pop > 0:
-              if num_workers_to_pop >= self.num_spawned_workers_to_wait_for[0]:
-                num_workers_to_pop -= self.num_spawned_workers_to_wait_for.pop(0)
-              else:
-                self.num_spawned_workers_to_wait_for[0] -= num_workers_to_pop
-                num_workers_to_pop = 0
-          # Apply pending cluster spec
-          self.apply_cluster_spec(self.pending_cluster_spec)
-          self.pending_cluster_spec = None
+      log_fn("%s/%s spawned worker(s) have joined" % (num_workers_joined, len(ranks_to_wait_for)))
+      time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
 
-    # Check if we need to expand our communicator
+    # Check if cluster membership changed. If so, update cluster spec accordingly.
+    self.status = AutoscalingStatus.READY_TO_SYNC
+    self.mpi_communicator.barrier()
+    with self.pending_cluster_spec_lock:
+      if self.pending_cluster_spec is not None:
+        self.apply_cluster_spec(self.pending_cluster_spec)
+        self.pending_cluster_spec = None
+    with self.spawn_lock:
+      if len(self.spawned_ranks_to_wait_for) > 0:
+        self.spawned_ranks_to_wait_for.pop(0)
+
+    # Expand our communicator to include the provided ranks, if any
     if self.joined:
       with self.spawn_lock:
-        self.maybe_expand_mpi_communicator(num_workers_joined)
+        self.maybe_expand_mpi_communicator(ranks_to_wait_for)
 
     # Sync cluster spec and update relevant variables
     self.sync_cluster_spec()
@@ -202,14 +191,14 @@ class AutoscalingAgent:
     self.status = AutoscalingStatus.RUNNING
     self.mpi_communicator.barrier()
 
-  def maybe_expand_mpi_communicator(self, n_times):
+  def maybe_expand_mpi_communicator(self, ranks):
     """
     Merge newly spawned workers, if any, into our existing communicator.
 
     This method must be called at the same time on all the processes participating
-    in the final communicator. The process is driven by the root, where `n_times`
-    specifies the number of times to expand the communicator. This value is not
-    read on other processes.
+    in the final communicator. The process is driven by the root, where `ranks`
+    specifies the specific communicators to merge into the existing one. This value
+    is not read on other processes.
 
     Must be called while holding `self.spawn_lock`.
     TODO: handle removed workers
@@ -218,10 +207,6 @@ class AutoscalingAgent:
     comm = self.mpi_communicator
     is_joining = comm.rank == 0 and AUTOSCALING_MASTER_HOST_PORT in os.environ
     is_root = comm.rank == 0 and not is_joining
-    # If we're the root, make sure we can expand the requested number of times
-    if is_root and n_times > len(self.mpi_spawned_communicators):
-      raise ValueError("Cannot expand %s times when we only spawned %s workers" %\
-        (n_times, len(self.mpi_spawned_communicators)))
     # If we're joining, then expand once first
     if is_joining:
       comm = mpi_helper.expand(comm, MPI.Comm.Get_parent())
@@ -230,16 +215,19 @@ class AutoscalingAgent:
     # communicators waiting to join. If so, all members of the existing communicator
     # will participate in a round of expansion.
     while True:
-      should_expand = n_times > 0 if is_root else False
+      should_expand = len(ranks) > 0 if is_root else False
       should_expand = comm.bcast(should_expand, root=0)
       if not should_expand:
         break
       if is_root:
-        spawned_comm = self.mpi_spawned_communicators.pop(0)
+        spawned_rank = ranks.pop(0)
+        if spawned_rank not in self.mpi_spawned_communicators:
+          raise ValueError("Attempted to expand with unknown rank %s" % spawned_rank)
+        spawned_comm = self.mpi_spawned_communicators[spawned_rank]
         comm = mpi_helper.expand(comm, spawned_comm)
+        del self.mpi_spawned_communicators[spawned_rank]
       else:
         comm = mpi_helper.expand(comm)
-      n_times -= 1
     self.mpi_communicator = comm
 
   def mpi_spawn_workers(self, num_workers):
@@ -260,15 +248,16 @@ class AutoscalingAgent:
       if self.mpi_next_rank is None:
         self.mpi_next_rank = len(self.cluster_spec["worker"])
       starting_rank = self.mpi_next_rank
+      spawn_ranks = list(range(starting_rank, starting_rank + num_workers))
+      self.spawned_ranks_to_wait_for.append(spawn_ranks)
       self.mpi_next_rank += num_workers
     def do_spawn(new_worker_rank):
       env = {AUTOSCALING_MASTER_HOST_PORT: self.client.master_host_port}
       spawned_communicator = mpi_helper.spawn(new_worker_rank, env=env)
       with self.spawn_lock:
-        self.mpi_spawned_communicators.append(spawned_communicator)
-        self.num_spawned_workers_to_wait_for.append(num_workers)
-    for i in range(num_workers):
-      threading.Thread(target=do_spawn, args=[starting_rank + i]).start()
+        self.mpi_spawned_communicators[new_worker_rank] = spawned_communicator
+    for r in spawn_ranks:
+      threading.Thread(target=do_spawn, args=[r]).start()
     return True
 
   def join_cluster(self):
@@ -284,10 +273,11 @@ class AutoscalingAgent:
     # Our client currently thinks we are the master, so we need to reset it
     self.client.reset(master_host_port)
     # Wait until master is ready to accept our join request
-    log_fn("Joining cluster as %s" % self.host_port)
-    while not self.client.master_server_rpc(lambda s: s.join_cluster(self.host_port)):
+    my_rank = int(os.environ["MPI_SPAWN_RANK"])
+    log_fn("Joining cluster as %s (rank %s)" % (self.host_port, my_rank))
+    while not self.client.master_server_rpc(lambda s: s.join_cluster(self.host_port, my_rank)):
       log_fn("Master server is not ready to service our join request, trying again later.")
-      time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
+      time.sleep(AUTOSCALING_JOIN_RETRY_INTERVAL_SECONDS)
     log_fn("Master server accepted our join request")
     # Wait until master is READY_TO_SYNC before we fetch model parameters
     status = None
@@ -345,7 +335,7 @@ class AutoscalingAgent:
       (2) We have the same cluster spec as everyone else
       (3) Everyone is SYNCED
 
-    Our status must be READY_TO_SYNC before we call this method, and RUNNING when we return.
+    Our status must be READY_TO_SYNC before we call this method, and SYNCED when we return.
     """
     log_fn("Attempting to sync cluster spec with everyone")
     self.status = AutoscalingStatus.SYNCING
