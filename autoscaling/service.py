@@ -64,6 +64,37 @@ class AutoscalingService:
     '''
     return self.agent.saved_variables
 
+  def assign_cuda_visible_devices(self, host_port):
+    '''
+    Assign CUDA_VISIBLE_DEVICES for the given host port on a first come first served basis.
+    Return the CUDA_VISIBLE_DEVICES assigned.
+    '''
+    if self.agent.mpi_communicator.rank != 0 and self.agent.joined:
+      raise ValueError("Received assign CUDA_VISIBLE_DEVICES request on non-master")
+    # Place dummy values for existing hosts first
+    device_map = self.agent.cuda_visible_devices_map
+    if len(device_map) == 0:
+      for worker in self.agent.cluster_spec["worker"]:
+        device_map[worker] = []
+    # Assign it
+    if host_port not in device_map or len(device_map[host_port]) == 0:
+      occupied_cuda_visible_devices = []
+      for hp, dev in device_map.items():
+        if hp.split(":")[0] == host_port.split(":")[0]:
+          occupied_cuda_visible_devices.extend(dev)
+      # Find a device that is not occupied
+      # Keep around the original CUDA_VISIBLE_DEVICES because we will override it
+      if ORIGINAL_CUDA_VISIBLE_DEVICES not in os.environ:
+        os.environ[ORIGINAL_CUDA_VISIBLE_DEVICES] = os.environ[CUDA_VISIBLE_DEVICES]
+      cuda_visible_devices = [int(d) for d in os.environ[ORIGINAL_CUDA_VISIBLE_DEVICES].split(",")]
+      available_cuda_visible_devices = list(set(cuda_visible_devices) -\
+        set(occupied_cuda_visible_devices))
+      if len(available_cuda_visible_devices) < self.agent.num_gpus_per_worker:
+        raise ValueError("Out of GPUs! Available: %s, requested: %s" %\
+          (available_cuda_visible_devices, self.agent.num_gpus_per_worker))
+      device_map[host_port] = available_cuda_visible_devices[:self.agent.num_gpus_per_worker]
+    return device_map[host_port]
+
   def join_cluster(self, host_port, rank):
     '''
     Handle a join request, only called on the master server.

@@ -17,10 +17,10 @@ from tensorflow.python.distribute import cross_device_utils, distribute_coordina
 from tensorflow.python.eager import context
 
 from autoscaling import autoscaling_helper
-from autoscaling.client import convert_port, AutoscalingClient
+from autoscaling.client import connect, convert_port, AutoscalingClient
 from autoscaling.service import listen_for_requests
 from autoscaling.params import *
-from deploy import cuda_helper, mpi_helper
+from deploy import mpi_helper
 
 
 class AutoscalingAgent:
@@ -59,6 +59,16 @@ class AutoscalingAgent:
     self.host_port = self.cluster_spec[self.task_type][self.task_index]
     self.host_port = find_available_port(self.host_port)
     self.cluster_spec[self.task_type][self.task_index] = self.host_port
+
+    # A map from host port to cuda visible devices (list of numbers) assigned
+    self.cuda_visible_devices_map = {}
+
+    # If we are using horovod, reset TF_CONFIG to avoid interference from tensorflow
+    if self.use_horovod:
+      os.environ["TF_CONFIG"] = json.dumps({
+        "cluster": {"worker": [self.host_port]},
+        "task": {"type": "worker", "index": 0}
+      })
 
     # ========= MPI stuff ==========
 
@@ -174,19 +184,23 @@ class AutoscalingAgent:
     # Sync cluster spec and update relevant variables
     self.sync_cluster_spec()
     self.task_index = self.cluster_spec["worker"].index(self.host_port)
-    if self.num_gpus_per_worker > 0:
-      new_tf_config = {
-        "cluster": self.cluster_spec,
-        "task": {"type": self.task_type, "index": self.task_index}
-      }
-      cuda_helper.set_cuda_visible_devices(self.num_gpus_per_worker, new_tf_config)
 
-    # If we are using horovod, reset TF_CONFIG to avoid interference from tensorflow
-    if self.use_horovod:
-      os.environ["TF_CONFIG"] = json.dumps({
-        "cluster": {"worker": [self.host_port]},
-        "task": {"type": "worker", "index": 0}
-      })
+    # Set CUDA_VISIBLE_DEVICES, assigned by master
+    # This assumes CUDA_VISIBLE_DEVICES assignment will never change
+    if self.num_gpus_per_worker > 0 and self.host_port not in self.cuda_visible_devices_map:
+      if self.joined:
+        cuda_visible_devices = self.client.master_server_rpc(
+          lambda s: s.assign_cuda_visible_devices(self.host_port))
+      else:
+        # Note: If we haven't joined yet, our client is not aware of the real
+        # master server yet, so we cannot use our client here
+        cuda_visible_devices = connect(os.environ[AUTOSCALING_MASTER_HOST_PORT])\
+          .assign_cuda_visible_devices(self.host_port)
+      cuda_visible_devices = ",".join([str(d) for d in cuda_visible_devices])
+      os.environ[CUDA_VISIBLE_DEVICES] = cuda_visible_devices
+      log_fn("Set CUDA_VISIBLE_DEVICES = %s" % cuda_visible_devices)
+    self.cuda_visible_devices_map = self.mpi_communicator.bcast(
+      self.cuda_visible_devices_map, root=0)
 
     # Tell tensorflow our batch size has changed
     if not self.joined:
@@ -194,7 +208,7 @@ class AutoscalingAgent:
     else:
       autoscaling_helper.LOCAL_BATCH_SIZE = autoscaling_helper.local_batch_size(
         self.global_batch_size, self.mpi_communicator.size, self.mpi_communicator.rank)
-    log_fn("Local batch size = %s" % autoscaling_helper.LOCAL_BATCH_SIZE)
+    log_fn("Set local batch size = %s" % autoscaling_helper.LOCAL_BATCH_SIZE)
     self.status = AutoscalingStatus.RUNNING
     self.mpi_communicator.barrier()
 
