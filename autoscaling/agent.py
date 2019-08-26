@@ -48,7 +48,7 @@ class AutoscalingAgent:
     self.num_gpus_per_worker = num_gpus_per_worker
     self.global_batch_size = global_batch_size
     self.use_horovod = use_horovod
-    self.last_step_restarted = 0
+    self.num_steps_since_last_restart = 0
     self.min_steps_between_restart = int(os.getenv(AUTOSCALING_MIN_STEPS_BETWEEN_RESTART, 1))
 
     # Parse this process' host port from TF_CONFIG
@@ -484,7 +484,7 @@ class AutoscalingAgent:
     finally:
       self.saved_variables = None
 
-  def step_end(self, step_count):
+  def step_end(self):
     """
     Listen for changes in cluster membership and react by reinitializing the server.
 
@@ -506,7 +506,8 @@ class AutoscalingAgent:
     # (2) we last restarted more than N steps ago
     with self.pending_cluster_spec_lock:
       should_restart = self.pending_cluster_spec is not None
-    if step_count - self.last_step_restarted < self.min_steps_between_restart:
+    self.num_steps_since_last_restart += 1
+    if self.num_steps_since_last_restart < self.min_steps_between_restart:
       should_restart = False
     # Do a two-phase synchronization to make sure that everyone agrees on whether
     # or not to restart.
@@ -523,7 +524,7 @@ class AutoscalingAgent:
       else:
         log_fn("Received signal to restart server")
         self.status = AutoscalingStatus.RESTARTING
-      self.last_step_restarted = step_count
+      self.num_steps_since_last_restart = 0
     return restarting
 
 # ================== HELPER METHODS ==================

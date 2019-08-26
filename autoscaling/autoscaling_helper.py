@@ -7,10 +7,10 @@ import traceback
 from mpi4py import MPI
 import tensorflow as tf
 
+from autoscaling import schedule_callback
 from autoscaling.agent import AutoscalingAgent
 from autoscaling.params import *
 from autoscaling.callback import AutoscalingCallback
-from autoscaling.schedule_callback import PeriodicSpawnScheduleCallback
 from deploy import mpi_helper
 from official.utils.misc import keras_utils
 
@@ -126,15 +126,13 @@ def get_schedule_callback(callback):
   """
   Return a `keras.callbacks.Callback` that specifies the autoscaling schedule to be used.
   """
-  autoscaling_spawn_every_n_steps = int(os.getenv(AUTOSCALING_SPAWN_EVERY_N_STEPS, -1))
-  autoscaling_max_workers = int(os.getenv(AUTOSCALING_MAX_WORKERS, -1))
-  if autoscaling_spawn_every_n_steps > 0 and\
-      autoscaling_max_workers > 0 and\
-      callback.agent.task_index == 0 and\
-      AUTOSCALING_MASTER_HOST_PORT not in os.environ:
-    periodic_spawn_callback = PeriodicSpawnScheduleCallback(\
-      callback.agent, autoscaling_spawn_every_n_steps, autoscaling_max_workers)
-    return periodic_spawn_callback
+  after_n_steps = int(os.getenv(AUTOSCALING_SPAWN_AFTER_N_STEPS, -1))
+  max_workers = int(os.getenv(AUTOSCALING_MAX_WORKERS, -1))
+  schedule_name = os.getenv(AUTOSCALING_SCHEDULE, "curve_fitting")
+  is_master = callback.agent.task_index == 0 and AUTOSCALING_MASTER_HOST_PORT not in os.environ
+  if after_n_steps > 0 and max_workers > 0 and is_master:
+    return schedule_callback.get_class_by_schedule_name(schedule_name)(
+      callback.agent, after_n_steps, max_workers)
   return None
 
 def local_batch_size(global_batch_size, size, rank):

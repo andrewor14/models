@@ -91,9 +91,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
       self.num_batches_processed_this_epoch = 0
     # Check if we need to reinitialize
     is_new_worker = not self.agent.joined
-    total_steps_processed = self.num_epochs_processed * self.num_batches_per_epoch +\
-      self.num_batches_processed_this_epoch
-    should_initialize = self.agent.step_end(total_steps_processed)
+    should_initialize = self.agent.step_end()
     # If we are removed from the cluster, exit training loop
     if self.agent.status == AutoscalingStatus.TERMINATED:
       self.model.stop_training = True
