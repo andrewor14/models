@@ -67,6 +67,16 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
         self.max_workers_to_spawn_each_round())
     if num_workers_to_spawn > 0:
       self.spawn_workers(num_workers_to_spawn)
+    # Potentially remove workers
+    elif num_workers_to_spawn < 0:
+      workers = self.agent.cluster_spec["worker"]
+      num_workers_to_remove = num_workers_to_spawn * -1
+      if len(workers) <= num_workers_to_remove:
+        raise ValueError("Cannot remove %s workers when we only have %s" %\
+          (num_workers_to_remove, len(workers)))
+      # TODO: remove based on performance instead of simply from the end
+      workers_to_remove = self.agent.cluster_spec["worker"][num_workers_to_spawn:]
+      self.agent.client.remove_workers(workers_to_remove)
 
   def max_workers_to_spawn_each_round(self):
     """
@@ -251,6 +261,7 @@ class CurveFittingScheduleCallback(LinearIncreaseScheduleCallback):
     # Project using best fitted function, stop as soon as stop conditions are violated
     current_num_workers = len(self.agent.cluster_spec["worker"])
     log_fn("Checking stop conditions, want to add %s workers" % num_additional_workers)
+    num_workers_to_spawn = 0
     for i in range(num_additional_workers):
       if not self.check_stop_conditions(
           best_fitted_func(current_num_workers + i),
@@ -258,6 +269,12 @@ class CurveFittingScheduleCallback(LinearIncreaseScheduleCallback):
           best_fitted_func(current_num_workers + i + 1),
           current_num_workers + i + 1):
         log_fn("Stop condition failed, adding %s worker(s)" % i)
-        return i
-    return num_additional_workers
+        break
+      num_workers_to_spawn += 1
+    # We may have to backtrack to see if we overshot
+    # If we don't already have the data point, remove 1 worker
+    if num_workers_to_spawn == 0 and (current_num_workers - 1) not in self.throughputs:
+      log_fn("Backtracking to see if we overshot, removing 1 worker")
+      num_workers_to_spawn = -1
+    return num_workers_to_spawn
 
