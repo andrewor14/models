@@ -171,7 +171,10 @@ class AutoscalingService:
     with self.agent.pending_cluster_spec_lock:
       cluster_spec = self._get_or_create_pending_cluster_spec()
       for hp in host_ports:
-        cluster_spec["worker"].remove(hp)
+        if hp in cluster_spec["worker"]:
+          cluster_spec["worker"].remove(hp)
+        else:
+          log_fn("Warning: not removing unknown worker %s" % hp)
 
   def set_pending_cluster_spec(self, cluster_spec):
     log_fn("Handling set pending cluster spec request: %s" % cluster_spec)

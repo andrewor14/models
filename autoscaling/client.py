@@ -223,5 +223,8 @@ class AutoscalingClient:
     for server in self.servers:
       server.remove_workers(known_host_ports)
     for hp in known_host_ports:
-      self._cluster_spec["worker"].remove(hp)
+      if hp in self._cluster_spec["worker"]:
+        self._cluster_spec["worker"].remove(hp)
+      else:
+        log_fn("Warning: not removing unknown worker %s" % hp)
 
