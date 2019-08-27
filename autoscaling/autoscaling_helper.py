@@ -20,8 +20,10 @@ from official.utils.misc import keras_utils
 # instead of rebuilding the entire graph to speed up the restart process
 HOROVOD_ALLREDUCE_FUNCTION = None
 
-# Current local batch size read by tensorflow, updated on restart
+# Batch sizes read by tensorflow
+# Local batch size is updated on restart while global batch size is fixed
 LOCAL_BATCH_SIZE = None
+GLOBAL_BATCH_SIZE = None
 
 # Step and epoch numbers read by tensorflow, updated when a worker joins
 # an existing cluster and fetches the progress from the master
@@ -41,8 +43,9 @@ class BufferedIterator:
   """
 
   def __init__(self, iterator, buffer_size):
+    global GLOBAL_BATCH_SIZE
     self.iterator = iterator
-    self.initial_buffer_size = buffer_size
+    self.return_buffer_size = GLOBAL_BATCH_SIZE
     self.buffer_size = buffer_size
     # A tuple of tensors, one for each item returned from `self.iterator`
     self.buf = None
@@ -52,7 +55,7 @@ class BufferedIterator:
     Read from the wrapped iterator, return `self.buffer_size` amount of data,
     and buffer the remaining values for the next call to `__next__`.
 
-    The first dimension of all returned tensors is always `self.initial_buffer_size`,
+    The first dimension of all returned tensors is always `self.return_buffer_size`,
     padding with zeros if necessary. This allows the caller to pass the return value
     into a tensorflow function without retracing the function even when
     `self.buffer_size` changes.
@@ -80,10 +83,10 @@ class BufferedIterator:
       results.append(self.buf[i][:self.buffer_size])
       new_buf_values.append(self.buf[i][self.buffer_size:])
     self.buf = tuple(new_buf_values)
-    # Always return tensors whose first dimension is `self.initial_buffer_size`,
+    # Always return tensors whose first dimension is `self.return_buffer_size`,
     # filling with zeros if necessary
     for i in range(len(results)):
-      num_zeros = self.initial_buffer_size - results[i].shape[0].value
+      num_zeros = self.return_buffer_size - results[i].shape[0].value
       zero_shape = tf.TensorShape([num_zeros] + results[i].shape.as_list()[1:])
       zeros = tf.zeros(zero_shape, dtype=results[i].dtype)
       results[i] = tf.concat([results[i], zeros], axis=0)

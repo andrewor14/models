@@ -84,9 +84,9 @@ class AutoscalingAgent:
     self.mpi_spawned_communicators = {}
 
     # The unique rank assigned to the next spawned worker, incremented every time a
-    # worker is spawned. Only set on the master server.
+    # worker is spawned. Only used on the master server.
     # Accesses must be guarded by `self.spawn_lock`.
-    self.mpi_next_rank = None
+    self.mpi_next_rank = len(self.cluster_spec["worker"])
 
     # A queue of lists of spawned ranks to wait for on restart
     # The first item is a list of numbers that represent the ranks to wait for the
@@ -210,13 +210,13 @@ class AutoscalingAgent:
         # master server yet, so we cannot use our client here
         cuda_visible_devices = connect(os.environ[AUTOSCALING_MASTER_HOST_PORT])\
           .assign_cuda_visible_devices(self.host_port)
+      self.cuda_visible_devices_map[self.host_port] = cuda_visible_devices
       cuda_visible_devices = ",".join([str(d) for d in cuda_visible_devices])
       os.environ[CUDA_VISIBLE_DEVICES] = cuda_visible_devices
       log_fn("Set CUDA_VISIBLE_DEVICES = %s" % cuda_visible_devices)
-    self.cuda_visible_devices_map = self.mpi_communicator.bcast(
-      self.cuda_visible_devices_map, root=0)
 
-    # Tell tensorflow our batch size has changed
+    # Tell tensorflow our local batch size has changed
+    autoscaling_helper.GLOBAL_BATCH_SIZE = self.global_batch_size
     if not self.joined:
       autoscaling_helper.LOCAL_BATCH_SIZE = int(os.environ[AUTOSCALING_LOCAL_BATCH_SIZE])
     else:
@@ -236,7 +236,6 @@ class AutoscalingAgent:
     is not read on other processes.
 
     Must be called while holding `self.spawn_lock`.
-    TODO: handle removed workers
     """
     # First, figure out our role
     comm = self.mpi_communicator
@@ -280,8 +279,6 @@ class AutoscalingAgent:
       return False
     log_fn("Spawning %s worker(s) through MPI" % num_workers)
     with self.spawn_lock:
-      if self.mpi_next_rank is None:
-        self.mpi_next_rank = len(self.cluster_spec["worker"])
       starting_rank = self.mpi_next_rank
       spawn_ranks = list(range(starting_rank, starting_rank + num_workers))
       self.spawned_ranks_to_wait_for.append(spawn_ranks)
@@ -525,7 +522,28 @@ class AutoscalingAgent:
         log_fn("Received signal to restart server")
         self.status = AutoscalingStatus.RESTARTING
       self.num_steps_since_last_restart = 0
+      self.remove_terminated_workers()
     return restarting
+
+  def remove_terminated_workers(self):
+    """
+    Remove workers that are TERMINATED, if any, from our communicator and free their
+    assigned CUDA_VISIBLE_DEVICES.
+
+    Note: This must be called *before* the terminated workers exit.
+    """
+    terminated_ranks = []
+    gathered = self.mpi_communicator.allgather((self.status, self.host_port))
+    for r, (status, host_port) in enumerate(gathered):
+      if status == AutoscalingStatus.TERMINATED:
+        terminated_ranks.append(r)
+        if host_port in self.cuda_visible_devices_map:
+          del self.cuda_visible_devices_map[host_port]
+    if len(terminated_ranks) > 0 and self.status != AutoscalingStatus.TERMINATED:
+      new_group = self.mpi_communicator.group.Excl(terminated_ranks)
+      self.mpi_communicator = self.mpi_communicator.Create_group(new_group)
+      log_fn("Removed ranks %s from communicator, new size = %s" %\
+        (terminated_ranks, self.mpi_communicator.size))
 
 # ================== HELPER METHODS ==================
 
