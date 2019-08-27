@@ -91,6 +91,21 @@ class AutoscalingAgent:
     # Accesses must be guarded by `self.spawn_lock`
     self.spawned_ranks_to_wait_for = []
 
+    # Optionally plant stragglers in the cluster
+    # We simulate stragglers by inflating local batch size on the selected ranks
+    self.local_batch_size_multiplier = 1
+    straggler_ranks = os.getenv(AUTOSCALING_STRAGGLER_RANKS)
+    if straggler_ranks is not None:
+      straggler_ranks = [int(r) for r in straggler_ranks.split(",")]
+      my_rank = int(os.getenv(mpi_helper.MPI_SPAWN_RANK, self.mpi_communicator.rank))
+      if my_rank in straggler_ranks:
+        if my_rank == 0:
+          raise ValueError("Rank 0 cannot be a straggler")
+        self.local_batch_size_multiplier = float(os.getenv(AUTOSCALING_STRAGGLER_MULTIPLIER, 1.5))
+    if self.local_batch_size_multiplier < 0:
+      raise ValueError("Local batch size multiplier must be >= 1, was %s" %\
+        self.local_batch_size_multiplier)
+
     # ========= Autoscaling stuff ==========
 
     # Status to synchronize cluster membership changes
@@ -218,7 +233,10 @@ class AutoscalingAgent:
     else:
       autoscaling_helper.LOCAL_BATCH_SIZE = autoscaling_helper.local_batch_size(
         self.global_batch_size, self.mpi_communicator.size, self.mpi_communicator.rank)
+    autoscaling_helper.LOCAL_BATCH_SIZE =\
+      int(autoscaling_helper.LOCAL_BATCH_SIZE * self.local_batch_size_multiplier)
     log_fn("Set local batch size = %s" % autoscaling_helper.LOCAL_BATCH_SIZE)
+
     self.status = AutoscalingStatus.RUNNING
     self.mpi_communicator.barrier()
 

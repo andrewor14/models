@@ -18,9 +18,9 @@ def get_class_by_schedule_name(name):
   """
   Return a `AutoscalingScheduleCallback` class identified by the given schedule name.
   """
-  if name == "linear_increase":
+  if name == AUTOSCALING_LINEAR_INCREASE_SCHEDULE_NAME:
     return LinearIncreaseScheduleCallback
-  elif name == "curve_fitting":
+  elif name == AUTOSCALING_CURVE_FITTING_SCHEDULE_NAME:
     return CurveFittingScheduleCallback
   else:
     raise ValueError("Unknown autoscaling schedule '%s'" % name)
@@ -36,7 +36,17 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     self.start_time = None
     self.num_workers_to_spawn_next_step = 0
     # Number of workers => list of throughputs
+    # Note: after compaction, the first item of each list will be (avg_throughput, count)
     self.throughputs = {}
+    # Maximum length of each list in `self.throughputs`
+    # If the number of values exceed this, then all existing values are averaged
+    self.max_throughputs = 1000
+    # Host port => how many batches in a row this rank was a candidate straggler
+    # A process is a candidate straggler if its compute time is two stds above the mean
+    self.candidate_stragglers = {}
+    # How many batches in a row a process must be a candidate straggler before it is
+    # considered a real straggler
+    self.straggler_threshold = 100
     # No more workers are spawned if the throughput scaling efficiency falls below this
     self.throughput_scaling_threshold =\
       float(os.getenv(AUTOSCALING_THROUGHPUT_SCALING_THRESHOLD, 0.1))
@@ -52,6 +62,7 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     """
     Collect throughput and potentially spawn some workers.
     """
+    # Record throughput
     if self.start_time is not None:
       step_time = time.time() - self.start_time
       num_workers = len(self.agent.cluster_spec["worker"])
@@ -59,7 +70,40 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
       if num_workers not in self.throughputs:
         self.throughputs[num_workers] = []
       self.throughputs[num_workers].append(throughput)
-      self.start_time = None
+      # Potentially compact values, saving the count
+      if len(self.throughputs[num_workers]) > self.max_throughputs:
+        self.compact_list(self.throughputs[num_workers])
+
+    # At the end of each batch, send our time spent on computation to the master
+    # The master will then see which worker is a straggler and keep track of it
+    value_to_send = (self.agent.host_port, logs[TENSORFLOW_COMPUTE_ELAPSED])
+    gathered_values = self.agent.mpi_communicator.gather(value_to_send, root=0)
+    if gathered_values is not None:
+      host_ports = []
+      compute_times = []
+      for host_port, compute_time in gathered_values:
+        host_ports.append(host_port)
+        compute_times.append(compute_time)
+      # A process is a candidate straggler if its compute time is two stds above the mean
+      compute_times_mean = np.mean(compute_times)
+      compute_times_std = np.std(compute_times)
+      for i, host_port in enumerate(host_ports):
+        if compute_times[i] > compute_times_mean + compute_times_std:
+          if host_port not in self.candidate_stragglers:
+            self.candidate_stragglers[host_port] = 0
+          self.candidate_stragglers[host_port] += 1
+        else:
+          # Note a candidate straggler anymore
+          if host_port in self.candidate_stragglers:
+            del self.candidate_stragglers[host_port]
+      # Clean up removed hosts from candidate stragglers
+      for host_port in self.candidate_stragglers.keys():
+        if host_port not in host_ports:
+          del self.candidate_stragglers[host_port]
+
+    # If we are not the master, don't spawn or remove workers
+    if self.agent.task_index > 0 or AUTOSCALING_MASTER_HOST_PORT in os.environ:
+      return
     # Potentially spawn workers
     num_workers_to_spawn = self.num_workers_to_spawn_next_step
     if self.agent.num_steps_since_last_restart == self.after_n_steps:
@@ -74,8 +118,14 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
       if len(workers) <= num_workers_to_remove:
         raise ValueError("Cannot remove %s workers when we only have %s" %\
           (num_workers_to_remove, len(workers)))
-      # TODO: remove based on performance instead of simply from the end
-      workers_to_remove = self.agent.cluster_spec["worker"][num_workers_to_spawn:]
+      # Remove all stragglers, and pick from the end if we need to remove more
+      workers_to_remove = self.get_stragglers()
+      i = 1
+      while len(workers_to_remove) < num_workers_to_remove:
+        candidate = workers[-1 * i]
+        if candidate not in workers_to_remove:
+          workers_to_remove.append(candidate)
+        i += 1
       self.agent.client.remove_workers(workers_to_remove)
 
   def max_workers_to_spawn_each_round(self):
@@ -84,25 +134,48 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     """
     raise NotImplementedError
 
-  def get_average_throughputs(self, truncate=True):
+  def compact_list(self, _list):
     """
-    Return two lists (number of workers, average throughputs) from the throughputs
-    collected after every batch.
+    Compact a list by replacing its values with a single element (average, count).
+    Note that the list to be compacted can already contain this element.
+    """
+    if len(_list) == 0:
+      return
+    if isinstance(_list[0], tuple):
+      average, count = _list[0]
+      new_count = len(_list[1:]) + count
+      new_average = (sum(_list[1:]) + average) / new_count
+    else:
+      new_count = len(_list)
+      new_average = np.mean(_list)
+    _list.clear()
+    _list.append((new_average, new_count))
 
-    If `truncate` is true, we additionally override `self.throughputs` with the
-    truncated averages. If we never do this, `self.throughput` will keep growing
-    and cause memory problems.
+  def get_average_throughputs(self):
     """
-    num_workers = []
-    average_throughputs = []
-    current_num_workers = len(self.agent.cluster_spec["worker"])
-    for n, throughputs in self.throughputs.items():
-      num_workers.append(n)
-      average_throughput = np.mean(throughputs)
-      average_throughputs.append(average_throughput)
-      if truncate:
-        self.throughputs[n] = [average_throughput]
-    return num_workers, average_throughputs
+    Return two lists (key, average values) from `self.throughputs`.
+    Note: This method compacts the values of the map in place.
+    """
+    keys = []
+    average_values = []
+    for key, values in self.throughputs.items():
+      keys.append(key)
+      if len(values) == 0:
+        average_values.append(None)
+      else:
+        self.compact_list(values)
+        if len(values) != 1:
+          raise ValueError("Length of list is not == 1 after compaction")
+        average, _ = values[0]
+        average_values.append(average)
+    return keys, average_values
+
+  def get_stragglers(self):
+    """
+    Return a list of hosts we consider to be stragglers.
+    """
+    return [hp for hp, count in self.candidate_stragglers.items()\
+      if count > self.straggler_threshold]
 
   def get_num_workers_to_spawn(self, num_additional_workers):
     """

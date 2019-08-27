@@ -131,9 +131,8 @@ def get_schedule_callback(callback):
   """
   after_n_steps = int(os.getenv(AUTOSCALING_SPAWN_AFTER_N_STEPS, -1))
   max_workers = int(os.getenv(AUTOSCALING_MAX_WORKERS, -1))
-  schedule_name = os.getenv(AUTOSCALING_SCHEDULE, "curve_fitting")
-  is_master = callback.agent.task_index == 0 and AUTOSCALING_MASTER_HOST_PORT not in os.environ
-  if after_n_steps > 0 and max_workers > 0 and is_master:
+  schedule_name = os.getenv(AUTOSCALING_SCHEDULE, AUTOSCALING_CURVE_FITTING_SCHEDULE_NAME)
+  if after_n_steps > 0 and max_workers > 0:
     return schedule_callback.get_class_by_schedule_name(schedule_name)(
       callback.agent, after_n_steps, max_workers)
   return None
