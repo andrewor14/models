@@ -38,12 +38,6 @@ class AutoscalingAgent:
 
   def __init__(self, num_gpus_per_worker=0, global_batch_size=0, use_horovod=False):
     self.saved_variables = None
-    # A lambda that returns a 3-tuple:
-    #  (1) Number of batches processed in this epoch so far,
-    #  (2) Number of epochs processed so far, and
-    #  (3) Number of batches per epoch
-    self.get_progress_method = None
-    self.bootstrap_progress_method = None
     self.checkpoint_restart_num_workers = None
     self.num_gpus_per_worker = num_gpus_per_worker
     self.global_batch_size = global_batch_size
@@ -51,24 +45,26 @@ class AutoscalingAgent:
     self.num_steps_since_last_restart = 0
     self.min_steps_between_restart = int(os.getenv(AUTOSCALING_MIN_STEPS_BETWEEN_RESTART, 1))
 
+    # A lambda that returns a 3-tuple:
+    #  (1) Number of batches processed in this epoch so far,
+    #  (2) Number of epochs processed so far, and
+    #  (3) Number of batches per epoch
+    # This is used for serving our progress through the autoscaling service
+    self.get_progress_method = None
+
+    # A map from host port to cuda visible devices (list of numbers) assigned
+    self.cuda_visible_devices_map = {}
+
     # Parse this process' host port from TF_CONFIG
     tf_config = get_tf_config()
     self.task_type = tf_config["task"]["type"]
     self.task_index = tf_config["task"]["index"]
     self.cluster_spec = tf_config["cluster"]
     self.host_port = self.cluster_spec[self.task_type][self.task_index]
-    self.host_port = find_available_port(self.host_port)
-    self.cluster_spec[self.task_type][self.task_index] = self.host_port
 
-    # A map from host port to cuda visible devices (list of numbers) assigned
-    self.cuda_visible_devices_map = {}
-
-    # If we are using horovod, reset TF_CONFIG to avoid interference from tensorflow
+    # If we are using horovod, unset TF_CONFIG to avoid interference from tensorflow
     if self.use_horovod:
-      os.environ["TF_CONFIG"] = json.dumps({
-        "cluster": {"worker": [self.host_port]},
-        "task": {"type": "worker", "index": 0}
-      })
+      del os.environ["TF_CONFIG"]
 
     # ========= MPI stuff ==========
 
@@ -319,7 +315,7 @@ class AutoscalingAgent:
     # Our client currently thinks we are the master, so we need to reset it
     self.client.reset(master_host_port)
     # Wait until master is ready to accept our join request
-    my_rank = int(os.environ["MPI_SPAWN_RANK"])
+    my_rank = int(os.environ[mpi_helper.MPI_SPAWN_RANK])
     log_fn("Joining cluster as %s (rank %s)" % (self.host_port, my_rank))
     while not self.client.master_server_rpc(lambda s: s.join_cluster(self.host_port, my_rank)):
       log_fn("Master server is not ready to service our join request, trying again later.")
@@ -569,30 +565,4 @@ def log_exceptions(fn):
     log_fn("%s (%s)" % (e, e.__class__.__name__))
     traceback.print_exc()
     raise e
-
-def find_available_port(host_port, max_retries=10):
-  """
-  Find smallest port larger than or equal to `base_port` that is not in use.
-  Return new host port with a potentially modified port.
-  """
-  split = host_port.split(":")
-  host = split[0]
-  base_port = int(split[1])
-  sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-  try:
-    offset = 0
-    while offset <= max_retries:
-      target_port = base_port + offset
-      try:
-        sock.bind(("localhost", target_port))
-        return "%s:%s" % (host, target_port)
-      except socket.error as e:
-        if e.errno == errno.EADDRINUSE:
-          log_fn("Warning: Attempted to bind to port %s, but it was already in use" %\
-            target_port)
-      offset += 1
-    raise Exception("All ports in range [%s-%s] are already in use!" %\
-      (base_port, base_port + max_retries))
-  finally:
-    sock.close()
 
