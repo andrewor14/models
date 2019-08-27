@@ -97,35 +97,38 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
           if host_port in self.candidate_stragglers:
             del self.candidate_stragglers[host_port]
       # Clean up removed hosts from candidate stragglers
-      for host_port in self.candidate_stragglers.keys():
+      for host_port in list(self.candidate_stragglers.keys()):
         if host_port not in host_ports:
           del self.candidate_stragglers[host_port]
 
     # If we are not the master, don't spawn or remove workers
     if self.agent.task_index > 0 or AUTOSCALING_MASTER_HOST_PORT in os.environ:
       return
+
+    # Replace stragglers
+    stragglers = self.get_stragglers()
+    if len(stragglers) > 0:
+      log_fn("Replacing stragglers %s" % stragglers)
+      self.agent.client.remove_workers(stragglers)
+      for s in stragglers:
+        del self.candidate_stragglers[s]
+
     # Potentially spawn workers
-    num_workers_to_spawn = self.num_workers_to_spawn_next_step
+    num_workers_to_spawn = self.num_workers_to_spawn_next_step + len(stragglers)
     if self.agent.num_steps_since_last_restart == self.after_n_steps:
       num_workers_to_spawn += self.get_num_workers_to_spawn(
         self.max_workers_to_spawn_each_round())
     if num_workers_to_spawn > 0:
       self.spawn_workers(num_workers_to_spawn)
+
     # Potentially remove workers
-    elif num_workers_to_spawn < 0:
+    if num_workers_to_spawn < 0:
       workers = self.agent.cluster_spec["worker"]
       num_workers_to_remove = num_workers_to_spawn * -1
       if len(workers) <= num_workers_to_remove:
         raise ValueError("Cannot remove %s workers when we only have %s" %\
           (num_workers_to_remove, len(workers)))
-      # Remove all stragglers, and pick from the end if we need to remove more
-      workers_to_remove = self.get_stragglers()
-      i = 1
-      while len(workers_to_remove) < num_workers_to_remove:
-        candidate = workers[-1 * i]
-        if candidate not in workers_to_remove:
-          workers_to_remove.append(candidate)
-        i += 1
+      workers_to_remove = workers[num_workers_to_spawn:]
       self.agent.client.remove_workers(workers_to_remove)
 
   def max_workers_to_spawn_each_round(self):
