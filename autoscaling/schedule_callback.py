@@ -41,6 +41,8 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     # Maximum length of each list in `self.throughputs`
     # If the number of values exceed this, then all existing values are averaged
     self.max_throughputs = 1000
+    # Whether to replace stragglers with new workers or not
+    self.replace_stragglers = os.getenv(AUTOSCALING_REPLACE_STRAGGLERS, "").lower() == "true"
     # Host port => how many batches in a row this rank was a candidate straggler
     # A process is a candidate straggler if its compute time is two stds above the mean
     # This is only used on the master
@@ -112,23 +114,25 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     if self.agent.task_index > 0 or AUTOSCALING_MASTER_HOST_PORT in os.environ:
       return
 
-    # Replace stragglers
+    # Optionally replace stragglers
     # Note: we delay to the actual removal of the stragglers to the next time
     # a pending cluster spec is available, which is a potential indication that
     # the replacements have joined
-    stragglers = self.get_stragglers()
-    stragglers = [s for s in stragglers if s not in self.remove_on_pending]
-    if len(stragglers) > 0:
-      log_fn("Replacing stragglers %s" % stragglers)
-      self.remove_on_pending.extend(stragglers)
-      for s in stragglers:
-        del self.candidate_stragglers[s]
-    if len(self.remove_on_pending) > 0:
-      with self.agent.pending_cluster_spec_lock:
-        is_pending = self.agent.pending_cluster_spec is not None
-      if is_pending:
-        self.agent.client.remove_workers(self.remove_on_pending)
-        self.remove_on_pending.clear()
+    stragglers = []
+    if self.replace_stragglers:
+      stragglers = self.get_stragglers()
+      stragglers = [s for s in stragglers if s not in self.remove_on_pending]
+      if len(stragglers) > 0:
+        log_fn("Replacing stragglers %s" % stragglers)
+        self.remove_on_pending.extend(stragglers)
+        for s in stragglers:
+          del self.candidate_stragglers[s]
+      if len(self.remove_on_pending) > 0:
+        with self.agent.pending_cluster_spec_lock:
+          is_pending = self.agent.pending_cluster_spec is not None
+        if is_pending:
+          self.agent.client.remove_workers(self.remove_on_pending)
+          self.remove_on_pending.clear()
 
     # Potentially spawn workers
     num_workers_to_spawn = self.num_workers_to_spawn_next_step + len(stragglers)
