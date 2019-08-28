@@ -85,7 +85,8 @@ if [[ "$DISTRIBUTION_STRATEGY" != "parameter_server" ]] && [[ "$NUM_PARAMETER_SE
   exit 1
 fi
 
-# Print diff and environment variables
+# Print commit, diff and environment variables
+echo -e "My commit is $(git log --oneline | head -n 1)"
 DIFF="$(git diff)"
 if [[ -n "$DIFF" ]]; then
   echo -e "\n=========================================================================="
