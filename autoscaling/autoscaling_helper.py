@@ -2,6 +2,7 @@
 
 import os
 import sys
+import time
 import traceback
 
 from mpi4py import MPI
@@ -213,4 +214,17 @@ def run_keras(flags_obj, do_run):
     agent.mpi_communicator.barrier()
 
   log_fn("Training complete")
+
+  # Hack: exit only if master is dead
+  # If we exit early then we may trigger MPI errors that will fail the whole job
+  if agent.mpi_communicator.rank != 0:
+    try:
+      while True:
+        agent.client.master_server_rpc(lambda s: s.get_status())
+        time.sleep(AUTOSCALING_EXIT_RETRY_INTERVAL_SECONDS)
+    except (ConnectionRefusedError, ConnectionResetError) as e:
+      pass
+  else:
+    MPI.COMM_WORLD.Abort()
+  log_fn("Exiting process")
 
