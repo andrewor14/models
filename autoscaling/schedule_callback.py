@@ -56,6 +56,14 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     # No more workers are spawned if the throughput scaling efficiency falls below this
     self.throughput_scaling_threshold =\
       float(os.getenv(AUTOSCALING_THROUGHPUT_SCALING_THRESHOLD, 0.1))
+    # Maybe restore values from checkpoint metadata file
+    if is_checkpoint_restart_mode():
+      for key, value in os.environ.items():
+        if key.startswith(AUTOSCALING_SCHEDULE_THROUGHPUT_PREFIX):
+          num_workers = int(key.lstrip(AUTOSCALING_SCHEDULE_THROUGHPUT_PREFIX))
+          average, count = tuple(value.split(","))
+          self.throughputs[num_workers] = [(float(average), int(count))]
+      log_fn("Restored throughputs from checkpoint metadata file: %s" % self.throughputs)
     log_fn("Starting %s (after_n_steps = %s, max_workers = %s)" %\
       (self.__class__.__name__, after_n_steps, max_workers))
 
@@ -150,7 +158,23 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
         raise ValueError("Cannot remove %s workers when we only have %s" %\
           (num_workers_to_remove, len(workers)))
       workers_to_remove = workers[num_workers_to_spawn:]
-      self.agent.client.remove_workers(workers_to_remove)
+      if is_checkpoint_restart_mode():
+        self.checkpoint_restart_adjust_size(num_workers_to_spawn)
+      else:
+        self.agent.client.remove_workers(host_ports)
+
+  def on_train_end(self, logs):
+    """
+    If we're running 'checkpoint-restart' mode, save throughput averages to metadata file.
+    """
+    if is_checkpoint_restart_mode():
+      for num_workers, throughputs in self.throughputs.items():
+        if len(throughputs) == 0:
+          continue
+        self.compact_list(throughputs)
+        key = "%s%s" % (AUTOSCALING_SCHEDULE_THROUGHPUT_PREFIX, num_workers)
+        value = "%s,%s" % throughputs[0]
+        self.agent.checkpoint_restart_variables[key] = value
 
   def max_workers_to_spawn_each_round(self):
     """
@@ -168,7 +192,7 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     if isinstance(_list[0], tuple):
       average, count = _list[0]
       new_count = len(_list[1:]) + count
-      new_average = (sum(_list[1:]) + average) / new_count
+      new_average = (sum(_list[1:]) + (average * count)) / new_count
     else:
       new_count = len(_list)
       new_average = np.mean(_list)
@@ -188,8 +212,6 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
         average_values.append(None)
       else:
         self.compact_list(values)
-        if len(values) != 1:
-          raise ValueError("Length of list is not == 1 after compaction")
         average, _ = values[0]
         average_values.append(average)
     return keys, average_values
@@ -268,17 +290,23 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
       log_fn("Warning: unable to launch %s workers; launching %s instead" %\
         (num_additional_workers, spare_capacity))
       num_additional_workers = spare_capacity
-    # In 'checkpoint-restart' mode, we simply tell the all the workers to terminate
     if is_checkpoint_restart_mode():
-      self.agent.client.all_servers_rpc(lambda s: s.set_pending_cluster_spec({"worker":[]}))
-      self.agent.checkpoint_restart_num_workers =\
-        len(self.agent.cluster_spec["worker"]) + num_additional_workers
+      self.checkpoint_restart_adjust_size(num_additional_workers)
     else:
       # Otherwise, spawn workers through MPI
       self.num_workers_to_spawn_next_step = 0
       if not self.agent.mpi_spawn_workers(num_additional_workers):
         log_fn("Warning: agent was not ready to spawn worker, trying again next step")
         self.num_workers_to_spawn_next_step = num_additional_workers
+
+  def checkpoint_restart_adjust_size(self, num_additional_workers):
+    """
+    Adjust the size of the cluster in 'checkpoint-restart' mode.
+    We simply tell all workers to terminate after setting the correct number of workers.
+    """
+    self.agent.client.all_servers_rpc(lambda s: s.set_pending_cluster_spec({"worker":[]}))
+    self.agent.checkpoint_restart_variables["NUM_WORKERS"] =\
+      len(self.agent.cluster_spec["worker"]) + num_additional_workers
 
 class LinearIncreaseScheduleCallback(AutoscalingScheduleCallback):
   """

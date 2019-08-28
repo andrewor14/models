@@ -38,7 +38,7 @@ class AutoscalingAgent:
 
   def __init__(self, num_gpus_per_worker=0, global_batch_size=0, use_horovod=False):
     self.saved_variables = None
-    self.checkpoint_restart_num_workers = None
+    self.checkpoint_restart_variables = {}
     self.num_gpus_per_worker = num_gpus_per_worker
     self.global_batch_size = global_batch_size
     self.use_horovod = use_horovod

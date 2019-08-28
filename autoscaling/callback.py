@@ -110,11 +110,10 @@ class AutoscalingCallback(keras.callbacks.Callback):
 
   def do_on_train_end(self, logs):
     """
-    Save our variables for the next restart if we are not terminating.
+    Save our variables for the next restart.
     """
-    if self.num_epochs_processed == self.num_epochs_total:
-      self.agent.status = AutoscalingStatus.TERMINATED
-    if self.agent.status == AutoscalingStatus.TERMINATED:
+    self.agent.status = AutoscalingStatus.TERMINATED
+    if self.num_epochs_processed != self.num_epochs_total:
       self.maybe_save_model()
 
   def get_trainable_variables(self):
@@ -149,7 +148,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
     checkpoint_dir = os.getenv("TRAIN_DIR")
     if is_checkpoint_restart_mode() and\
         os.path.exists(checkpoint_dir) and\
-        self.agent.status != AutoscalingStatus.TERMINATED:
+        self.agent.mpi_communicator.rank == 0:
       checkpoint_file = os.path.join(checkpoint_dir, AUTOSCALING_CHECKPOINT_FILE_NAME)
       checkpoint_metadata_file = os.path.join(
         checkpoint_dir, AUTOSCALING_CHECKPOINT_METADATA_FILE_NAME)
@@ -158,10 +157,10 @@ class AutoscalingCallback(keras.callbacks.Callback):
       self.model.save(checkpoint_file)
       with open(checkpoint_metadata_file, "w") as f:
         metadata = {
-          "NUM_WORKERS": self.agent.checkpoint_restart_num_workers,
           AUTOSCALING_NUM_BATCHES_PROCESSED_THIS_EPOCH: self.num_batches_processed_this_epoch,
           AUTOSCALING_NUM_EPOCHS_PROCESSED: self.num_epochs_processed
         }
+        metadata.update(self.agent.checkpoint_restart_variables)
         for k, v in metadata.items():
           f.write("%s %s\n" % (k, v))
       log_fn("Checkpoint saved")

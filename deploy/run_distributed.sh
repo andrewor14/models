@@ -75,8 +75,10 @@ if [[ "$MODE" == "checkpoint-restart" ]]; then
     echo "ERROR: '$MODE' mode requires MPI_HOST_FILE to be set"
     exit 1
   fi
+  NUM_RESTARTS=0
   while true; do
     set_job_name
+    export JOB_NAME="${JOB_NAME}-${NUM_RESTARTS}"
     export TRAIN_DIR="$BASE_TRAIN_DIR/$JOB_NAME"
     ./deploy.sh
     # Copy checkpoint files to all remote hosts
@@ -104,6 +106,7 @@ if [[ "$MODE" == "checkpoint-restart" ]]; then
       export "$ENV_VAR_NAME"="$ENV_VAR_VALUE"
     done < "$METADATA_FILE"
     export AUTOSCALING_CHECKPOINT_DIR="$TRAIN_DIR"
+    NUM_RESTARTS=$((NUM_RESTARTS+1))
   done
 else
   set_job_name
