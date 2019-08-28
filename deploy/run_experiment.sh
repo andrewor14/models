@@ -18,11 +18,13 @@ export NUM_GPUS_INCREMENT="${NUM_GPUS_INCREMENT:=4}"
 export MIN_GPUS="${MIN_GPUS:=4}"
 export MAX_GPUS="${MAX_GPUS:=96}"
 
-# Set default batch size based on dataset
+# Set default batch size and epochs based on dataset
 if [[ "$DATASET" == "cifar10" ]]; then
   export BATCH_SIZE="${BATCH_SIZE:=1024}"
+  export NUM_EPOCHS="${NUM_EPOCHS:=200}"
 elif [[ "$DATASET" == "imagenet" ]]; then
   export BATCH_SIZE="${BATCH_SIZE:=8192}"
+  export NUM_EPOCHS="${NUM_EPOCHS:=100}"
 else
   echo "ERROR: Unknown dataset '$DATASET'"
   exit 1
@@ -44,6 +46,7 @@ echo "==========================================================="
 echo " Running experiment '$MODE'"
 echo "   dataset = $DATASET"
 echo "   batch size = $BATCH_SIZE"
+echo "   num epochs = $NUM_EPOCHS"
 echo "   num workers = "$NUM_WORKERS_LIST
 echo "==========================================================="
 
