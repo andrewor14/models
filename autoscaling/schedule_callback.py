@@ -29,9 +29,10 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
   """
   A `keras.callbacks.Callback` that specifies the schedule for adding and removing workers.
   """
-  def __init__(self, agent, after_n_steps, max_workers):
+  def __init__(self, agent, after_n_steps, min_workers, max_workers):
     self.agent = agent
     self.after_n_steps = after_n_steps
+    self.min_workers = min_workers
     self.max_workers = max_workers
     self.start_time = None
     self.num_workers_to_spawn_next_step = 0
@@ -64,18 +65,20 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
           average, count = tuple(value.split(","))
           self.throughputs[num_workers] = [(float(average), int(count))]
       log_fn("Restored throughputs from checkpoint metadata file: %s" % self.throughputs)
-    log_fn("Starting %s (after_n_steps = %s, max_workers = %s)" %\
-      (self.__class__.__name__, after_n_steps, max_workers))
+    log_fn("Starting %s (after_n_steps = %s, min_workers = %s, max_workers = %s)" %\
+      (self.__class__.__name__, after_n_steps, min_workers, max_workers))
 
   def on_batch_begin(self, batch, logs):
-    # Skip measuring the first batch, which often takes longer
-    if batch > 0:
-      self.start_time = time.time()
+    self.start_time = time.time()
 
   def on_batch_end(self, batch, logs):
     """
     Collect throughput and potentially spawn some workers.
     """
+    # Skip measuring the first batch after every restart, which often takes longer
+    if self.agent.num_steps_since_last_restart < 1:
+      return
+
     # Record throughput
     if self.start_time is not None:
       step_time = time.time() - self.start_time
@@ -238,20 +241,21 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     if len(average_throughputs) == 1:
       return 1
     else:
-      return int(self.check_stop_conditions(
+      should_stop = self.met_stop_conditions(
         average_throughputs[num_workers.index(current_num_workers - 1)],
         current_num_workers - 1,
         average_throughputs[num_workers.index(current_num_workers)],
-        current_num_workers))
+        current_num_workers)
+      return 0 if should_stop else 1
 
-  def check_stop_conditions(
+  def met_stop_conditions(
       self,
       old_throughput,
       old_num_workers,
       new_throughput,
       new_num_workers):
     """
-    Return whether the stop conditions are met (true means continue scaling).
+    Return whether the stop conditions are met, true means stop training.
     """
     # Check throughput scaling efficiency, given by
     #   s_k = (delta(R) / delta(k)) / (r_{k-1}), where
@@ -262,17 +266,17 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     slope = (new_throughput - old_throughput) / (new_num_workers - old_num_workers)
     old_per_worker_throughput = old_throughput / old_num_workers
     throughput_scaling_efficiency = slope / old_per_worker_throughput
+    should_stop = throughput_scaling_efficiency < self.throughput_scaling_threshold
     log_fn("========== Checking stop condition ==========")
-    log_fn("New throughput = %s (num workers = %s)" % (new_throughput, new_num_workers))
     log_fn("Old throughput = %s (num workers = %s)" % (old_throughput, old_num_workers))
+    log_fn("New throughput = %s (num workers = %s)" % (new_throughput, new_num_workers))
     log_fn("Slope = %s" % slope)
     log_fn("Throughput scaling efficiency = %s" % throughput_scaling_efficiency)
     log_fn("Throughput scaling threshold = %s" % self.throughput_scaling_threshold)
-    log_fn("Stop condition passed = %s" %\
-      (throughput_scaling_efficiency > self.throughput_scaling_threshold))
+    log_fn("Should stop = %s" % should_stop)
     log_fn("=============================================")
     # TODO: check utility function too
-    return throughput_scaling_efficiency > self.throughput_scaling_threshold
+    return should_stop
 
   def spawn_workers(self, num_additional_workers):
     """
@@ -312,8 +316,9 @@ class LinearIncreaseScheduleCallback(AutoscalingScheduleCallback):
   """
   An `AutoscalingScheduleCallback` that spawns K workers N steps after each restart.
   """
-  def __init__(self, agent, after_n_steps, max_workers, spawn_size=1):
-    super(LinearIncreaseScheduleCallback, self).__init__(agent, after_n_steps, max_workers)
+  def __init__(self, agent, after_n_steps, min_workers, max_workers, spawn_size=1):
+    super(LinearIncreaseScheduleCallback, self).__init__(
+      agent, after_n_steps, min_workers, max_workers)
     self.spawn_size = spawn_size
 
   def max_workers_to_spawn_each_round(self):
@@ -327,9 +332,9 @@ class CurveFittingScheduleCallback(LinearIncreaseScheduleCallback):
     (1) Bootstrap phase: fall back to linear increase if we don't have enough points
     (2) Fitting phase: use curve fitting to jump to a target number of workers
   """
-  def __init__(self, agent, after_n_steps, max_workers, initial_spawn_size=1):
+  def __init__(self, agent, after_n_steps, min_workers, max_workers, initial_spawn_size=1):
     super(CurveFittingScheduleCallback, self).__init__(
-      agent, after_n_steps, max_workers, initial_spawn_size)
+      agent, after_n_steps, min_workers, max_workers, initial_spawn_size)
     # Number of points before curve fitting is used
     self.curve_fitting_min_points = int(os.getenv(AUTOSCALING_CURVE_FITTING_MIN_POINTS, 3))
     # A map of functions used to fit our data indexed by function name
@@ -381,25 +386,26 @@ class CurveFittingScheduleCallback(LinearIncreaseScheduleCallback):
         best_func_name = name
         best_fitted_vars = fitted_vars
     best_fitted_func = lambda x: best_func(x, *best_fitted_vars)
-    log_fn("Fitted %s points with function '%s', error = %s" %\
-      (len(average_throughputs), best_func_name, min_fit_error))
+    log_fn("========== Curve fitting ==========")
+    log_fn("x = %s" % num_workers.tolist())
+    log_fn("y = %s" % average_throughputs.tolist())
+    log_fn("Fitted %s points with function '%s', parameters = %s, error = %s" %\
+      (len(average_throughputs), best_func_name, best_fitted_vars.tolist(), min_fit_error))
+    log_fn("===================================")
     # Project using best fitted function, stop as soon as stop conditions are violated
     current_num_workers = len(self.agent.cluster_spec["worker"])
     log_fn("Checking stop conditions, want to add %s workers" % num_additional_workers)
-    num_workers_to_spawn = 0
-    for i in range(num_additional_workers):
-      if not self.check_stop_conditions(
-          best_fitted_func(current_num_workers + i),
-          current_num_workers + i,
-          best_fitted_func(current_num_workers + i + 1),
-          current_num_workers + i + 1):
-        log_fn("Stop condition failed, adding %s worker(s)" % i)
+    target_num_workers = self.min_workers
+    while target_num_workers < current_num_workers + num_additional_workers:
+      before_throughput = best_fitted_func(target_num_workers)
+      after_throughput = best_fitted_func(target_num_workers + 1)
+      # Depending on the function, the early points returned by curve fitting may be
+      # negative, in which case we will assume that the increase is great enough and
+      # simply skip checking the stop conditions
+      if before_throughput > 0 and self.met_stop_conditions(
+          before_throughput, target_num_workers, after_throughput, target_num_workers + 1):
         break
-      num_workers_to_spawn += 1
-    # We may have to backtrack to see if we overshot
-    # If we don't already have the data point, remove 1 worker
-    if num_workers_to_spawn == 0 and (current_num_workers - 1) not in self.throughputs:
-      log_fn("Backtracking to see if we overshot, removing 1 worker")
-      num_workers_to_spawn = -1
-    return num_workers_to_spawn
+      target_num_workers += 1
+    log_fn("New target num workers = %s" % target_num_workers)
+    return target_num_workers - current_num_workers
 
