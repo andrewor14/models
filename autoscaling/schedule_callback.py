@@ -253,9 +253,10 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     if len(average_throughputs) == 1:
       return 1
     else:
+      last_num_workers = max([n for n in num_workers if n < current_num_workers])
       should_stop = self.met_stop_conditions(
-        average_throughputs[num_workers.index(current_num_workers - 1)],
-        current_num_workers - 1,
+        average_throughputs[num_workers.index(last_num_workers)],
+        last_num_workers,
         average_throughputs[num_workers.index(current_num_workers)],
         current_num_workers)
       return 0 if should_stop else 1
