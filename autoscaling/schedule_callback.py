@@ -42,6 +42,8 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     # Maximum length of each list in `self.throughputs`
     # If the number of values exceed this, then all existing values are averaged
     self.max_throughputs = 1000
+    # If we are awaiting new workers already, don't spawn more
+    self.awaiting_new_workers = False
     # Whether to replace stragglers with new workers or not
     self.replace_stragglers = os.getenv(AUTOSCALING_REPLACE_STRAGGLERS, "").lower() == "true"
     # If throughput as a fraction of the median throughput falls below this value,
@@ -114,16 +116,23 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
       if len(stragglers) > 0:
         log_fn("Replacing stragglers %s" % stragglers)
         self.remove_on_pending.extend(stragglers)
+
+    # If there is a pending cluster spec, then new workers have joined, in which
+    # case we can actually remove any workers that were pending to be removed
+    with self.agent.pending_cluster_spec_lock:
+      is_pending = self.agent.pending_cluster_spec is not None
+    if is_pending:
+      self.awaiting_new_workers = False
       if len(self.remove_on_pending) > 0:
-        with self.agent.pending_cluster_spec_lock:
-          is_pending = self.agent.pending_cluster_spec is not None
-        if is_pending:
-          self.agent.client.remove_workers(self.remove_on_pending)
-          self.remove_on_pending.clear()
+        self.agent.client.remove_workers(self.remove_on_pending)
+        self.remove_on_pending.clear()
 
     # Potentially spawn workers
     num_workers_to_spawn = self.num_workers_to_spawn_next_step + len(stragglers)
-    if self.agent.num_steps_since_last_restart % self.after_n_steps == 0:
+    self.num_workers_to_spawn_next_step = 0
+    # Only spawn if we are not waiting for new workers
+    if self.agent.num_steps_since_last_restart % self.after_n_steps == 0 and\
+        not self.awaiting_new_workers:
       num_workers_to_spawn += self.get_num_workers_to_spawn(
         self.max_workers_to_spawn_each_round())
     if num_workers_to_spawn > 0:
@@ -311,8 +320,8 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
       self.checkpoint_restart_adjust_size(num_additional_workers)
     else:
       # Otherwise, spawn workers through MPI
-      self.num_workers_to_spawn_next_step = 0
-      if not self.agent.mpi_spawn_workers(num_additional_workers):
+      self.awaiting_new_workers = self.agent.mpi_spawn_workers(num_additional_workers)
+      if not self.awaiting_new_workers:
         log_fn("Warning: agent was not ready to spawn worker, trying again next step")
         self.num_workers_to_spawn_next_step = num_additional_workers
 
