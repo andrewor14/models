@@ -29,9 +29,9 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
   """
   A `keras.callbacks.Callback` that specifies the schedule for adding and removing workers.
   """
-  def __init__(self, agent, after_n_steps, min_workers, max_workers):
+  def __init__(self, agent, every_n_steps, min_workers, max_workers):
     self.agent = agent
-    self.after_n_steps = after_n_steps
+    self.every_n_steps = every_n_steps
     self.min_workers = min_workers
     self.max_workers = max_workers
     self.start_time = None
@@ -69,8 +69,8 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
           average, count = tuple(value.split(","))
           self.throughputs[num_workers] = [(float(average), int(count))]
       log_fn("Restored throughputs from checkpoint metadata file: %s" % self.throughputs)
-    log_fn("Starting %s (after_n_steps = %s, min_workers = %s, max_workers = %s)" %\
-      (self.__class__.__name__, after_n_steps, min_workers, max_workers))
+    log_fn("Starting %s (every_n_steps = %s, min_workers = %s, max_workers = %s)" %\
+      (self.__class__.__name__, every_n_steps, min_workers, max_workers))
 
   def on_batch_begin(self, batch, logs):
     self.start_time = time.time()
@@ -102,7 +102,7 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     # If we are not the master, or we just restarted, don't spawn or remove workers
     if self.agent.task_index > 0 or\
         AUTOSCALING_MASTER_HOST_PORT in os.environ or\
-        self.agent.num_steps_since_last_restart < self.after_n_steps:
+        self.agent.num_steps_since_last_restart < self.every_n_steps:
       return
 
     # Optionally replace stragglers
@@ -131,7 +131,7 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     num_workers_to_spawn = self.num_workers_to_spawn_next_step + len(stragglers)
     self.num_workers_to_spawn_next_step = 0
     # Only spawn if we are not waiting for new workers
-    if self.agent.num_steps_since_last_restart % self.after_n_steps == 0 and\
+    if self.agent.num_steps_since_last_restart % self.every_n_steps == 0 and\
         not self.awaiting_new_workers:
       num_workers_to_spawn += self.get_num_workers_to_spawn(
         self.max_workers_to_spawn_each_round())
@@ -338,9 +338,9 @@ class LinearIncreaseScheduleCallback(AutoscalingScheduleCallback):
   """
   An `AutoscalingScheduleCallback` that spawns K workers N steps after each restart.
   """
-  def __init__(self, agent, after_n_steps, min_workers, max_workers, spawn_size=1):
+  def __init__(self, agent, every_n_steps, min_workers, max_workers, spawn_size=1):
     super(LinearIncreaseScheduleCallback, self).__init__(
-      agent, after_n_steps, min_workers, max_workers)
+      agent, every_n_steps, min_workers, max_workers)
     self.spawn_size = spawn_size
 
   def max_workers_to_spawn_each_round(self):
@@ -354,9 +354,9 @@ class CurveFittingScheduleCallback(LinearIncreaseScheduleCallback):
     (1) Bootstrap phase: fall back to linear increase if we don't have enough points
     (2) Fitting phase: use curve fitting to jump to a target number of workers
   """
-  def __init__(self, agent, after_n_steps, min_workers, max_workers, initial_spawn_size=1):
+  def __init__(self, agent, every_n_steps, min_workers, max_workers, initial_spawn_size=1):
     super(CurveFittingScheduleCallback, self).__init__(
-      agent, after_n_steps, min_workers, max_workers, initial_spawn_size)
+      agent, every_n_steps, min_workers, max_workers, initial_spawn_size)
     # Number of points before curve fitting is used
     self.curve_fitting_min_points = int(os.getenv(AUTOSCALING_CURVE_FITTING_MIN_POINTS, 3))
     # A map of functions used to fit our data indexed by function name
