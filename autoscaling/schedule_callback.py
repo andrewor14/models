@@ -248,7 +248,8 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
         current_num_workers - 1,
         average_throughputs[num_workers.index(current_num_workers)],
         current_num_workers)
-      return 0 if should_stop else 1
+      #return 0 if should_stop else 1
+      return 1
 
   def met_stop_conditions(
       self,

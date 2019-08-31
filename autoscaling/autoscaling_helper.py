@@ -15,6 +15,8 @@ from autoscaling.callback import AutoscalingCallback
 from deploy import mpi_helper
 from official.utils.misc import keras_utils
 
+import numpy as np
+MY_GRADS = np.load("/home/andrewor/scratch/grads-0.npy", allow_pickle=True)
 
 # A tensorflow function that averages a list of gradients with horovod
 # We refresh this function every time the cluster membership changes
@@ -143,7 +145,8 @@ def local_batch_size(global_batch_size, size, rank):
   """
   Compute this rank's local batch size.
   """
-  return global_batch_size // size + int(global_batch_size % size > rank)
+  return 1
+  #return global_batch_size // size + int(global_batch_size % size > rank)
 
 def initialize_horovod(comm, restarting=False):
   """
@@ -158,18 +161,27 @@ def initialize_horovod(comm, restarting=False):
   # Truncate tensor for printing
   @tf.function
   def truncate_tensor(t):
-    return tf.reshape(t, [-1])[:5]
+    return tf.reshape(t, [-1])[:1]
   # Allreduce function
   @tf.function
   def allreduce(grads):
+    global MY_GRADS
+    my_grads = [tf.convert_to_tensor(g, dtype=tf.float32) for g in MY_GRADS]
     import horovod.tensorflow as hvd
     tf.logging.info("Averaging gradients with horovod (size %s)" % hvd.size())
+    start = tf.timestamp()
     verbose = os.getenv("AUTOSCALING_HOROVOD_VERBOSE", "").lower() == "true"
     if verbose:
       tf.print("First gradient before horovod allreduce: ", truncate_tensor(grads[0]))
-    grads = [hvd.allreduce(grad) for grad in grads]
+    my_grads = [hvd.allreduce(g) for g in my_grads]
+    #grads = [hvd.allreduce(grad) for grad in grads]
+    a = tf.constant(1)
     if verbose:
-      tf.print("First gradient after horovod allreduce: ", truncate_tensor(grads[0]))
+      my_grads = tf.stack([truncate_tensor(g) for g in my_grads])
+      tf.print("First gradient after horovod allreduce: ", my_grads)
+      elapsed = tf.timestamp() - start
+      tf.print("ALLREDUCE %s" % comm.size, elapsed)
+      tf.print("The random tensor is ", a + 1)
     return grads
   global HOROVOD_ALLREDUCE_FUNCTION
   HOROVOD_ALLREDUCE_FUNCTION = allreduce

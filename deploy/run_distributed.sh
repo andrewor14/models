@@ -51,7 +51,7 @@ if [[ "$MODE" == "autoscaling" ]] || [[ "$MODE" == "checkpoint-restart" ]]; then
       export NUM_WORKERS=1
     fi
   fi
-  export AUTOSCALING_SPAWN_AFTER_N_STEPS="${AUTOSCALING_SPAWN_AFTER_N_STEPS:=10}"
+  export AUTOSCALING_SPAWN_AFTER_N_STEPS="${AUTOSCALING_SPAWN_AFTER_N_STEPS:=500}"
   export AUTOSCALING_MIN_WORKERS="${AUTOSCALING_MIN_WORKERS:=1}"
   export AUTOSCALING_MAX_WORKERS="${AUTOSCALING_MAX_WORKERS:=60}"
   # TODO: how to break this line?
