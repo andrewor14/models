@@ -102,6 +102,7 @@ class AutoscalingAgent:
         if my_rank == 0:
           raise ValueError("Rank 0 cannot be a straggler")
         self.local_batch_size_multiplier = float(os.getenv(AUTOSCALING_STRAGGLER_MULTIPLIER, 1.5))
+        log_fn("This rank is a straggler (%sx slower than normal)" % self.local_batch_size_multiplier)
     if self.local_batch_size_multiplier < 0:
       raise ValueError("Local batch size multiplier must be >= 1, was %s" %\
         self.local_batch_size_multiplier)

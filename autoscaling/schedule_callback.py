@@ -44,13 +44,15 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     self.max_throughputs = 1000
     # Whether to replace stragglers with new workers or not
     self.replace_stragglers = os.getenv(AUTOSCALING_REPLACE_STRAGGLERS, "").lower() == "true"
-    # Host port => how many batches in a row this rank was a candidate straggler
-    # A process is a candidate straggler if its compute time is two stds above the mean
-    # This is only used on the master
-    self.candidate_stragglers = {}
-    # How many batches in a row a process must be a candidate straggler before it is
-    # considered a real straggler
-    self.straggler_threshold = int(os.getenv(AUTOSCALING_STRAGGLER_THRESHOLD, 100))
+    # If throughput as a fraction of the median throughput falls below this value,
+    # then the worker is considered a straggler
+    self.straggler_threshold = float(os.getenv(AUTOSCALING_STRAGGLER_THRESHOLD, 0.8))
+    # Host port => exponential weighted moving average (EWMA) of throughput as a
+    # fraction of median throughput. If the value falls below `self.straggler_threshold`,
+    # then the worker is removed
+    self.straggler_stats = {}
+    # Alpha value for EWMA calculation in `self.straggler_stats`
+    self.straggler_ewma_alpha = 0.1
     # Workers to remove the next time there is a pending cluster spec
     # This is for delaying removing stragglers until their replacements have joined
     self.remove_on_pending = []
@@ -91,53 +93,27 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
       if len(self.throughputs[num_workers]) > self.max_throughputs:
         self.compact_list(self.throughputs[num_workers])
 
-    # At the end of each batch, send our time spent on computation to the master
-    # The master will then see which worker is a straggler and keep track of it
-    value_to_send = (self.agent.host_port, logs[TENSORFLOW_COMPUTE_ELAPSED])
-    gathered_values = self.agent.mpi_communicator.gather(value_to_send, root=0)
-    if gathered_values is not None:
-      host_ports = []
-      compute_times = []
-      for host_port, compute_time in gathered_values:
-        host_ports.append(host_port)
-        compute_times.append(compute_time)
-      # A process is a candidate straggler if its compute time is two stds above the mean
-      compute_times_mean = np.mean(compute_times)
-      compute_times_std = np.std(compute_times)
-      for i, host_port in enumerate(host_ports):
-        # Master is never a straggler
-        if i == 0:
-          continue
-        if compute_times[i] > compute_times_mean + compute_times_std:
-          if host_port not in self.candidate_stragglers:
-            self.candidate_stragglers[host_port] = 0
-          self.candidate_stragglers[host_port] += 1
-        else:
-          # Note a candidate straggler anymore
-          if host_port in self.candidate_stragglers:
-            del self.candidate_stragglers[host_port]
-      # Clean up removed hosts from candidate stragglers
-      for host_port in list(self.candidate_stragglers.keys()):
-        if host_port not in host_ports:
-          del self.candidate_stragglers[host_port]
+    # Optionally record straggler statistics
+    if self.replace_stragglers:
+      self.record_straggler_stats(logs[TENSORFLOW_COMPUTE_ELAPSED])
 
-    # If we are not the master, don't spawn or remove workers
-    if self.agent.task_index > 0 or AUTOSCALING_MASTER_HOST_PORT in os.environ:
+    # If we are not the master, or we just restarted, don't spawn or remove workers
+    if self.agent.task_index > 0 or\
+        AUTOSCALING_MASTER_HOST_PORT in os.environ or\
+        self.agent.num_steps_since_last_restart < self.after_n_steps:
       return
 
     # Optionally replace stragglers
-    # Note: we delay to the actual removal of the stragglers to the next time
-    # a pending cluster spec is available, which is a potential indication that
-    # the replacements have joined
     stragglers = []
     if self.replace_stragglers:
       stragglers = self.get_stragglers()
       stragglers = [s for s in stragglers if s not in self.remove_on_pending]
+      # Note: we delay to the actual removal of the stragglers to the next time
+      # a pending cluster spec is available, which is a potential indication that
+      # the replacements have joined
       if len(stragglers) > 0:
         log_fn("Replacing stragglers %s" % stragglers)
         self.remove_on_pending.extend(stragglers)
-        for s in stragglers:
-          del self.candidate_stragglers[s]
       if len(self.remove_on_pending) > 0:
         with self.agent.pending_cluster_spec_lock:
           is_pending = self.agent.pending_cluster_spec is not None
@@ -147,7 +123,7 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
 
     # Potentially spawn workers
     num_workers_to_spawn = self.num_workers_to_spawn_next_step + len(stragglers)
-    if self.agent.num_steps_since_last_restart == self.after_n_steps:
+    if self.agent.num_steps_since_last_restart % self.after_n_steps == 0:
       num_workers_to_spawn += self.get_num_workers_to_spawn(
         self.max_workers_to_spawn_each_round())
     if num_workers_to_spawn > 0:
@@ -221,12 +197,46 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
         average_values.append(average)
     return keys, average_values
 
+  def record_straggler_stats(self, compute_time):
+    """
+    Record per-worker statistics for detecting stragglers.
+    This is called at the end of each batch.
+    """
+    value_to_send = (self.agent.host_port, compute_time)
+    gathered_values = self.agent.mpi_communicator.gather(value_to_send, root=0)
+    if gathered_values is None:
+      return
+    # Unzip gathered values, convert compute time to compute throughput
+    host_ports = []
+    compute_throughputs = []
+    for host_port, compute_time in gathered_values:
+      host_ports.append(host_port)
+      compute_throughputs.append(self.agent.global_batch_size / compute_time)
+    # Record an EWMA of throughput as a fraction of the median throughput
+    compute_throughputs = np.array(compute_throughputs)
+    median_throughput = np.median(compute_throughputs)
+    throughput_fractions = compute_throughputs / median_throughput
+    for i, host_port in enumerate(host_ports):
+      # Master is never a straggler
+      if i == 0:
+        continue
+      if host_port not in self.straggler_stats:
+        self.straggler_stats[host_port] = throughput_fractions[i]
+      else:
+        self.straggler_stats[host_port] =\
+          self.straggler_ewma_alpha * throughput_fractions[i] +\
+          (1 - self.straggler_ewma_alpha) * self.straggler_stats[host_port]
+    # Clean up removed hosts from `self.straggler_stats`
+    for host_port in list(self.straggler_stats.keys()):
+      if host_port not in host_ports:
+        del self.straggler_stats[host_port]
+
   def get_stragglers(self):
     """
     Return a list of hosts we consider to be stragglers.
     """
-    return [hp for hp, count in self.candidate_stragglers.items()\
-      if count > self.straggler_threshold]
+    return [hp for hp, throughput_fraction in self.straggler_stats.items()\
+      if throughput_fraction < self.straggler_threshold]
 
   def get_num_workers_to_spawn(self, num_additional_workers):
     """
