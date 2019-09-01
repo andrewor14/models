@@ -77,6 +77,7 @@ mkdir -p "$TRAIN_DIR"
 # When using Horovod, do not use a multi-worker distribution strategy
 if [[ "$USE_HOROVOD" == "true" ]]; then
   export DISTRIBUTION_STRATEGY="mirrored"
+  export HOROVOD_TIMELINE="$LOG_DIR/$JOB_NAME/horovod_timeline.json"
 fi
 
 # Only allow positive number of parameter servers if we're running in parameter_server mode

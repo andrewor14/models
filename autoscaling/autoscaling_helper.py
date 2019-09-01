@@ -15,9 +15,6 @@ from autoscaling.callback import AutoscalingCallback
 from deploy import mpi_helper
 from official.utils.misc import keras_utils
 
-import numpy as np
-MY_GRADS = np.load("/home/andrewor/scratch/grads-0.npy", allow_pickle=True)
-
 # A tensorflow function that averages a list of gradients with horovod
 # We refresh this function every time the cluster membership changes
 # instead of rebuilding the entire graph to speed up the restart process
@@ -162,11 +159,13 @@ def initialize_horovod(comm, restarting=False):
   @tf.function
   def truncate_tensor(t):
     return tf.reshape(t, [-1])[:1]
+  import numpy as np
+  MY_GRADS = [np.ones(856058).astype(np.float32) * comm.rank]
+  #MY_GRADS = np.load("/home/andrewor/scratch/cifar10-grads.npy", allow_pickle=True)
   # Allreduce function
   @tf.function
   def allreduce(grads):
-    global MY_GRADS
-    my_grads = [tf.convert_to_tensor(g, dtype=tf.float32) for g in MY_GRADS]
+    my_grads = [tf.convert_to_tensor(g, dtype=tf.float32) + tf.random.uniform([1]) for g in MY_GRADS]
     import horovod.tensorflow as hvd
     tf.logging.info("Averaging gradients with horovod (size %s)" % hvd.size())
     start = tf.timestamp()
@@ -177,7 +176,7 @@ def initialize_horovod(comm, restarting=False):
     #grads = [hvd.allreduce(grad) for grad in grads]
     a = tf.constant(1)
     if verbose:
-      my_grads = tf.stack([truncate_tensor(g) for g in my_grads])
+      my_grads = tf.stack([tf.math.reduce_mean(g) for g in my_grads])
       tf.print("First gradient after horovod allreduce: ", my_grads)
       elapsed = tf.timestamp() - start
       tf.print("ALLREDUCE %s" % comm.size, elapsed)

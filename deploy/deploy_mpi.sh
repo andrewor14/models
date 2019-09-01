@@ -85,6 +85,8 @@ if [[ "$IN_DOCKER_CONTAINER" == "true" ]]; then
 fi
 ENV_FLAG="$ENV_FLAG -x NCCL_DEBUG=INFO -x NCCL_SOCKET_IFNAME=ib0"
 HOROVOD_FLAGS="-mca pml ob1 -mca btl ^openib -mca btl_tcp_if_include ib0 "
+#ENV_FLAG="$ENV_FLAG -x NCCL_DEBUG=INFO -x NCCL_SOCKET_IFNAME=^$INTERFACES_TO_EXCLUDE"
+#HOROVOD_FLAGS="-mca pml ob1 -mca btl ^openib -mca btl_tcp_if_exclude $INTERFACES_TO_EXCLUDE "
 HOROVOD_FLAGS="$HOROVOD_FLAGS --bind-to none --map-by slot "
 
 # Verbosity settings
