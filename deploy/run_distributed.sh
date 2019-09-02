@@ -62,7 +62,9 @@ fi
 # Set a unique job name to identify the experiment
 function set_job_name() {
   export SUBMIT_TIMESTAMP="${SUBMIT_TIMESTAMP:=$(get_submit_timestamp)}"
-  export RUN_TAG="${DATASET}-${BATCH_SIZE}-${MODE}-${NUM_WORKERS}"
+  if [[ -z "$RUN_TAG" ]]; then
+    export RUN_TAG="${DATASET}-${BATCH_SIZE}-${MODE}-${NUM_WORKERS}"
+  fi
   if [[ -n "$AUTOSCALING_MASTER_HOST_PORT" ]]; then
     export RUN_TAG="${RUN_TAG}-spawned"
   fi
