@@ -58,8 +58,8 @@ elif [[ "$ENVIRONMENT" = "snsgpu" ]]; then
 elif [[ -n "$IN_DOCKER_CONTAINER" ]]; then
   export LOG_DIR="/root/dev/logs"
   export MODELS_DIR="/root/dev/models"
-  export IMAGENET_DATA_DIR="/root/dev/dataset/imagenet"
-  export CIFAR10_DATA_DIR="/root/dev/dataset/cifar10/cifar-10-batches-bin"
+  export IMAGENET_DATA_DIR="${IMAGENET_DATA_DIR:=/root/dev/dataset/imagenet}"
+  export CIFAR10_DATA_DIR="${CIFAR10_DATA_DIR:=/root/dev/dataset/cifar10/cifar-10-batches-bin}"
   export WMT_DATA_DIR="/root/dev/dataset/transformer"
   export BASE_TRAIN_DIR="/root/dev/train_data"
   export BASE_EVAL_DIR="/root/dev/eval_data"
