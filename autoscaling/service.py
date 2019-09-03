@@ -10,6 +10,7 @@ import tensorflow as tf
 
 from autoscaling.client import convert_port, connect
 from autoscaling.params import *
+from deploy import mpi_helper
 
 
 def log_fn(msg):
@@ -63,6 +64,15 @@ class AutoscalingService:
     This is used for bootstrapping new workers.
     '''
     return self.agent.saved_variables
+
+  def request_attach(self):
+    '''
+    Request a previously removed worker to re-attach to the cluster.
+    Return this process' rank when it was first spawned.
+    '''
+    log_fn("Received request to re-attach to cluster")
+    self.agent.detached_mode = False
+    return int(os.environ[mpi_helper.MPI_SPAWN_RANK])
 
   def assign_cuda_visible_devices(self, host_port):
     '''

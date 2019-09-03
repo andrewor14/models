@@ -92,13 +92,16 @@ class AutoscalingCallback(keras.callbacks.Callback):
     # Check if we need to reinitialize
     is_new_worker = not self.agent.joined
     should_initialize = self.agent.step_end()
-    # If we are removed from the cluster, exit training loop
+    # If we are removed from the cluster, restart training in detached mode
     if self.agent.status == AutoscalingStatus.TERMINATED:
-      self.model.stop_training = True
-      return
+      self.num_batches_processed_this_epoch = 0
+      self.num_epochs_processed = 0
+      autoscaling_helper.STEP_NUMBER = 0
+      autoscaling_helper.EPOCH_NUMBER = 0
+      self.agent.detach_from_cluster()
     # If we are reinitializing, the new worker should restore variables from existing workers
     if should_initialize:
-      if not is_new_worker:
+      if not is_new_worker and not self.agent.detached_mode:
         self.agent.save_variables(self.get_trainable_variables(), for_new_worker=True)
       # This call gathers `self.agent.saved_variables` across the cluster
       # Therefore, we save the variables before this call and restore them after this call

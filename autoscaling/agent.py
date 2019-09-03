@@ -44,6 +44,7 @@ class AutoscalingAgent:
     self.use_horovod = use_horovod
     self.num_steps_since_last_restart = 0
     self.min_steps_between_restart = int(os.getenv(AUTOSCALING_MIN_STEPS_BETWEEN_RESTART, 1))
+    self.detached_mode = False
 
     # A lambda that returns a 3-tuple:
     #  (1) Number of batches processed in this epoch so far,
@@ -90,6 +91,10 @@ class AutoscalingAgent:
     # `self.mpi_spawn_workers` succeeds.
     # Accesses must be guarded by `self.spawn_lock`
     self.spawned_ranks_to_wait_for = []
+
+    # If non-empty, `self.mpi_spawn_workers` will simply tell the first N workers
+    # in this list to reattach themselves to this cluster
+    self.removed_host_ports = []
 
     # Optionally plant stragglers in the cluster
     # We simulate stragglers by inflating local batch size on the selected ranks
@@ -257,7 +262,6 @@ class AutoscalingAgent:
           raise ValueError("Attempted to expand with unknown rank %s" % spawned_rank)
         spawned_comm = self.mpi_spawned_communicators[spawned_rank]
         comm = mpi_helper.expand(comm, spawned_comm)
-        del self.mpi_spawned_communicators[spawned_rank]
       else:
         comm = mpi_helper.expand(comm)
     self.mpi_communicator = comm
@@ -275,10 +279,20 @@ class AutoscalingAgent:
     if self.status != AutoscalingStatus.RUNNING:
       log_fn("Not spawning worker because we are initializing")
       return False
-    log_fn("Spawning %s worker(s) through MPI" % num_workers)
+    # If there were previously removed workers, just ask them to rejoin instead
+    # of spawning new ones
+    spawn_ranks = []
+    while len(self.removed_host_ports) > 0 and num_workers > 0:
+      removed_host_port = self.removed_host_ports.pop(0)
+      log_fn("Asking worker %s to rejoin cluster" % removed_host_port)
+      spawn_ranks.append(connect(convert_port(removed_host_port)).request_attach())
+      num_workers -= 1
+    # Spawn the remaining workers through MPI as new processes
+    if num_workers > 0:
+      log_fn("Spawning %s worker(s) through MPI" % num_workers)
     with self.spawn_lock:
       starting_rank = self.mpi_next_rank
-      spawn_ranks = list(range(starting_rank, starting_rank + num_workers))
+      spawn_ranks.extend(list(range(starting_rank, starting_rank + num_workers)))
       self.spawned_ranks_to_wait_for.append(spawn_ranks)
       self.mpi_next_rank += num_workers
     def do_spawn(new_worker_rank):
@@ -292,7 +306,8 @@ class AutoscalingAgent:
       with self.spawn_lock:
         self.mpi_spawned_communicators[new_worker_rank] = spawned_communicator
     for r in spawn_ranks:
-      threading.Thread(target=do_spawn, args=[r]).start()
+      if r >= starting_rank:
+        threading.Thread(target=do_spawn, args=[r]).start()
     return True
 
   def num_expected_workers(self):
@@ -325,31 +340,20 @@ class AutoscalingAgent:
     log_fn("Master server accepted our join request")
     self.joined = True
 
-  def on_restart(self):
+  def detach_from_cluster(self):
     """
-    Reset internal state in tensorflow on restart.
+    Transition into detached mode where this process runs everything by itself.
     """
-    # Much of the internal tensorflow state needs to be cleared only when we are using a
-    # distribution strategy. When using horovod, there is no strategy and so there is no need
-    # to run the following.
-    if not self.use_horovod:
-      log_fn("Resetting internal tensorflow state")
-      # Note: tensorflow maintains a thread local variable to keep track of the existing server
-      # If such a server exists, then tensorflow will simply reuse it. Here we clear this variable
-      # to avoid this behavior, because we *do* want it to start a new server with a different
-      # server def.
-      distribute_coordinator._thread_local.__dict__.clear()
-      # Note: tensorflow maintains a thread local variable to keep track of collective ops.
-      # If we don't clear this, then tensorflow will reuse the old op, which has a wrong number
-      # of workers, and hang without any error messages.
-      cross_device_utils._thread_local.__dict__.clear()
-      # Destroy the existing graph used internally by keras, otherwise adding workers hangs
-      # when calling the batch normalization layer. This is caused by a mismatch in the instance
-      # keys used in collective ops between old and new workers in the cluster. Resetting the
-      # global variables used by keras solves this problem.
-      tf.keras.backend.clear_session()
-      # Finally, reset all other internal state stored in the context
-      context.context().reset()
+    self.detached_mode = True
+    self.saved_variables = None
+    self.task_index = 0
+    self.cluster_spec = {"worker": [self.host_port]}
+    with self.pending_cluster_spec_lock:
+      self.pending_cluster_spec = None
+    self.mpi_communicator = MPI.COMM_SELF
+    self.local_batch_size_multiplier = 1
+    self.client.reset(convert_port(self.host_port))
+    self.joined = False
 
   def sync_cluster_spec(self):
     """
@@ -493,7 +497,7 @@ class AutoscalingAgent:
     if there are new workers and everyone is aware of their existence.
     """
     # If this is a spawned worker, join the cluster after the first step
-    if not self.joined:
+    if not self.joined and not self.detached_mode:
       self.join_cluster()
       return True
     # We need to restart if
@@ -540,8 +544,7 @@ class AutoscalingAgent:
 
   def remove_terminated_workers(self):
     """
-    Remove workers that are TERMINATED, if any, from our communicator and free their
-    assigned CUDA_VISIBLE_DEVICES.
+    Remove workers that are TERMINATED, if any, from our communicator.
 
     Note: This must be called *before* the terminated workers exit.
     """
@@ -550,8 +553,9 @@ class AutoscalingAgent:
     for r, (status, host_port) in enumerate(gathered):
       if status == AutoscalingStatus.TERMINATED:
         terminated_ranks.append(r)
-        if host_port in self.cuda_visible_devices_map:
-          del self.cuda_visible_devices_map[host_port]
+        # If we are the master, remember the removed server in case we need it again
+        if self.mpi_communicator.rank == 0:
+          self.removed_host_ports.append(host_port)
     if len(terminated_ranks) > 0 and self.status != AutoscalingStatus.TERMINATED:
       new_group = self.mpi_communicator.group.Excl(terminated_ranks)
       self.mpi_communicator = self.mpi_communicator.Create_group(new_group)

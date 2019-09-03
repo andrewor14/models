@@ -190,8 +190,6 @@ def run_keras(flags_obj, do_run):
 
   The real computation logic is specified through `do_run`, a function that takes in
   two arguments, `flags_obj` and an `AutoscalingCallback`.
-
-  WARNING: this function currently terminates the python process on finish or error.
   """
   # Set TF_CONFIG using MPI
   if "TF_CONFIG" not in os.environ:
@@ -206,36 +204,20 @@ def run_keras(flags_obj, do_run):
   agent = AutoscalingAgent(flags_obj.num_gpus, flags_obj.batch_size, flags_obj.use_horovod)
   callback = AutoscalingCallback(agent)
 
-  # TODO: no need for this loop anymore?
-  while agent.status != AutoscalingStatus.TERMINATED:
-    agent.initialize()
-    if flags_obj.use_horovod:
-      initialize_horovod(agent.mpi_communicator)
-    # Actually run the training
-    # We expect this function to call model.fit
-    result = do_run(flags_obj, callback)
-    agent.on_restart()
-    callback.reset()
-    if flags_obj.use_horovod:
-      import horovod.tensorflow as hvd
-      hvd.shutdown()
+  agent.initialize()
+  if flags_obj.use_horovod:
+    initialize_horovod(agent.mpi_communicator)
+  # Actually run the training
+  # We expect this function to call model.fit
+  result = do_run(flags_obj, callback)
+  callback.reset()
+  if flags_obj.use_horovod:
+    import horovod.tensorflow as hvd
+    hvd.shutdown()
 
-  # Make sure everyone exits together to avoid connection refused errors
-  if is_checkpoint_restart_mode():
-    agent.mpi_communicator.barrier()
-
-  log_fn("Training complete")
-
-  # Hack: exit only if master is dead
-  # If we exit early then we may trigger MPI errors that will fail the whole job
-  if agent.mpi_communicator.rank != 0:
-    try:
-      while True:
-        agent.client.master_server_rpc(lambda s: s.get_status())
-        time.sleep(AUTOSCALING_EXIT_RETRY_INTERVAL_SECONDS)
-    except (ConnectionRefusedError, ConnectionResetError) as e:
-      pass
-  else:
+  # Only master has the ability to exit
+  # This call also causes everyone to exit
+  if agent.joined and agent.mpi_communicator.rank == 0:
+    log_fn("Training complete")
     MPI.COMM_WORLD.Abort()
-  log_fn("Exiting process")
 
