@@ -160,23 +160,6 @@ class AutoscalingAgent:
     log_fn("Initializing")
     self.mpi_communicator.barrier()
 
-    # Wait for all the workers spawned in the last round to join
-    num_workers_joined = 0
-    ranks_to_wait_for = []
-    with self.spawn_lock:
-      if len(self.spawned_ranks_to_wait_for) > 0:
-        # Note: do not pop yet; we need wait until after we transition to READY_TO_SYNC,
-        # otherwise we may accept join requests from unexpected workers and they can
-        # interfere with our cluster spec sync
-        ranks_to_wait_for = self.spawned_ranks_to_wait_for[0]
-    while num_workers_joined != len(ranks_to_wait_for):
-      with self.pending_cluster_spec_lock:
-        if self.pending_cluster_spec is not None:
-          num_workers_joined =\
-            len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
-      log_fn("%s/%s spawned worker(s) have joined" % (num_workers_joined, len(ranks_to_wait_for)))
-      time.sleep(AUTOSCALING_RETRY_INTERVAL_SECONDS)
-
     # Check if cluster membership changed. If so, update cluster spec accordingly.
     self.status = AutoscalingStatus.READY_TO_SYNC
     self.mpi_communicator.barrier()
@@ -184,14 +167,14 @@ class AutoscalingAgent:
       if self.pending_cluster_spec is not None:
         self.apply_cluster_spec(self.pending_cluster_spec)
         self.pending_cluster_spec = None
-    with self.spawn_lock:
-      if len(self.spawned_ranks_to_wait_for) > 0:
-        self.spawned_ranks_to_wait_for.pop(0)
 
     # Expand our communicator to include the provided ranks, if any
     if self.joined:
       with self.spawn_lock:
-        self.maybe_expand_mpi_communicator(ranks_to_wait_for)
+        new_ranks = []
+        if len(self.spawned_ranks_to_wait_for) > 0:
+          new_ranks = self.spawned_ranks_to_wait_for.pop(0)
+        self.maybe_expand_mpi_communicator(new_ranks)
 
     # Sync cluster spec and update relevant variables
     self.sync_cluster_spec()
@@ -514,13 +497,27 @@ class AutoscalingAgent:
       self.join_cluster()
       return True
     # We need to restart if
-    # (1) there is a pending cluster spec, and
-    # (2) we last restarted more than N steps ago
+    # (1) there is a pending cluster spec,
+    # (2) all new workers previously spawned, if any, have joined, and
+    # (3) we last restarted more than N steps ago
+    should_restart = False
+    has_pending = False
+    num_workers_joined = 0
+    num_workers_expected = 0
     with self.pending_cluster_spec_lock:
-      should_restart = self.pending_cluster_spec is not None
+      if self.pending_cluster_spec is not None:
+        has_pending = True
+        num_workers_joined =\
+          len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
+    if has_pending:
+      with self.spawn_lock:
+        if len(self.spawned_ranks_to_wait_for) > 0:
+          num_workers_expected = len(self.spawned_ranks_to_wait_for[0])
+      log_fn("%s/%s spawned worker(s) have joined" % (num_workers_joined, num_workers_expected))
     self.num_steps_since_last_restart += 1
-    if self.num_steps_since_last_restart < self.min_steps_between_restart:
-      should_restart = False
+    should_restart = has_pending and\
+      num_workers_joined >= num_workers_expected and\
+      self.num_steps_since_last_restart >= self.min_steps_between_restart
     # Do a two-phase synchronization to make sure that everyone agrees on whether
     # or not to restart.
     ready_to_restart = all(self.mpi_communicator.allgather(should_restart))

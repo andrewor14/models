@@ -54,9 +54,9 @@ if [[ "$MODE" == "autoscaling" ]] || [[ "$MODE" == "checkpoint-restart" ]]; then
   export AUTOSCALING_SPAWN_EVERY_N_STEPS="${AUTOSCALING_SPAWN_EVERY_N_STEPS:=10}"
   export AUTOSCALING_MIN_WORKERS="${AUTOSCALING_MIN_WORKERS:=1}"
   export AUTOSCALING_MAX_WORKERS="${AUTOSCALING_MAX_WORKERS:=60}"
+  export AUTOSCALING_SPAWN_SIZE="${AUTOSCALING_SPAWN_SIZE:=4}"
   # TODO: how to break this line?
   export AUTOSCALING_MIN_STEPS_BETWEEN_RESTART="${AUTOSCALING_MIN_STEPS_BETWEEN_RESTART:=$AUTOSCALING_SPAWN_EVERY_N_STEPS}"
-  export AUTOSCALING_SCHEDULE="${AUTOSCALING_SCHEDULE:=curve_fitting}"
 fi
 
 # Set a unique job name to identify the experiment

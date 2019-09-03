@@ -8,10 +8,10 @@ import traceback
 from mpi4py import MPI
 import tensorflow as tf
 
-from autoscaling import schedule_callback
 from autoscaling.agent import AutoscalingAgent
 from autoscaling.params import *
 from autoscaling.callback import AutoscalingCallback
+from autoscaling.schedule_callback import AutoscalingScheduleCallback
 from deploy import mpi_helper
 from official.utils.misc import keras_utils
 
@@ -133,10 +133,10 @@ def get_schedule_callback(callback):
   every_n_steps = int(os.getenv(AUTOSCALING_SPAWN_EVERY_N_STEPS, -1))
   min_workers = int(os.getenv(AUTOSCALING_MIN_WORKERS, -1))
   max_workers = int(os.getenv(AUTOSCALING_MAX_WORKERS, -1))
-  schedule_name = os.getenv(AUTOSCALING_SCHEDULE, AUTOSCALING_CURVE_FITTING_SCHEDULE_NAME)
-  if every_n_steps > 0 and min_workers > 0 and max_workers > 0:
-    return schedule_callback.get_class_by_schedule_name(schedule_name)(
-      callback.agent, every_n_steps, min_workers, max_workers)
+  spawn_size = int(os.getenv(AUTOSCALING_SPAWN_SIZE, -1))
+  if every_n_steps > 0 and min_workers > 0 and max_workers > 0 and spawn_size > 0:
+    return AutoscalingScheduleCallback(
+      callback.agent, every_n_steps, min_workers, max_workers, spawn_size)
   return None
 
 def local_batch_size(global_batch_size, size, rank):
