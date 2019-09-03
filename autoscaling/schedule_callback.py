@@ -17,12 +17,20 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
   """
   A `keras.callbacks.Callback` that specifies the schedule for adding and removing workers.
   """
-  def __init__(self, agent, every_n_steps, min_workers, max_workers, spawn_size):
+  def __init__(
+      self,
+      agent,
+      every_n_steps,
+      min_workers,
+      max_workers,
+      spawn_size,
+      min_consecutive_passes_for_remove):
     self.agent = agent
     self.every_n_steps = every_n_steps
     self.min_workers = min_workers
     self.max_workers = max_workers
     self.spawn_size = spawn_size
+    self.min_consecutive_passes_for_remove = min_consecutive_passes_for_remove
     self.start_time = None
     self.num_workers_to_spawn_next_step = 0
     # Number of workers => list of throughputs
@@ -244,18 +252,24 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
         num_workers[i],
         average_throughputs[num_workers[i+1]],
         num_workers[i+1]))
-    # If conditions have all failed, then keep removing workers from the
-    # earliest point of failure
-    if True not in condition_results:
-      target = num_workers[0] - self.spawn_size
-    elif False not in condition_results:
-      # If conditions have all passed, then keep adding workers from the
-      # latest point of success
+    # If conditions have all passed, then keep adding workers from the
+    # latest point of success
+    if False not in condition_results:
       target = num_workers[-1] + self.spawn_size
     else:
-      # Otherwise, some have passed and some have failed, in which case
-      # we go to the earliest point of failure and stay threre
-      target = num_workers[np.where(np.array(condition_results) == False)[0][0]]
+      # Unless we find N consecutive passes, we keep removing workers
+      num_possible_removes = int((current_num_workers - self.min_workers) / self.spawn_size)
+      min_consecutive_passes = min(self.min_consecutive_passes_for_remove, num_possible_removes)
+      if not all(condition_results[:min_consecutive_passes]):
+        target = num_workers[0] - self.spawn_size
+      else:
+        # Otherwise, we should stop removing and stay at the earliest point of failure
+        target = num_workers[np.where(np.array(condition_results) == False)[0][0]]
+    # Make sure target doesn't go below the min
+    if target < self.min_workers:
+      log_fn("Warning: attempted to set target to %s < min workers %s" %\
+        (target, self.min_workers))
+      target = self.min_workers
     log_fn("Current num workers = %s" % current_num_workers)
     log_fn("Num workers = %s" % num_workers)
     log_fn("Scaling condition results = %s" % condition_results)
