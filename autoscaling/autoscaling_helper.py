@@ -136,6 +136,8 @@ def get_schedule_callback(callback):
   spawn_size = int(os.getenv(AUTOSCALING_SPAWN_SIZE, 4))
   min_consecutive_passes_for_remove =\
     int(os.getenv(AUTOSCALING_MIN_CONSECUTIVE_PASSES_FOR_REMOVE, 3))
+  min_batches_for_staying =\
+    int(os.getenv(AUTOSCALING_MIN_BATCHES_FOR_STAYING, 200))
   if every_n_steps > 0 and max_workers > 0:
     return AutoscalingScheduleCallback(
       callback.agent,
@@ -143,7 +145,8 @@ def get_schedule_callback(callback):
       min_workers,
       max_workers,
       spawn_size,
-      min_consecutive_passes_for_remove)
+      min_consecutive_passes_for_remove,
+      min_batches_for_staying)
   return None
 
 def local_batch_size(global_batch_size, size, rank):

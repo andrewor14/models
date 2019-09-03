@@ -513,7 +513,8 @@ class AutoscalingAgent:
       with self.spawn_lock:
         if len(self.spawned_ranks_to_wait_for) > 0:
           num_workers_expected = len(self.spawned_ranks_to_wait_for[0])
-      log_fn("%s/%s spawned worker(s) have joined" % (num_workers_joined, num_workers_expected))
+      if num_workers_expected > 0:
+        log_fn("%s/%s spawned worker(s) have joined" % (num_workers_joined, num_workers_expected))
     self.num_steps_since_last_restart += 1
     should_restart = has_pending and\
       num_workers_joined >= num_workers_expected and\

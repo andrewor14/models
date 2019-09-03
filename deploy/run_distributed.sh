@@ -58,6 +58,7 @@ if [[ "$MODE" == "autoscaling" ]] || [[ "$MODE" == "checkpoint-restart" ]]; then
   # TODO: how to break this line?
   export AUTOSCALING_MIN_STEPS_BETWEEN_RESTART="${AUTOSCALING_MIN_STEPS_BETWEEN_RESTART:=$AUTOSCALING_SPAWN_EVERY_N_STEPS}"
   export AUTOSCALING_MIN_CONSECUTIVE_PASSES_FOR_REMOVE="${AUTOSCALING_MIN_CONSECUTIVE_PASSES_FOR_REMOVE:=3}"
+  export AUTOSCALING_MIN_BATCHES_FOR_STAYING="${AUTOSCALING_MIN_BATCHES_FOR_STAYING:=200}"
 fi
 
 # Set a unique job name to identify the experiment

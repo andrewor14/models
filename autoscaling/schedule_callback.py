@@ -24,13 +24,20 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
       min_workers,
       max_workers,
       spawn_size,
-      min_consecutive_passes_for_remove):
+      min_consecutive_passes_for_remove,
+      min_batches_for_staying):
     self.agent = agent
     self.every_n_steps = every_n_steps
     self.min_workers = min_workers
     self.max_workers = max_workers
     self.spawn_size = spawn_size
+    # Minimum number of times the scaling conditions have to pass in a row before
+    # we stop removing workers
     self.min_consecutive_passes_for_remove = min_consecutive_passes_for_remove
+    # Minimum number of batches for staying at a certain number of workers k
+    # This is required for both k and k+1 to make sure we have enough information
+    # for these two data points
+    self.min_batches_for_staying = min_batches_for_staying
     self.start_time = None
     self.num_workers_to_spawn_next_step = 0
     # Number of workers => list of throughputs
@@ -258,13 +265,23 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
       target = num_workers[-1] + self.spawn_size
     else:
       # Unless we find N consecutive passes, we keep removing workers
-      num_possible_removes = int((current_num_workers - self.min_workers) / self.spawn_size)
-      min_consecutive_passes = min(self.min_consecutive_passes_for_remove, num_possible_removes)
-      if not all(condition_results[:min_consecutive_passes]):
+      if not all(condition_results[:self.min_consecutive_passes_for_remove]) and\
+          num_workers[0] != self.min_workers:
         target = num_workers[0] - self.spawn_size
       else:
         # Otherwise, we should stop removing and stay at the earliest point of failure
-        target = num_workers[np.where(np.array(condition_results) == False)[0][0]]
+        target_index = np.where(np.array(condition_results) == False)[0][0]
+        target_index_next = target_index + 1
+        target = num_workers[target_index]
+        # If the next number of workers exists, we have to check if we have a sufficient
+        # number of throughputs for it before settling on the target
+        if target_index_next < len(num_workers):
+          target_next = num_workers[target_index_next]
+          _, target_next_count = self.throughputs[target_next][0]
+          if target_next_count < self.min_batches_for_staying:
+            target = target_next
+        else:
+          log_fn("Warning: target index next doesn't exist; should never happen")
     # Make sure target doesn't go below the min
     if target < self.min_workers:
       log_fn("Warning: attempted to set target to %s < min workers %s" %\
