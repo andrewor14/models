@@ -87,11 +87,18 @@ class AutoscalingCallback(keras.callbacks.Callback):
     """
     Listen for changes in cluster membership and react by restarting the server.
     """
-    # Update counters
-    self.num_batches_processed_this_epoch += 1
-    if self.num_batches_processed_this_epoch == self.num_batches_per_epoch:
-      self.num_epochs_processed += 1
+    if not self.agent.detached_mode:
+      # Update counters
+      self.num_batches_processed_this_epoch += 1
+      if self.num_batches_processed_this_epoch == self.num_batches_per_epoch:
+        self.num_epochs_processed += 1
+        self.num_batches_processed_this_epoch = 0
+    else:
+      # Keep telling tensorflow to start on step 0
       self.num_batches_processed_this_epoch = 0
+      self.num_epochs_processed = 0
+      autoscaling_helper.STEP_NUMBER = 0
+      autoscaling_helper.EPOCH_NUMBER = 0
     # Check if we need to reinitialize
     is_new_worker = not self.agent.joined
     should_initialize = self.agent.step_end()
