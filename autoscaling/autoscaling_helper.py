@@ -137,7 +137,7 @@ def get_schedule_callback(callback):
   min_consecutive_passes_for_remove =\
     int(os.getenv(AUTOSCALING_MIN_CONSECUTIVE_PASSES_FOR_REMOVE, 3))
   min_batches_for_staying =\
-    int(os.getenv(AUTOSCALING_MIN_BATCHES_FOR_STAYING, 200))
+    int(os.getenv(AUTOSCALING_MIN_BATCHES_FOR_STAYING, 100))
   if every_n_steps > 0 and max_workers > 0:
     return AutoscalingScheduleCallback(
       callback.agent,
