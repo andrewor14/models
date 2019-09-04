@@ -68,7 +68,9 @@ function set_job_name() {
     num_workers="$AUTOSCALING_INITIAL_WORKERS"
   fi
   export SUBMIT_TIMESTAMP="${SUBMIT_TIMESTAMP:=$(get_submit_timestamp)}"
-  export RUN_TAG="${DATASET}-${BATCH_SIZE}-${MODE}-${num_workers}"
+  if [[ -z "$RUN_TAG" ]]; then
+    export RUN_TAG="${DATASET}-${BATCH_SIZE}-${MODE}-${num_workers}"
+  fi
   if [[ -n "$AUTOSCALING_MASTER_HOST_PORT" ]]; then
     export RUN_TAG="${RUN_TAG}-spawned"
   fi
