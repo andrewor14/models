@@ -41,15 +41,17 @@ class AutoscalingCallback(keras.callbacks.Callback):
 
   def get_progress(self):
     """
-    Return a 3-tuple:
+    Return a 4-tuple:
       (1) Number of batches processed in this epoch so far,
       (2) Number of epochs processed so far, and
       (3) Number of batches per epoch
+      (4) Total number of epochs
     """
     return (
       self.num_batches_processed_this_epoch,
       self.num_epochs_processed,
-      self.num_batches_per_epoch)
+      self.num_batches_per_epoch,
+      self.num_epochs_total)
 
   def bootstrap_progress(self):
     """
@@ -64,6 +66,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
       self.num_batches_processed_this_epoch = progress[0]
       self.num_epochs_processed = progress[1]
       self.num_batches_per_epoch = progress[2]
+      self.num_epochs_total = progress[3]
       # Tell tensorflow which step and epoch to restart from
       autoscaling_helper.STEP_NUMBER = self.num_batches_processed_this_epoch
       autoscaling_helper.EPOCH_NUMBER = self.num_epochs_processed

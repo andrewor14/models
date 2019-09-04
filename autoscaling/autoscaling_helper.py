@@ -131,14 +131,20 @@ def get_schedule_callback(callback):
   Return a `keras.callbacks.Callback` that specifies the autoscaling schedule to be used.
   """
   every_n_steps = int(os.getenv(AUTOSCALING_SPAWN_EVERY_N_STEPS, -1))
-  max_workers = int(os.getenv(AUTOSCALING_MAX_WORKERS, -1))
-  min_workers = int(os.getenv(AUTOSCALING_MIN_WORKERS, 1))
   spawn_size = int(os.getenv(AUTOSCALING_SPAWN_SIZE, 4))
+  max_workers = int(os.getenv(AUTOSCALING_MAX_WORKERS, -1))
+  min_workers = int(os.getenv(AUTOSCALING_MIN_WORKERS, spawn_size))
   min_consecutive_passes_for_remove =\
     int(os.getenv(AUTOSCALING_MIN_CONSECUTIVE_PASSES_FOR_REMOVE, 3))
   min_batches_for_staying =\
     int(os.getenv(AUTOSCALING_MIN_BATCHES_FOR_STAYING, 100))
   if every_n_steps > 0 and max_workers > 0:
+    if max_workers % spawn_size != 0:
+      raise ValueError("Max workers (%s) must be a multiple of spawn size (%s)" %\
+        (max_workers, spawn_size))
+    if min_workers % spawn_size != 0:
+      raise ValueError("Min workers (%s) must be a multiple of spawn size (%s)" %\
+        (min_workers, spawn_size))
     return AutoscalingScheduleCallback(
       callback.agent,
       every_n_steps,

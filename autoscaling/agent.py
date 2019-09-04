@@ -47,10 +47,11 @@ class AutoscalingAgent:
     self.detached_mode = False
     self.cluster_initialized = False
 
-    # A lambda that returns a 3-tuple:
+    # A lambda that returns a 4-tuple:
     #  (1) Number of batches processed in this epoch so far,
     #  (2) Number of epochs processed so far, and
     #  (3) Number of batches per epoch
+    #  (4) Number of total epochs
     # This is used for serving our progress through the autoscaling service
     self.get_progress_method = None
 

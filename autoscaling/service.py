@@ -49,14 +49,15 @@ class AutoscalingService:
 
   def get_progress(self):
     '''
-    Return a 3-tuple:
+    Return a 4-tuple:
       (1) Number of batches processed in this epoch so far,
       (2) Number of epochs processed so far, and
       (3) Number of batches per epoch
+      (4) Number of total epochs
     '''
     if self.agent.get_progress_method is not None:
       return self.agent.get_progress_method()
-    return (None, None, None)
+    return (None, None, None, None)
 
   def get_saved_variables(self):
     '''

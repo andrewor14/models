@@ -8,6 +8,7 @@ import tensorflow as tf
 from tensorflow.python import keras
 
 from autoscaling.params import *
+from autoscaling.utility import *
 
 
 def log_fn(msg):
@@ -65,6 +66,10 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     # No more workers are spawned if the throughput scaling efficiency falls below this
     self.throughput_scaling_threshold =\
       float(os.getenv(AUTOSCALING_THROUGHPUT_SCALING_THRESHOLD, 0.1))
+    # Sum of all step times we have seen
+    self.time_elapsed = 0
+    # Utility function used to compare against expected total training cost, if any
+    self.utility_function = None
     # Maybe restore values from checkpoint metadata file
     if is_checkpoint_restart_mode():
       for key, value in os.environ.items():
@@ -72,6 +77,8 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
           num_workers = int(key.lstrip(AUTOSCALING_SCHEDULE_THROUGHPUT_PREFIX))
           average, count = tuple(value.split(","))
           self.throughputs[num_workers] = [(float(average), int(count))]
+        if key == AUTOSCALING_SCHEDULE_TIME_ELAPSED:
+          self.time_elapsed = float(value)
       log_fn("Restored throughputs from checkpoint metadata file: %s" % self.throughputs)
     log_fn("Starting %s (every_n_steps = %s, min_workers = %s, max_workers = %s)" %\
       (self.__class__.__name__, every_n_steps, min_workers, max_workers))
@@ -83,6 +90,9 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     """
     Collect throughput and potentially spawn some workers.
     """
+    step_time = time.time() - self.start_time
+    self.time_elapsed += step_time
+
     # Skip measuring the first batch after every restart, which often takes longer
     if self.agent.num_steps_since_last_restart < 1:
       self.awaiting_new_workers = False
@@ -90,7 +100,6 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
 
     # Record throughput
     if self.start_time is not None:
-      step_time = time.time() - self.start_time
       num_workers = len(self.agent.cluster_spec["worker"])
       throughput = self.agent.global_batch_size / step_time
       if num_workers not in self.throughputs:
@@ -167,6 +176,8 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
         key = "%s%s" % (AUTOSCALING_SCHEDULE_THROUGHPUT_PREFIX, num_workers)
         value = "%s,%s" % throughputs[0]
         self.agent.checkpoint_restart_variables[key] = value
+      self.agent.checkpoint_restart_variables[AUTOSCALING_SCHEDULE_TIME_ELAPSED] =\
+        self.time_elapsed
 
   def compact_list(self, _list):
     """
@@ -248,6 +259,8 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     current_num_workers = len(self.agent.cluster_spec["worker"])
     # If we only have one data point, always add workers
     if len(average_throughputs) == 1:
+      expected_total_time = self.get_expected_total_time(current_num_workers)
+      self.utility_function = get_utility_function(expected_total_time)
       return self.spawn_size
     target = None
     num_workers = list(average_throughputs.keys())
@@ -293,6 +306,29 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     log_fn("New target = %s" % target)
     return target - current_num_workers
 
+  def get_expected_total_time(self, num_workers):
+    """
+    Return the expected total training time if we finish the remaining batches with
+    the given number of workers. We assume `num_workers` is in `self.throughputs`.
+    """
+    average_throughputs = self.get_average_throughputs()
+    step_time = self.agent.global_batch_size / average_throughputs[num_workers]
+    return self.time_elapsed + self.get_num_batches_remaining() * step_time
+
+  def get_num_batches_remaining(self):
+    """
+    Return how many batches we have left before training is complete.
+    """
+    progress = self.agent.get_progress_method()
+    num_batches_processed_this_epoch = progress[0]
+    num_epochs_processed = progress[1]
+    num_batches_per_epoch = progress[2]
+    num_epochs_total = progress[3]
+    num_batches_total = num_batches_per_epoch * num_epochs_total
+    num_batches_processed = num_batches_per_epoch * num_epochs_processed +\
+      num_batches_processed_this_epoch
+    return num_batches_total - num_batches_processed
+
   def met_scaling_conditions(
       self,
       old_throughput,
@@ -302,6 +338,46 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     """
     Return whether the scaling conditions are met, true means keep training.
     """
+    if self.utility_function is not None:
+      # Total cost is given by
+      #   C = C_p + t_k * b * k * P
+      #     C_p is the past cost
+      #     t_k is the step time with k workers
+      #     b is the number of remaining batches
+      #     k is the number of workers
+      #     P is the price per worker
+      num_remaining_batches = self.get_num_batches_remaining()
+      price_per_worker_per_second = get_price_per_worker_per_second()
+      new_step_time = self.agent.global_batch_size / new_throughput
+      old_step_time = self.agent.global_batch_size / old_throughput
+      new_remaining_cost = new_step_time * new_num_workers * num_remaining_batches *\
+        price_per_worker_per_second
+      old_remaining_cost = old_step_time * old_num_workers * num_remaining_batches *\
+        price_per_worker_per_second
+      change_in_cost = new_remaining_cost - old_remaining_cost
+      # Utility, a function of expected total time
+      new_expected_total_time = self.get_expected_total_time(new_num_workers)
+      old_expected_total_time = self.get_expected_total_time(old_num_workers)
+      new_utility = self.utility_function(new_expected_total_time)
+      old_utility = self.utility_function(old_expected_total_time)
+      change_in_utility = new_utility - old_utility
+      passed = change_in_utility > change_in_cost
+      log_fn("========== Checking scaling conditions ==========")
+      log_fn("Old step time = %s (num workers = %s)" % (old_step_time, old_num_workers))
+      log_fn("New step time = %s (num workers = %s)" % (new_step_time, new_num_workers))
+      log_fn("Num remaining batches = %s" % num_remaining_batches)
+      log_fn("Price per worker per second = %s" % price_per_worker_per_second)
+      log_fn("Old remaining cost = %s" % old_remaining_cost)
+      log_fn("New remaining cost = %s" % new_remaining_cost)
+      log_fn("* Change in cost = %s" % change_in_cost)
+      log_fn("Old expected total time = %s" % old_expected_total_time)
+      log_fn("New expected total time = %s" % new_expected_total_time)
+      log_fn("Old utility = %s" % old_utility)
+      log_fn("New utility = %s" % new_utility)
+      log_fn("* Change in utility = %s" % change_in_utility)
+      log_fn("* Passed = %s" % passed)
+      log_fn("================================================")
+      return passed
     # Check throughput scaling efficiency, given by
     #   s_k = (delta(R) / delta(k)) / (r_{k-1}), where
     #     k is the number of workers
@@ -320,7 +396,6 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     log_fn("Throughput scaling threshold = %s" % self.throughput_scaling_threshold)
     log_fn("Passed = %s" % passed)
     log_fn("================================================")
-    # TODO: check utility function too
     return passed
 
   def spawn_workers(self, num_additional_workers):
