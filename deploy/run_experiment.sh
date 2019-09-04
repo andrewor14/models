@@ -40,7 +40,7 @@ export MPI_SILENCE_OUTPUT="${MPI_SILENCE_OUTPUT:=true}"
 export PARALLEL_STATIC_MODE="${PARALLEL_STATIC_MODE:=false}"
 
 # Run the experiment
-export NUM_WORKERS_LIST=`seq $MIN_GPUS $NUM_GPUS_INCREMENT $MAX_GPUS`
+export NUM_WORKERS_LIST=`seq $MAX_GPUS -$NUM_GPUS_INCREMENT $MIN_GPUS`
 
 echo "==========================================================="
 echo " Running experiment '$MODE'"
