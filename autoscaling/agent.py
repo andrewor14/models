@@ -45,6 +45,7 @@ class AutoscalingAgent:
     self.num_steps_since_last_restart = 0
     self.min_steps_between_restart = int(os.getenv(AUTOSCALING_MIN_STEPS_BETWEEN_RESTART, 1))
     self.detached_mode = False
+    self.cluster_initialized = False
 
     # A lambda that returns a 3-tuple:
     #  (1) Number of batches processed in this epoch so far,
@@ -496,6 +497,23 @@ class AutoscalingAgent:
     reinitialize after the first step and existing workers should reinitialize
     if there are new workers and everyone is aware of their existence.
     """
+    # Initialize the cluster by spawning the remaining set of initial workers
+    # Note: we have to do this now as opposed to in the beginning because of random
+    # MPI segmentation faults. This increases startup time slightly.
+    if not self.cluster_initialized and self.joined and self.mpi_communicator.rank == 0:
+      num_remaining_workers = int(os.getenv(AUTOSCALING_INITIAL_WORKERS, 1)) - 1
+      if num_remaining_workers > 0:
+        self.mpi_spawn_workers(num_remaining_workers)
+        log_fn("Waiting for %s workers to join" % num_remaining_workers)
+        num_workers_joined = 0
+        while num_remaining_workers > num_workers_joined:
+          with self.pending_cluster_spec_lock:
+            if self.pending_cluster_spec is not None:
+              num_workers_joined =\
+                len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
+          time.sleep(AUTOSCALING_JOIN_RETRY_INTERVAL_SECONDS)
+      self.cluster_initialized = True
+      return True
     # If this is a spawned worker, join the cluster after the first step
     if not self.joined and not self.detached_mode:
       self.join_cluster()

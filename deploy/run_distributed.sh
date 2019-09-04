@@ -46,10 +46,10 @@ if [[ "$MODE" == "autoscaling" ]] || [[ "$MODE" == "checkpoint-restart" ]]; then
     export AUTOSCALING_DISABLE_WRITE_GRAPH="true"
     export AUTOSCALING_DISABLE_CHECKPOINTS="true"
     export AUTOSCALING_DISABLE_CHECKPOINT_RESTORE="true"
-    # If we're just trying to attach to an existing cluster, just launch 1 worker
-    if [[ -n "$AUTOSCALING_MASTER_HOST_PORT" ]]; then
-      export NUM_WORKERS=1
-    fi
+    # In autoscaling mode, we always launch 1 worker initially and spawn the
+    # rest in the beginning
+    export AUTOSCALING_INITIAL_WORKERS="$NUM_WORKERS"
+    export NUM_WORKERS=1
   fi
   export AUTOSCALING_SPAWN_EVERY_N_STEPS="${AUTOSCALING_SPAWN_EVERY_N_STEPS:=10}"
   export AUTOSCALING_MIN_WORKERS="${AUTOSCALING_MIN_WORKERS:=1}"
@@ -63,8 +63,9 @@ fi
 
 # Set a unique job name to identify the experiment
 function set_job_name() {
+  num_workers="${AUTOSCALING_INITIAL_WORKERS:=$NUM_WORKERS}"
   export SUBMIT_TIMESTAMP="${SUBMIT_TIMESTAMP:=$(get_submit_timestamp)}"
-  export RUN_TAG="${DATASET}-${BATCH_SIZE}-${MODE}-${NUM_WORKERS}"
+  export RUN_TAG="${DATASET}-${BATCH_SIZE}-${MODE}-${num_workers}"
   if [[ -n "$AUTOSCALING_MASTER_HOST_PORT" ]]; then
     export RUN_TAG="${RUN_TAG}-spawned"
   fi
