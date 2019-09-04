@@ -261,7 +261,10 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
     if len(average_throughputs) == 1:
       expected_total_time = self.get_expected_total_time(current_num_workers)
       self.utility_function = get_utility_function(expected_total_time)
-      return self.spawn_size
+      if current_num_workers < self.max_workers:
+        return self.spawn_size
+      else:
+        return self.spawn_size * -1
     target = None
     num_workers = list(average_throughputs.keys())
     num_workers.sort()
@@ -274,16 +277,21 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
         num_workers[i+1]))
     # If conditions have all passed, then keep adding workers from the
     # latest point of success
-    if False not in condition_results:
+    if False not in condition_results and num_workers[-1] != self.max_workers:
       target = num_workers[-1] + self.spawn_size
     else:
       # Unless we find N consecutive passes, we keep removing workers
-      if not all(condition_results[:self.min_consecutive_passes_for_remove]) and\
+      min_consecutive_passes = self.min_consecutive_passes_for_remove
+      if condition_results[:min_consecutive_passes] != [True] * min_consecutive_passes and\
           num_workers[0] != self.min_workers:
         target = num_workers[0] - self.spawn_size
       else:
         # Otherwise, we should stop removing and stay at the earliest point of failure
-        target_index = np.where(np.array(condition_results) == False)[0][0]
+        # If no such point of failure exists, just jump to the last index
+        if False not in condition_results:
+          target_index = len(num_workers) - 1
+        else:
+          target_index = np.where(np.array(condition_results) == False)[0][0]
         target_index_next = target_index + 1
         target = num_workers[target_index]
         # If the next number of workers exists, we have to check if we have a sufficient
@@ -293,8 +301,6 @@ class AutoscalingScheduleCallback(keras.callbacks.Callback):
           _, target_next_count = self.throughputs[target_next][0]
           if target_next_count < self.min_batches_for_staying:
             target = target_next
-        else:
-          log_fn("Warning: target index next doesn't exist; should never happen")
     # Make sure target doesn't go below the min
     if target < self.min_workers:
       log_fn("Warning: attempted to set target to %s < min workers %s" %\
