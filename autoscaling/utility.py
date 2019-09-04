@@ -11,7 +11,7 @@ def log_fn(msg):
   tf.logging.info("[Utility function]: %s" % msg)
 
 def get_price_per_worker_per_second():
-  return float(os.getenv(AUTOSCALING_PRICE_PER_WORKER_PER_SECOND, 1/3600))
+  return float(os.getenv(AUTOSCALING_PRICE_PER_WORKER_PER_HOUR, 1)) / 3600
 
 def get_utility_function(initial_t):
   """

@@ -317,7 +317,7 @@ class AutoscalingAgent:
     # However, if we spawn too many at the same time, we may run into seg faults
     # from MPI, so we need to spawn moderately in batches
     spawn_threads = []
-    spawn_limit = 20
+    spawn_limit = 10
     for r in spawn_ranks:
       if r >= starting_rank:
         t = threading.Thread(target=do_spawn, args=[r])
