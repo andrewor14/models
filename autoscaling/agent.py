@@ -231,6 +231,12 @@ class AutoscalingAgent:
     self.status = AutoscalingStatus.RUNNING
     self.mpi_communicator.barrier()
 
+    # If we are the master, spawn the remaining workers
+    if not self.cluster_initialized and self.joined and self.mpi_communicator.rank == 0:
+      num_remaining_workers = int(os.getenv(AUTOSCALING_INITIAL_WORKERS, 1)) - 1
+      if num_remaining_workers > 0:
+        self.mpi_spawn_workers(num_remaining_workers)
+
   def maybe_expand_mpi_communicator(self, ranks):
     """
     Merge newly spawned workers, if any, into our existing communicator.
@@ -307,9 +313,20 @@ class AutoscalingAgent:
       spawned_communicator = mpi_helper.spawn(new_worker_rank, env=env)
       with self.spawn_lock:
         self.mpi_spawned_communicators[new_worker_rank] = spawned_communicator
+    # Spawn asynchronously in parallel; each call to MPI_SPAWN takes about 3 seconds
+    # However, if we spawn too many at the same time, we may run into seg faults
+    # from MPI, so we need to spawn moderately in batches
+    spawn_threads = []
+    spawn_limit = 20
     for r in spawn_ranks:
       if r >= starting_rank:
-        threading.Thread(target=do_spawn, args=[r]).start()
+        t = threading.Thread(target=do_spawn, args=[r])
+        t.start()
+        spawn_threads.append(t)
+        if len(spawn_threads) >= spawn_limit:
+          for tt in spawn_threads:
+            tt.join()
+          spawn_threads.clear()
     return True
 
   def num_expected_workers(self):
@@ -498,14 +515,11 @@ class AutoscalingAgent:
     reinitialize after the first step and existing workers should reinitialize
     if there are new workers and everyone is aware of their existence.
     """
-    # Initialize the cluster by spawning the remaining set of initial workers
-    # Note: we have to do this now as opposed to in the beginning because of random
-    # MPI segmentation faults. This increases startup time slightly.
+    # Wait for the initial set of workers to join
     if not self.cluster_initialized and self.joined and self.mpi_communicator.rank == 0:
       self.cluster_initialized = True
       num_remaining_workers = int(os.getenv(AUTOSCALING_INITIAL_WORKERS, 1)) - 1
       if num_remaining_workers > 0:
-        self.mpi_spawn_workers(num_remaining_workers)
         log_fn("Waiting for %s workers to join" % num_remaining_workers)
         num_workers_joined = 0
         while num_remaining_workers > num_workers_joined:
