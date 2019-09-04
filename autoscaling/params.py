@@ -54,6 +54,9 @@ def get_autoscaling_mode():
 def is_checkpoint_restart_mode():
   return get_autoscaling_mode() == AutoscalingMode.CHECKPOINT_RESTART
 
+def is_autoscaling_mode():
+  return get_autoscaling_mode() == AutoscalingMode.AUTOSCALING
+
 # Statuses for syncing restart across replicas, state machine
 # See `get_next_statuses` for state machine.
 class AutoscalingStatus(Enum):

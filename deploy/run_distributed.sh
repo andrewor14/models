@@ -63,7 +63,10 @@ fi
 
 # Set a unique job name to identify the experiment
 function set_job_name() {
-  num_workers="${AUTOSCALING_INITIAL_WORKERS:=$NUM_WORKERS}"
+  num_workers="$NUM_WORKERS"
+  if [[ -n "$AUTOSCALING_INITIAL_WORKERS" ]]; then
+    num_workers="$AUTOSCALING_INITIAL_WORKERS"
+  fi
   export SUBMIT_TIMESTAMP="${SUBMIT_TIMESTAMP:=$(get_submit_timestamp)}"
   export RUN_TAG="${DATASET}-${BATCH_SIZE}-${MODE}-${num_workers}"
   if [[ -n "$AUTOSCALING_MASTER_HOST_PORT" ]]; then

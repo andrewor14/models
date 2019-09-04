@@ -501,6 +501,7 @@ class AutoscalingAgent:
     # Note: we have to do this now as opposed to in the beginning because of random
     # MPI segmentation faults. This increases startup time slightly.
     if not self.cluster_initialized and self.joined and self.mpi_communicator.rank == 0:
+      self.cluster_initialized = True
       num_remaining_workers = int(os.getenv(AUTOSCALING_INITIAL_WORKERS, 1)) - 1
       if num_remaining_workers > 0:
         self.mpi_spawn_workers(num_remaining_workers)
@@ -512,8 +513,7 @@ class AutoscalingAgent:
               num_workers_joined =\
                 len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
           time.sleep(AUTOSCALING_JOIN_RETRY_INTERVAL_SECONDS)
-      self.cluster_initialized = True
-      return True
+        return True
     # If this is a spawned worker, join the cluster after the first step
     if not self.joined and not self.detached_mode:
       self.join_cluster()
