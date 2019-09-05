@@ -221,9 +221,14 @@ def run_keras(flags_obj, do_run):
     import horovod.tensorflow as hvd
     hvd.shutdown()
 
+  log_fn("Training complete")
+
   # Only master has the ability to exit
   # This call also causes everyone to exit
   if agent.joined and agent.mpi_communicator.rank == 0:
-    log_fn("Training complete")
     MPI.COMM_WORLD.Abort()
-
+  else:
+    # Sleep forever and wait for master to terminate us
+    # This only happens when workers are not detached when removed
+    while True:
+      time.sleep(100000)

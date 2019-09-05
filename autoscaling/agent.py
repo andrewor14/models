@@ -44,6 +44,7 @@ class AutoscalingAgent:
     self.use_horovod = use_horovod
     self.num_steps_since_last_restart = 0
     self.min_steps_between_restart = int(os.getenv(AUTOSCALING_MIN_STEPS_BETWEEN_RESTART, 1))
+    self.detach_when_removed = os.getenv(AUTOSCALING_DETACH_WHEN_REMOVED, "true").lower() == "true"
     self.detached_mode = False
     self.cluster_initialized = False
 
@@ -586,9 +587,12 @@ class AutoscalingAgent:
     for r, (status, host_port) in enumerate(gathered):
       if status == AutoscalingStatus.TERMINATED:
         terminated_ranks.append(r)
-        # If we are the master, remember the removed server in case we need it again
         if self.mpi_communicator.rank == 0:
-          self.removed_host_ports.append(host_port)
+          # Optionally remember the removed server in case we need it again
+          if self.detach_when_removed:
+            self.removed_host_ports.append(host_port)
+          elif host_port in self.cuda_visible_devices_map:
+            del self.cuda_visible_devices_map[host_port]
     if len(terminated_ranks) > 0 and self.status != AutoscalingStatus.TERMINATED:
       new_group = self.mpi_communicator.group.Excl(terminated_ranks)
       self.mpi_communicator = self.mpi_communicator.Create_group(new_group)

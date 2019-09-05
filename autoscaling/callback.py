@@ -104,7 +104,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
     should_initialize = self.agent.step_end()
     # If we are removed from the cluster, restart training in detached mode
     if self.agent.status == AutoscalingStatus.TERMINATED:
-      if is_autoscaling_mode():
+      if is_autoscaling_mode() and self.agent.detach_when_removed:
         self.num_batches_processed_this_epoch = 0
         self.num_epochs_processed = 0
         autoscaling_helper.STEP_NUMBER = 0
