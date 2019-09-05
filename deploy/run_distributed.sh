@@ -77,6 +77,27 @@ function set_job_name() {
   export JOB_NAME="${RUN_TAG}-${SUBMIT_TIMESTAMP}"
 }
 
+# Guard against transient failures (e.g. seg faults in the beginning) by checking
+# whether the process completed too quickly
+function run_it() {
+  # If the job finished within this amount of time, assume that it failed and restart it
+  MIN_RUN_TIME_SECONDS="${MIN_RUN_TIME_SECONDS:=120}"
+  MAX_RUN_ATTEMPTS="${MAX_RUN_ATTEMPTS:=10}"
+  ATTEMPT_NUMBER=1
+  ORIGINAL_JOB_NAME="$JOB_NAME"
+  while [[ "$ATTEMPT_NUMBER" -le "$MAX_RUN_ATTEMPTS" ]]; do
+    SECONDS=0
+    ./deploy.sh
+    if [[ "$SECONDS" -ge "$MIN_RUN_TIME_SECONDS" ]]; then
+      break
+    fi
+    echo "Job seems to have failed, retrying (attempt $ATTEMPT_NUMBER)"
+    echo "  ... only took $SECONDS seconds but expected > $MIN_RUN_TIME_SECONDS seconds"
+    ATTEMPT_NUMBER="$((ATTEMPT_NUMBER+1))"
+    export JOB_NAME="${ORIGINAL_JOB_NAME}-attempt-${ATTEMPT_NUMBER}"
+  done
+}
+
 # In 'checkpoint-restart' mode, the job exits when adjusting its number of workers
 # Therefore, we have to run tensorflow in a loop and exit only when training is done
 if [[ "$MODE" == "checkpoint-restart" ]]; then
@@ -89,7 +110,7 @@ if [[ "$MODE" == "checkpoint-restart" ]]; then
     set_job_name
     export JOB_NAME="${JOB_NAME}-${NUM_RESTARTS}"
     export TRAIN_DIR="$BASE_TRAIN_DIR/$JOB_NAME"
-    ./deploy.sh
+    run_it
     # Copy checkpoint files to all remote hosts
     # This assumes all hosts have the exact same directory structures
     if [[ "$CHECKPOINT_RESTART_SKIP_COPY" != "true" ]]; then
@@ -119,6 +140,6 @@ if [[ "$MODE" == "checkpoint-restart" ]]; then
   done
 else
   set_job_name
-  ./deploy.sh
+  run_it
 fi
 
