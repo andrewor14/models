@@ -530,9 +530,16 @@ class AutoscalingAgent:
                 len(set(self.pending_cluster_spec["worker"]) - set(self.cluster_spec["worker"]))
           time.sleep(AUTOSCALING_JOIN_RETRY_INTERVAL_SECONDS)
         return True
+    # If we're in detached mode, keep looping until master notifies us to join
+    if self.detached_mode:
+      log_fn("Waiting for signal from master in detached mode")
+      while self.detached_mode:
+        time.sleep(AUTOSCALING_JOIN_RETRY_INTERVAL_SECONDS)
     # If this is a spawned worker, join the cluster after the first step
-    if not self.joined and not self.detached_mode:
+    if not self.joined:
       self.join_cluster()
+      self.num_steps_since_last_restart = 0
+      self.status = AutoscalingStatus.RESTARTING
       return True
     # We need to restart if
     # (1) there is a pending cluster spec,
