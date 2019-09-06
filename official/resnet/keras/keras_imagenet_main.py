@@ -92,6 +92,8 @@ def do_run(flags_obj, autoscaling_callback):
   keras_common.set_cudnn_batchnorm_mode()
 
   dtype = flags_core.get_tf_dtype(flags_obj)
+  # HACK: make things run faster
+  dtype = "float16"
   if dtype == 'float16':
     policy = tf.keras.mixed_precision.experimental.Policy('infer_float32_vars')
     tf.keras.mixed_precision.experimental.set_policy(policy)
