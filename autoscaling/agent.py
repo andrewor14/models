@@ -48,6 +48,9 @@ class AutoscalingAgent:
     self.detached_mode = False
     self.cluster_initialized = False
 
+    # Initial number of workers in "autoscaling" mode
+    self.autoscaling_initial_workers = int(os.getenv(AUTOSCALING_INITIAL_WORKERS, 1))
+
     # A lambda that returns a 4-tuple:
     #  (1) Number of batches processed in this epoch so far,
     #  (2) Number of epochs processed so far, and
@@ -223,8 +226,14 @@ class AutoscalingAgent:
     if not self.joined:
       autoscaling_helper.LOCAL_BATCH_SIZE = int(os.environ[AUTOSCALING_LOCAL_BATCH_SIZE])
     else:
+      cluster_size = self.mpi_communicator.size
+      if is_autoscaling_mode() and\
+          not self.cluster_initialized and\
+          self.joined and\
+          self.mpi_communicator.rank == 0:
+        cluster_size = self.autoscaling_initial_workers
       autoscaling_helper.LOCAL_BATCH_SIZE = autoscaling_helper.local_batch_size(
-        self.global_batch_size, self.mpi_communicator.size, self.mpi_communicator.rank)
+        self.global_batch_size, cluster_size, self.mpi_communicator.rank)
     autoscaling_helper.LOCAL_BATCH_SIZE =\
       int(autoscaling_helper.LOCAL_BATCH_SIZE * self.local_batch_size_multiplier)
     log_fn("Set local batch size = %s" % autoscaling_helper.LOCAL_BATCH_SIZE)
@@ -234,7 +243,7 @@ class AutoscalingAgent:
 
     # If we are the master, spawn the remaining workers
     if not self.cluster_initialized and self.joined and self.mpi_communicator.rank == 0:
-      num_remaining_workers = int(os.getenv(AUTOSCALING_INITIAL_WORKERS, 1)) - 1
+      num_remaining_workers = self.autoscaling_initial_workers - 1
       if num_remaining_workers > 0:
         self.mpi_spawn_workers(num_remaining_workers)
 
@@ -519,7 +528,7 @@ class AutoscalingAgent:
     # Wait for the initial set of workers to join
     if not self.cluster_initialized and self.joined and self.mpi_communicator.rank == 0:
       self.cluster_initialized = True
-      num_remaining_workers = int(os.getenv(AUTOSCALING_INITIAL_WORKERS, 1)) - 1
+      num_remaining_workers = self.autoscaling_initial_workers - 1
       if num_remaining_workers > 0:
         log_fn("Waiting for %s workers to join" % num_remaining_workers)
         num_workers_joined = 0
