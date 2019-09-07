@@ -102,6 +102,17 @@ class AutoscalingAgent:
     # in this list to reattach themselves to this cluster
     self.removed_host_ports = []
 
+    # Keep track of all possible hosts so we can manually spawn using round robin
+    # Guarded by `self.spawn_lock`
+    self.all_possible_hosts = []
+    # Keep track of how many workers live on which hosts (including expected ones)
+    # Guarded by `self.spawn_lock`
+    self.host_counts = {}
+    # Maximum number of workers that can be launched on each host
+    # This shares the same indices as `self.all_possible_hosts`
+    # Guarded by `self.spawn_lock`
+    self.max_slots = []
+
     # Optionally plant stragglers in the cluster
     # We simulate stragglers by inflating local batch size on the selected ranks
     self.local_batch_size_multiplier = 1
@@ -144,6 +155,25 @@ class AutoscalingAgent:
     # Spawned workers join after running one batch by themselves
     # This avoids blocking existing workers while the spawned workers are starting up
     self.joined = AUTOSCALING_MASTER_HOST_PORT not in os.environ
+
+    # Parse host flag to get a list of all possible hosts
+    if self.joined and self.mpi_communicator.rank == 0:
+      with self.spawn_lock:
+        flag_name, hosts_with_slots = os.environ["HOST_FLAG"].split(" ")
+        if "hostfile" in flag_name:
+          raise ValueError("--hostfile is currently not supported")
+        if ":" in hosts_with_slots:
+          self.all_possible_hosts = [h.split(":")[0] for h in hosts_with_slots.split(",")]
+          self.max_slots = [int(h.split(":")[1]) for h in hosts_with_slots.split(",")]
+        else:
+          # There are no slots provided
+          self.all_possible_hosts = hosts_with_slots.split(",")
+          self.max_slots = [1] * len(self.all_possible_hosts)
+        for hp in self.cluster_spec["worker"]:
+          host, _ = hp.split(":")
+          if host not in self.host_counts:
+            self.host_counts[host] = 0
+          self.host_counts[host] += 1
 
   @property
   def status(self):
@@ -314,13 +344,26 @@ class AutoscalingAgent:
       self.spawned_ranks_to_wait_for.append(spawn_ranks)
       self.mpi_next_rank += num_workers
     def do_spawn(new_worker_rank):
+      # Figure out which host to launch this node on
+      target_host = None
+      if os.getenv("MPI_MAP_BY", "") == "node":
+        with self.spawn_lock:
+          possible_hosts_index = new_worker_rank % len(self.all_possible_hosts)
+          target_host = self.all_possible_hosts[possible_hosts_index]
+          if target_host not in self.host_counts:
+            self.host_counts[target_host] = 0
+          self.host_counts[target_host] += 1
+          if self.host_counts[target_host] > self.max_slots[possible_hosts_index]:
+            raise ValueError("Unable to spawn host on %s because we've reached the max slot: %s" %\
+              (target_host, self.host_counts))
+      # Set other environment variables
       starting_local_batch_size = autoscaling_helper.local_batch_size(
         self.global_batch_size, self.num_expected_workers(), new_worker_rank)
       env = {
         AUTOSCALING_MASTER_HOST_PORT: self.client.master_host_port,
         AUTOSCALING_LOCAL_BATCH_SIZE: starting_local_batch_size
       }
-      spawned_communicator = mpi_helper.spawn(new_worker_rank, env=env)
+      spawned_communicator = mpi_helper.spawn(new_worker_rank, target_host=target_host, env=env)
       with self.spawn_lock:
         self.mpi_spawned_communicators[new_worker_rank] = spawned_communicator
     # Spawn asynchronously in parallel; each call to MPI_SPAWN takes about 3 seconds
@@ -607,8 +650,14 @@ class AutoscalingAgent:
           # Optionally remember the removed server in case we need it again
           if self.detach_when_removed:
             self.removed_host_ports.append(host_port)
-          elif host_port in self.cuda_visible_devices_map:
-            del self.cuda_visible_devices_map[host_port]
+          else:
+            host, _ = host_port.split(":")
+            if host in self.host_counts:
+              del self.host_counts[host]
+            else:
+              log_fn("Warning: expected %s to be in host counts: %s" % (host, self.host_counts))
+            if host_port in self.cuda_visible_devices_map:
+              del self.cuda_visible_devices_map[host_port]
     if len(terminated_ranks) > 0 and self.status != AutoscalingStatus.TERMINATED:
       new_group = self.mpi_communicator.group.Excl(terminated_ranks)
       self.mpi_communicator = self.mpi_communicator.Create_group(new_group)

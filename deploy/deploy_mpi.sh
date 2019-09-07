@@ -71,6 +71,7 @@ else
   # (5) Otherwise, assuming we're running in a single node
   HOST_FLAG="--host localhost:$NUM_WORKERS_PER_NODE"
 fi
+export HOST_FLAG
 
 # Pass all environment variables to mpirun, with some exceptions
 # The format expected by MPI is "-x ENV_VAR1 -x ENV_VAR2 ..."
