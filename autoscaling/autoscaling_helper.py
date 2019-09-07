@@ -22,9 +22,8 @@ from official.utils.misc import keras_utils
 HOROVOD_ALLREDUCE_FUNCTION = None
 
 # Batch sizes read by tensorflow
-# Local batch size is updated on restart while global batch size is fixed
 LOCAL_BATCH_SIZE = None
-GLOBAL_BATCH_SIZE = None
+MAX_LOCAL_BATCH_SIZE = None
 
 # Step and epoch numbers read by tensorflow, updated when a worker joins
 # an existing cluster and fetches the progress from the master
@@ -44,9 +43,9 @@ class BufferedIterator:
   """
 
   def __init__(self, iterator, buffer_size):
-    global GLOBAL_BATCH_SIZE
+    global MAX_LOCAL_BATCH_SIZE
     self.iterator = iterator
-    self.return_buffer_size = GLOBAL_BATCH_SIZE
+    self.return_buffer_size = MAX_LOCAL_BATCH_SIZE
     self.buffer_size = buffer_size
     # A tuple of tensors, one for each item returned from `self.iterator`
     self.buf = None

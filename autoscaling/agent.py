@@ -40,13 +40,29 @@ class AutoscalingAgent:
     self.saved_variables = None
     self.checkpoint_restart_variables = {}
     self.num_gpus_per_worker = num_gpus_per_worker
-    self.global_batch_size = global_batch_size
     self.use_horovod = use_horovod
     self.num_steps_since_last_restart = 0
     self.min_steps_between_restart = int(os.getenv(AUTOSCALING_MIN_STEPS_BETWEEN_RESTART, 1))
     self.detach_when_removed = os.getenv(AUTOSCALING_DETACH_WHEN_REMOVED, "true").lower() == "true"
     self.detached_mode = False
     self.cluster_initialized = False
+
+    # Batch sizes
+    self.global_batch_size = global_batch_size
+    self.max_local_batch_size = os.getenv(AUTOSCALING_MAX_LOCAL_BATCH_SIZE)
+    self.max_global_batch_size = os.getenv(AUTOSCALING_MAX_GLOBAL_BATCH_SIZE)
+    if is_autoscaling_mode():
+      if self.max_local_batch_size is None or self.max_global_batch_size is None:
+        raise ValueError("Max local and global batch sizes must both be set")
+      self.max_local_batch_size = int(self.max_local_batch_size)
+      self.max_global_batch_size = int(self.max_global_batch_size)
+      autoscaling_helper.MAX_LOCAL_BATCH_SIZE = self.max_local_batch_size
+      log_fn("Running with max local batch size = %s, max global batch size = %s" %\
+        (self.max_local_batch_size, self.max_global_batch_size))
+      log_fn("Warning: ignoring BATCH_SIZE (currently set to %s)" % global_batch_size)
+      self.global_batch_size = self.max_local_batch_size
+    else:
+      autoscaling_helper.MAX_LOCAL_BATCH_SIZE = global_batch_size
 
     # Initial number of workers in "autoscaling" mode
     self.autoscaling_initial_workers = int(os.getenv(AUTOSCALING_INITIAL_WORKERS, 1))
@@ -251,22 +267,22 @@ class AutoscalingAgent:
       os.environ[CUDA_VISIBLE_DEVICES] = cuda_visible_devices
       log_fn("Set CUDA_VISIBLE_DEVICES = %s" % cuda_visible_devices)
 
-    # Tell tensorflow our local batch size has changed
-    autoscaling_helper.GLOBAL_BATCH_SIZE = self.global_batch_size
-    if not self.joined:
-      autoscaling_helper.LOCAL_BATCH_SIZE = int(os.environ[AUTOSCALING_LOCAL_BATCH_SIZE])
-    else:
-      cluster_size = self.mpi_communicator.size
-      if is_autoscaling_mode() and\
-          not self.cluster_initialized and\
-          self.joined and\
-          self.mpi_communicator.rank == 0:
-        cluster_size = self.autoscaling_initial_workers
-      autoscaling_helper.LOCAL_BATCH_SIZE = autoscaling_helper.local_batch_size(
-        self.global_batch_size, cluster_size, self.mpi_communicator.rank)
-    autoscaling_helper.LOCAL_BATCH_SIZE =\
-      int(autoscaling_helper.LOCAL_BATCH_SIZE * self.local_batch_size_multiplier)
-    log_fn("Set local batch size = %s" % autoscaling_helper.LOCAL_BATCH_SIZE)
+    # Compute new batch sizes
+    # In autoscaling mode, the global batch size can change
+    if is_autoscaling_mode():
+      local_batch_size = self.max_local_batch_size
+      global_batch_size = local_batch_size * self.mpi_communicator.size
+      global_batch_size = min(global_batch_size, self.max_global_batch_size)
+      self.global_batch_size = global_batch_size
+    # Make sure everyone has the same global batch size
+    self.global_batch_size = self.mpi_communicator.bcast(self.global_batch_size, root=0)
+    # Everyone will then independently tell tensorflow what their local batch sizes are
+    local_batch_size = autoscaling_helper.local_batch_size(
+      self.global_batch_size, self.mpi_communicator.size, self.mpi_communicator.rank)
+    local_batch_size = int(local_batch_size * self.local_batch_size_multiplier)
+    autoscaling_helper.LOCAL_BATCH_SIZE = local_batch_size
+    log_fn("Set global batch size = %s, local batch size = %s" %\
+      (self.global_batch_size, local_batch_size))
 
     self.status = AutoscalingStatus.RUNNING
     self.mpi_communicator.barrier()
@@ -357,11 +373,8 @@ class AutoscalingAgent:
             raise ValueError("Unable to spawn host on %s because we've reached the max slot: %s" %\
               (target_host, self.host_counts))
       # Set other environment variables
-      starting_local_batch_size = autoscaling_helper.local_batch_size(
-        self.global_batch_size, self.num_expected_workers(), new_worker_rank)
       env = {
         AUTOSCALING_MASTER_HOST_PORT: self.client.master_host_port,
-        AUTOSCALING_LOCAL_BATCH_SIZE: starting_local_batch_size
       }
       spawned_communicator = mpi_helper.spawn(new_worker_rank, target_host=target_host, env=env)
       with self.spawn_lock:
