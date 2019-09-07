@@ -83,9 +83,10 @@ INTERFACES_TO_EXCLUDE="lo,docker0"
 if [[ "$IN_DOCKER_CONTAINER" == "true" ]]; then
   INTERFACES_TO_EXCLUDE="$INTERFACES_TO_EXCLUDE,eth1"
 fi
+MPI_MAP_BY="${MPI_MAP_BY:=slot}"
 ENV_FLAG="$ENV_FLAG -x NCCL_DEBUG=INFO -x NCCL_SOCKET_IFNAME=^$INTERFACES_TO_EXCLUDE"
 HOROVOD_FLAGS="-mca pml ob1 -mca btl ^openib -mca btl_tcp_if_exclude $INTERFACES_TO_EXCLUDE "
-HOROVOD_FLAGS="$HOROVOD_FLAGS --bind-to none --map-by slot "
+HOROVOD_FLAGS="$HOROVOD_FLAGS --bind-to none --map-by $MPI_MAP_BY "
 
 # Verbosity settings
 STDOUT_DEVICE="/dev/stdout"
