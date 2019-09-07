@@ -143,6 +143,8 @@ class AutoscalingClient:
         return rpc_closure()
       except (http.client.ResponseNotReady, http.client.CannotSendRequest) as e:
         error = e
+      except ConnectionRefusedError as e:
+        error = e
       except xmlrpc.client.Fault as e:
         if "CannotSendRequest" in e.faultString:
           error = e

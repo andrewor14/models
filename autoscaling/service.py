@@ -145,19 +145,6 @@ class AutoscalingService:
       # Thus, we need to treat the master server (ourselves) separately.
       self.agent.client.all_servers_rpc(lambda s: s.add_workers([host_port]), except_master=True)
       self.add_workers([host_port])
-      # Note: There may be pending workers that are not part of the autoscaling client yet.
-      # Here we manually tell them to add this new worker. In the future there may be a
-      # cleaner way to do this.
-      with self.agent.pending_cluster_spec_lock:
-        if self.agent.pending_cluster_spec is not None:
-          pending_workers = self.agent.pending_cluster_spec["worker"]
-          pending_workers = list(set(pending_workers) - set(self.get_cluster_spec()["worker"]))
-          if host_port in pending_workers:
-            pending_workers.remove(host_port)
-          for pending_worker in pending_workers:
-            log_fn("Telling pending worker %s to add worker %s" % (pending_worker, host_port))
-            self.agent.client.rpc_without_connection_problems(
-              lambda: connect(convert_port(pending_worker)).add_workers([host_port]))
     else:
       log_fn("Warning: received join request from a worker who had already joined: %s" % host_port)
     return True
