@@ -181,12 +181,12 @@ def initialize_horovod(comm, restarting=False):
     tf.logging.info("Averaging gradients with horovod (size %s)" % hvd.size())
     verbose = os.getenv("AUTOSCALING_HOROVOD_VERBOSE", "").lower() == "true"
     compress = os.getenv("AUTOSCALING_HOROVOD_COMPRESS", "").lower() == "true"
+    use_cpu = os.getenv("AUTOSCALING_HOROVOD_USE_CPU", "").lower() == "true"
     if verbose:
       tf.print("First gradient before horovod allreduce: ", truncate_tensor(grads[0]))
-    if compress:
-      grads = [hvd.allreduce(grad, hvd.Compression.fp16) for grad in grads]
-    else:
-      grads = [hvd.allreduce(grad) for grad in grads]
+    compression = hvd.Compression.fp16 if compress else hvd.Compression.none
+    device_dense = "/cpu:0" if use_cpu else ""
+    grads = [hvd.allreduce(grad, device_dense=device_dense, compression=compression) for grad in grads]
     if verbose:
       tf.print("First gradient after horovod allreduce: ", truncate_tensor(grads[0]))
     return grads
