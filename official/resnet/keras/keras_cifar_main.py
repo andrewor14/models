@@ -161,7 +161,8 @@ def do_run(flags_obj, autoscaling_callback):
     learning_rate_schedule,
     cifar_preprocessing.NUM_IMAGES['train'],
     autoscaling_callback.num_batches_processed_this_epoch,
-    autoscaling_callback.num_epochs_processed)
+    autoscaling_callback.num_epochs_processed,
+    agent=autoscaling_callback.agent)
   autoscaling_schedule_callback = autoscaling_helper.get_schedule_callback(autoscaling_callback)
   if autoscaling_schedule_callback is not None:
     callbacks.append(autoscaling_schedule_callback)

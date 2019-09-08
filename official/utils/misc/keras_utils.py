@@ -42,7 +42,7 @@ class BatchTimestamp(object):
 class TimeHistory(tf.keras.callbacks.Callback):
   """Callback for Keras models."""
 
-  def __init__(self, batch_size, log_steps, starting_batch=0):
+  def __init__(self, batch_size, log_steps, starting_batch=0, agent=None):
     """Callback for logging performance (# examples/second).
 
     Args:
@@ -54,6 +54,7 @@ class TimeHistory(tf.keras.callbacks.Callback):
     self.log_steps = log_steps
     self.starting_batch = starting_batch
     self.global_steps = 0
+    self.agent = agent
 
     # Logs start of step 1 then end of each step based on log_steps interval.
     self.timestamp_log = []
@@ -74,12 +75,15 @@ class TimeHistory(tf.keras.callbacks.Callback):
       self.timestamp_log.append(BatchTimestamp(self.global_steps,
                                                self.start_time))
 
+  def get_batch_size(self):
+    return self.agent.global_batch_size if self.agent is not None else self.batch_size
+
   def on_batch_end(self, batch, logs=None):
     """Records elapse time of the batch and calculates examples per second."""
     if self.global_steps % self.log_steps == 0:
       timestamp = time.time()
       elapsed_time = timestamp - self.start_time
-      examples_per_second = (self.batch_size * self.log_steps) / elapsed_time
+      examples_per_second = (self.get_batch_size() * self.log_steps) / elapsed_time
       self.timestamp_log.append(BatchTimestamp(batch, timestamp))
       # Log stats
       log_str = "step = %d, time_taken = %f, examples_per_second = %f" %\
