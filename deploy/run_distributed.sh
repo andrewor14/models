@@ -119,7 +119,7 @@ if [[ "$MODE" == "checkpoint-restart" ]]; then
     set_job_name
     export JOB_NAME="${JOB_NAME}-${NUM_RESTARTS}"
     export TRAIN_DIR="$BASE_TRAIN_DIR/$JOB_NAME"
-    run_it
+    ./deploy.sh
     # Copy checkpoint files to all remote hosts
     # This assumes all hosts have the exact same directory structures
     if [[ "$CHECKPOINT_RESTART_SKIP_COPY" != "true" ]]; then
