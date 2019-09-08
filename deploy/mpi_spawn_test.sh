@@ -1,4 +1,4 @@
-#!/usr/bin/env
+#!/bin/bash
 
 echo -e "\n=========================================================================="
 echo -e "My environment variables:"

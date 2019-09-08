@@ -48,7 +48,7 @@ class LearningRateBatchScheduler(tf.keras.callbacks.Callback):
           output (float).
   """
 
-  def __init__(self, schedule, batch_size, num_images, starting_batch=0, starting_epoch=0):
+  def __init__(self, schedule, batch_size, num_images, starting_batch=0, starting_epoch=0, agent=None):
     super(LearningRateBatchScheduler, self).__init__()
     self.schedule = schedule
     self.batches_per_epoch = num_images / batch_size
@@ -56,6 +56,7 @@ class LearningRateBatchScheduler(tf.keras.callbacks.Callback):
     self.starting_batch = starting_batch
     self.epochs = starting_epoch - 1
     self.prev_lr = -1
+    self.agent = agent
 
   def on_epoch_begin(self, epoch, logs=None):
     if not hasattr(self.model.optimizer, 'learning_rate'):
@@ -67,6 +68,8 @@ class LearningRateBatchScheduler(tf.keras.callbacks.Callback):
 
   def on_batch_begin(self, batch, logs=None):
     """Executes before step begins."""
+    if self.agent is not None:
+      self.batch_size = self.agent.global_batch_size
     lr = self.schedule(self.epochs,
                        self.starting_batch + batch,
                        self.batches_per_epoch,
@@ -192,7 +195,8 @@ def get_callbacks(learning_rate_schedule_fn, num_images, starting_batch=0, start
         batch_size=FLAGS.batch_size,
         num_images=num_images,
         starting_batch=starting_batch,
-        starting_epoch=starting_epoch)
+        starting_epoch=starting_epoch,
+        agent=agent)
     callbacks.append(lr_callback)
 
   if FLAGS.enable_tensorboard:

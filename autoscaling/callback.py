@@ -136,16 +136,16 @@ class AutoscalingCallback(keras.callbacks.Callback):
           int(self.num_batches_processed_this_epoch * fraction)
         self.num_batches_per_epoch =\
           int(self.num_batches_per_epoch * fraction)
-        # Make sure everyone use the same steps, just in case
-        self.num_batches_processed_this_epoch = self.agent.mpi_communicator.bcast(
-          self.num_batches_processed_this_epoch, root=0)
-        self.num_batches_per_epoch = self.agent.mpi_communicator.bcast(
-          self.num_batches_per_epoch, root=0)
-        log_fn("New step = %s, new target steps = %s" %\
-          (self.num_batches_processed_this_epoch, self.num_batches_per_epoch))
-        autoscaling_helper.STEP_NUMBER = self.num_batches_processed_this_epoch
-        autoscaling_helper.EPOCH_NUMBER = self.num_epochs_processed
-        autoscaling_helper.TARGET_STEPS = self.num_batches_per_epoch
+      # Make sure everyone use the same steps, just in case
+      self.num_batches_processed_this_epoch = self.agent.mpi_communicator.bcast(
+        self.num_batches_processed_this_epoch, root=0)
+      self.num_batches_per_epoch = self.agent.mpi_communicator.bcast(
+        self.num_batches_per_epoch, root=0)
+      log_fn("New step = %s, new target steps = %s" %\
+        (self.num_batches_processed_this_epoch, self.num_batches_per_epoch))
+      autoscaling_helper.STEP_NUMBER = self.num_batches_processed_this_epoch
+      autoscaling_helper.EPOCH_NUMBER = self.num_epochs_processed
+      autoscaling_helper.TARGET_STEPS = self.num_batches_per_epoch
       if is_new_worker:
         self.bootstrap_progress()
         self.agent.restore_variables(self.get_trainable_variables())
