@@ -70,6 +70,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
       # Tell tensorflow which step and epoch to restart from
       autoscaling_helper.STEP_NUMBER = self.num_batches_processed_this_epoch
       autoscaling_helper.EPOCH_NUMBER = self.num_epochs_processed
+      autoscaling_helper.TARGET_STEPS = self.num_batches_per_epoch
       log_fn("Fetched progress from master server = (%s steps, %s epochs)" %\
         (self.num_batches_processed_this_epoch, self.num_epochs_processed))
     else:
@@ -99,6 +100,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
       self.num_epochs_processed = 0
       autoscaling_helper.STEP_NUMBER = 0
       autoscaling_helper.EPOCH_NUMBER = 0
+      autoscaling_helper.TARGET_STEPS = self.num_batches_per_epoch
     # Check if we need to reinitialize
     is_new_worker = not self.agent.joined
     should_initialize = self.agent.step_end()
@@ -109,6 +111,7 @@ class AutoscalingCallback(keras.callbacks.Callback):
         self.num_epochs_processed = 0
         autoscaling_helper.STEP_NUMBER = 0
         autoscaling_helper.EPOCH_NUMBER = 0
+        autoscaling_helper.TARGET_STEPS = self.num_batches_per_epoch
         self.agent.detach_from_cluster()
       else:
         self.model.stop_training = True
@@ -119,7 +122,30 @@ class AutoscalingCallback(keras.callbacks.Callback):
         self.agent.save_variables(self.get_trainable_variables(), for_new_worker=True)
       # This call gathers `self.agent.saved_variables` across the cluster
       # Therefore, we save the variables before this call and restore them after this call
+      global_batch_size = self.agent.global_batch_size
       self.agent.initialize()
+      # If global batch size changed, compute the new step number and step target
+      new_global_batch_size = self.agent.global_batch_size
+      if new_global_batch_size != global_batch_size:
+        log_fn("---------- NEW GLOBAL BATCH SIZE ----------")
+        log_fn("Old size = %s, new size = %s" % (global_batch_size, new_global_batch_size))
+        log_fn("Old step = %s, old target steps = %s" %\
+          (self.num_batches_processed_this_epoch, self.num_batches_per_epoch))
+        fraction = global_batch_size / new_global_batch_size
+        self.num_batches_processed_this_epoch =\
+          int(self.num_batches_processed_this_epoch * fraction)
+        self.num_batches_per_epoch =\
+          int(self.num_batches_per_epoch * fraction)
+        # Make sure everyone use the same steps, just in case
+        self.num_batches_processed_this_epoch = self.agent.mpi_communicator.bcast(
+          self.num_batches_processed_this_epoch, root=0)
+        self.num_batches_per_epoch = self.agent.mpi_communicator.bcast(
+          self.num_batches_per_epoch, root=0)
+        log_fn("New step = %s, new target steps = %s" %\
+          (self.num_batches_processed_this_epoch, self.num_batches_per_epoch))
+        autoscaling_helper.STEP_NUMBER = self.num_batches_processed_this_epoch
+        autoscaling_helper.EPOCH_NUMBER = self.num_epochs_processed
+        autoscaling_helper.TARGET_STEPS = self.num_batches_per_epoch
       if is_new_worker:
         self.bootstrap_progress()
         self.agent.restore_variables(self.get_trainable_variables())

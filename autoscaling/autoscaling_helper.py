@@ -29,6 +29,7 @@ MAX_LOCAL_BATCH_SIZE = None
 # an existing cluster and fetches the progress from the master
 EPOCH_NUMBER = None
 STEP_NUMBER = None
+TARGET_STEP = None
 
 def log_fn(msg):
   tf.logging.info("[Autoscaling helper]: %s" % msg)
@@ -102,7 +103,10 @@ def get_train_steps_and_epochs(num_total_samples, flags_obj, callback):
   """
   Return how many steps and epochs to train this round before restarting.
   """
-  train_steps = num_total_samples // flags_obj.batch_size
+  batch_size = flags_obj.batch_size
+  if is_autoscaling_mode():
+    batch_size = int(os.environ[AUTOSCALING_MAX_LOCAL_BATCH_SIZE])
+  train_steps = num_total_samples // batch_size
   train_epochs = flags_obj.train_epochs
   if flags_obj.train_steps:
     train_steps = min(flags_obj.train_steps, train_steps)
