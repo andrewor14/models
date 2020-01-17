@@ -223,6 +223,9 @@ def run(flags_obj):
     no_dist_strat_device = tf.device('/device:GPU:0')
     no_dist_strat_device.__enter__()
 
+  train_dir = os.environ["TRAIN_DIR"]
+  callbacks.append(tf.keras.callbacks.TensorBoard(log_dir=train_dir, histogram_freq=1))
+
   history = model.fit(train_input_dataset,
                       epochs=train_epochs,
                       steps_per_epoch=train_steps,
