@@ -252,6 +252,10 @@ def run(flags_obj):
     no_dist_strat_device.__exit__()
 
   stats = common.build_stats(history, eval_output, callbacks)
+
+  print("Model summary:")
+  model.summary()
+
   return stats
 
 

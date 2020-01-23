@@ -20,7 +20,6 @@ from __future__ import print_function
 
 import copy
 import tensorflow as tf
-import tensorflow_hub as hub
 
 from official.modeling import tf_utils
 from official.nlp import bert_modeling as modeling
@@ -408,6 +407,7 @@ def classifier_model(bert_config,
   input_type_ids = tf.keras.layers.Input(
       shape=(max_seq_length,), dtype=tf.int32, name='input_type_ids')
   if hub_module_url:
+    import tensorflow_hub as hub
     bert_model = hub.KerasLayer(hub_module_url, trainable=True)
     pooled_output, _ = bert_model([input_word_ids, input_mask, input_type_ids])
   else:

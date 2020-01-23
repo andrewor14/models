@@ -42,6 +42,9 @@ def define_common_bert_flags():
       '`multi_worker_mirror` uses CPUs or GPUs with multiple hosts.')
   flags.DEFINE_integer('num_train_epochs', 3,
                        'Total number of training epochs to perform.')
+  flags.DEFINE_integer('num_train_steps', 0,
+                       'Total number of training steps to perform.'
+                       'If this is above 0, then num_train_epochs=1.')
   flags.DEFINE_integer(
       'steps_per_loop', 200,
       'Number of steps per graph-mode loop. Only training step '
@@ -60,6 +63,7 @@ def define_common_bert_flags():
       'use_keras_compile_fit', False,
       'If True, uses Keras compile/fit() API for training logic. Otherwise '
       'use custom training loop.')
+  flags.DEFINE_boolean('skip_eval', False, 'If True, no evaluation will be performed.')
 
   # Adds flags for mixed precision training.
   flags_core.define_performance(

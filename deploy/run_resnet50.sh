@@ -1,10 +1,10 @@
 #!/bin/bash
 
-export TIMESTAMP=`date +%m_%d_%y_%s%3N`
-export JOB_NAME="resnet-imagenet-$TIMESTAMP"
-export LOG_DIR="${LOG_DIR:=/home/andrew/Documents/dev/logs}"
-export DATA_DIR="${DATA_DIR:=/home/andrew/Documents/dev/dataset/imagenet}"
-export TRAIN_DIR="${TRAIN_DIR:=/home/andrew/Documents/dev/train_data/$JOB_NAME}"
+source common.sh
+
+export JOB_NAME="resnet-imagenet-${TIMESTAMP}"
+export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/imagenet}"
+export TRAIN_DIR="${TRAIN_DIR:=${BASE_DIR}/train_data/${JOB_NAME}}"
 
 export NUM_GPUS="${NUM_GPUS:=1}"
 export BATCH_SIZE="${BATCH_SIZE:=192}"
@@ -14,14 +14,11 @@ export EPOCHS_BETWEEN_EVALS="${EPOCHS_BETWEEN_EVALS:=4}"
 export SKIP_EVAL="${SKIP_EVAL:=false}"
 export DTYPE="${DTYPE:=fp16}"
 export ENABLE_EAGER="${ENABLE_EAGER:=true}"
-export ENABLE_XLA="${ENABLE_XLA:=true}"
-
-# Set this to 1 for memory allocation logs
-export TF_CPP_MIN_VLOG_LEVEL=1
+export ENABLE_XLA="${ENABLE_XLA:=false}"
 
 mkdir -p "$TRAIN_DIR"
 
-python3 "/home/andrew/Documents/dev/models/official/vision/image_classification/resnet_imagenet_main.py"\
+python3 "${RESNET_CODE_DIR}/resnet_imagenet_main.py"\
   --num_gpus="$NUM_GPUS"\
   --data_dir="$DATA_DIR"\
   --batch_size="$BATCH_SIZE"\
@@ -32,5 +29,5 @@ python3 "/home/andrew/Documents/dev/models/official/vision/image_classification/
   --model_dir="$TRAIN_DIR"\
   --dtype="$DTYPE"\
   --enable_eager="$ENABLE_EAGER"\
-  --enable_xla="$ENABLE_XLA" > "$LOG_DIR/"$JOB_NAME".log" 2>&1
+  --enable_xla="$ENABLE_XLA" > "${LOG_DIR}/${JOB_NAME}.log" 2>&1
 

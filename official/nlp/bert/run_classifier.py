@@ -111,7 +111,7 @@ def run_bert_classifier(strategy,
       seq_length=max_seq_length,
       batch_size=FLAGS.eval_batch_size,
       is_training=False,
-      drop_remainder=False)
+      drop_remainder=False) if eval_steps > 0 else None
 
   def _get_classifier_model():
     """Gets a classifier model."""
@@ -199,7 +199,7 @@ def run_keras_compile_fit(model_dir,
 
   with strategy.scope():
     training_dataset = train_input_fn()
-    evaluation_dataset = eval_input_fn()
+    evaluation_dataset = eval_input_fn() if eval_input_fn is not None else None
     bert_model, sub_model = model_fn()
     optimizer = bert_model.optimizer
 
@@ -268,6 +268,12 @@ def run_bert(strategy, input_meta_data):
   warmup_steps = int(epochs * train_data_size * 0.1 / FLAGS.train_batch_size)
   eval_steps = int(
       math.ceil(input_meta_data['eval_data_size'] / FLAGS.eval_batch_size))
+
+  if FLAGS.num_train_steps > 0:
+    epochs = 1
+    steps_per_epoch = FLAGS.num_train_steps
+  if FLAGS.skip_eval:
+    eval_steps = 0
 
   if not strategy:
     raise ValueError('Distribution strategy has not been specified.')
