@@ -15,6 +15,7 @@ export SKIP_EVAL="${SKIP_EVAL:=false}"
 export DTYPE="${DTYPE:=fp16}"
 export ENABLE_EAGER="${ENABLE_EAGER:=true}"
 export ENABLE_XLA="${ENABLE_XLA:=false}"
+export LOG_STEPS="${LOG_STEPS:=1}"
 
 mkdir -p "$TRAIN_DIR"
 
@@ -29,5 +30,6 @@ python3 "${RESNET_CODE_DIR}/resnet_imagenet_main.py"\
   --model_dir="$TRAIN_DIR"\
   --dtype="$DTYPE"\
   --enable_eager="$ENABLE_EAGER"\
-  --enable_xla="$ENABLE_XLA" > "${LOG_DIR}/${JOB_NAME}.log" 2>&1
+  --enable_xla="$ENABLE_XLA"\
+  --log_steps="$LOG_STEPS" > "${LOG_DIR}/${JOB_NAME}.log" 2>&1
 

@@ -65,6 +65,8 @@ def define_common_bert_flags():
       'use custom training loop.')
   flags.DEFINE_boolean('skip_eval', False, 'If True, no evaluation will be performed.')
 
+  flags_core.define_benchmark()
+
   # Adds flags for mixed precision training.
   flags_core.define_performance(
       num_parallel_calls=False,

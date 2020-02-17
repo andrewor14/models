@@ -21,6 +21,8 @@ export LEARNING_RATE="${LEARNING_RATE:=2e-5}"
 export STRATEGY_TYPE="${STRATEGY_TYPE:=mirror}"
 export DTYPE="${DTYPE:=fp16}"
 export ENABLE_XLA="${ENABLE_XLA:=false}"
+export USE_KERAS_COMPILE_FIT="${USE_KERAS_COMPILE_FIT:=true}"
+export LOG_STEPS="${LOG_STEPS:=1}"
 
 mkdir -p "$TRAIN_DIR"
 
@@ -41,5 +43,7 @@ python3 "${BERT_CODE_DIR}/run_classifier.py"\
   --learning_rate="$LEARNING_RATE" \
   --strategy_type="$STRATEGY_TYPE" \
   --dtype="$DTYPE"\
-  --enable_xla="$ENABLE_XLA" > "${LOG_DIR}/${JOB_NAME}.log" 2>&1
+  --enable_xla="$ENABLE_XLA" \
+  --use_keras_compile_fit="$USE_KERAS_COMPILE_FIT" \
+  --log_steps="$LOG_STEPS" > "${LOG_DIR}/${JOB_NAME}.log" 2>&1
 

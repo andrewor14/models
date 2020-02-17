@@ -212,11 +212,11 @@ def run_keras_compile_fit(model_dir,
     summary_callback = tf.keras.callbacks.TensorBoard(model_dir)
     checkpoint_dir = os.path.join(model_dir, 'model_checkpoint.{epoch:02d}')
     checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(checkpoint_dir)
+    time_history_callback = keras_utils.TimeHistory(FLAGS.train_batch_size, FLAGS.log_steps)
 
-    if custom_callbacks is not None:
-      custom_callbacks += [summary_callback, checkpoint_callback]
-    else:
-      custom_callbacks = [summary_callback, checkpoint_callback]
+    if custom_callbacks is None:
+      custom_callbacks = []
+    custom_callbacks += [summary_callback, checkpoint_callback, time_history_callback]
 
     bert_model.fit(
         x=training_dataset,
