@@ -22,6 +22,7 @@ export STRATEGY_TYPE="${STRATEGY_TYPE:=mirror}"
 export DTYPE="${DTYPE:=fp16}"
 export ENABLE_XLA="${ENABLE_XLA:=false}"
 export USE_KERAS_COMPILE_FIT="${USE_KERAS_COMPILE_FIT:=true}"
+export NUM_VIRTUAL_NODES_PER_DEVICE="${NUM_VIRTUAL_NODES_PER_DEVICE:=1}"
 export LOG_STEPS="${LOG_STEPS:=1}"
 
 mkdir -p "$TRAIN_DIR"
@@ -45,5 +46,6 @@ python3 "${BERT_CODE_DIR}/run_classifier.py"\
   --dtype="$DTYPE"\
   --enable_xla="$ENABLE_XLA" \
   --use_keras_compile_fit="$USE_KERAS_COMPILE_FIT" \
+  --num_virtual_nodes_per_device="$NUM_VIRTUAL_NODES_PER_DEVICE" \
   --log_steps="$LOG_STEPS" > "${LOG_DIR}/${JOB_NAME}.log" 2>&1
 

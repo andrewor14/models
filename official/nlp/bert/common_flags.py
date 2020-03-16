@@ -64,6 +64,12 @@ def define_common_bert_flags():
       'If True, uses Keras compile/fit() API for training logic. Otherwise '
       'use custom training loop.')
   flags.DEFINE_boolean('skip_eval', False, 'If True, no evaluation will be performed.')
+  flags.DEFINE_integer(
+      'num_virtual_nodes_per_device', 1,
+      'Number of virtual nodes mapped to each device in each batch. '
+      'Virtual nodes are processed one after another, with the number of examples '
+      'processed per virtual node equal to the per device batch size divided by '
+      'this value.')
 
   flags_core.define_benchmark()
 

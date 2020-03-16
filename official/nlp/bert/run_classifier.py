@@ -100,16 +100,21 @@ def run_bert_classifier(strategy,
   max_seq_length = input_meta_data['max_seq_length']
   num_classes = input_meta_data['num_labels']
 
+  # The batch sizes used by the input datasets may be smaller than the actual batch size
+  # because each device may process multiple virtual nodes.
+  # TODO: better handling for the case when the batch size doesn't divide
+  train_dataset_batch_size = FLAGS.train_batch_size // FLAGS.num_virtual_nodes_per_device
+  eval_dataset_batch_size = FLAGS.eval_batch_size // FLAGS.num_virtual_nodes_per_device
   train_input_fn = functools.partial(
       input_pipeline.create_classifier_dataset,
       FLAGS.train_data_path,
       seq_length=max_seq_length,
-      batch_size=FLAGS.train_batch_size)
+      batch_size=train_dataset_batch_size)
   eval_input_fn = functools.partial(
       input_pipeline.create_classifier_dataset,
       FLAGS.eval_data_path,
       seq_length=max_seq_length,
-      batch_size=FLAGS.eval_batch_size,
+      batch_size=eval_dataset_batch_size,
       is_training=False,
       drop_remainder=False) if eval_steps > 0 else None
 
