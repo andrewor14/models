@@ -5,6 +5,7 @@ source common.sh
 export JOB_NAME="bert-glue-${TIMESTAMP}"
 export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/bert/glue/finetuning_data}"
 export TRAIN_DIR="${TRAIN_DIR:=${BASE_DIR}/train_data/${JOB_NAME}}"
+export LOG_FILE="${LOG_DIR}/${JOB_NAME}.log"
 
 if [[ -n "$BATCH_SIZE" ]]; then
   export TRAIN_BATCH_SIZE="$BATCH_SIZE"
@@ -27,6 +28,8 @@ export LOG_STEPS="${LOG_STEPS:=1}"
 
 mkdir -p "$TRAIN_DIR"
 
+print_diff_and_env > "$LOG_FILE" 2>&1
+
 python3 "${BERT_CODE_DIR}/run_classifier.py"\
   --mode="train_and_eval" \
   --input_meta_data_path="${DATA_DIR}/${GLUE_TASK}_meta_data" \
@@ -47,5 +50,5 @@ python3 "${BERT_CODE_DIR}/run_classifier.py"\
   --enable_xla="$ENABLE_XLA" \
   --use_keras_compile_fit="$USE_KERAS_COMPILE_FIT" \
   --num_virtual_nodes_per_device="$NUM_VIRTUAL_NODES_PER_DEVICE" \
-  --log_steps="$LOG_STEPS" > "${LOG_DIR}/${JOB_NAME}.log" 2>&1
+  --log_steps="$LOG_STEPS" >> "$LOG_FILE" 2>&1
 

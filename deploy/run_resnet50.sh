@@ -5,6 +5,7 @@ source common.sh
 export JOB_NAME="resnet-imagenet-${TIMESTAMP}"
 export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/imagenet}"
 export TRAIN_DIR="${TRAIN_DIR:=${BASE_DIR}/train_data/${JOB_NAME}}"
+export LOG_FILE="${LOG_DIR}/${JOB_NAME}.log"
 
 export NUM_GPUS="${NUM_GPUS:=1}"
 export BATCH_SIZE="${BATCH_SIZE:=192}"
@@ -19,6 +20,8 @@ export LOG_STEPS="${LOG_STEPS:=1}"
 
 mkdir -p "$TRAIN_DIR"
 
+print_diff_and_env > "$LOG_FILE" 2>&1
+
 python3 "${RESNET_CODE_DIR}/resnet_imagenet_main.py"\
   --num_gpus="$NUM_GPUS"\
   --data_dir="$DATA_DIR"\
@@ -31,5 +34,5 @@ python3 "${RESNET_CODE_DIR}/resnet_imagenet_main.py"\
   --dtype="$DTYPE"\
   --enable_eager="$ENABLE_EAGER"\
   --enable_xla="$ENABLE_XLA"\
-  --log_steps="$LOG_STEPS" > "${LOG_DIR}/${JOB_NAME}.log" 2>&1
+  --log_steps="$LOG_STEPS" >> "$LOG_FILE" 2>&1
 
