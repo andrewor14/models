@@ -7,6 +7,7 @@ export LOG_DIR="${LOG_DIR:=$BASE_DIR/logs}"
 export RESNET_CODE_DIR="${RESNET_CODE_DIR:=$BASE_DIR/models/official/vision/image_classification}"
 export BERT_BASE_DIR="${BERT_BASE_DIR:=$BASE_DIR/dataset/bert/uncased_L-12_H-768_A-12}"
 export BERT_CODE_DIR="${BERT_CODE_DIR:=$BASE_DIR/models/official/nlp/bert}"
+export TF_DEALLOCATE_OP_PATH="${TF_DEALLOCATE_OP_PATH:=$TF_DIR/bazel-bin/tensorflow/core/user_ops/deallocate.so}"
 
 export LOG_MEMORY_ENABLED="${LOG_MEMORY_ENABLED:=false}"
 if [[ "$LOG_MEMORY_ENABLED" == "true" ]]; then
@@ -15,6 +16,7 @@ if [[ "$LOG_MEMORY_ENABLED" == "true" ]]; then
 fi
 
 print_diff() {
+  echo -e "My commit is $(git log --oneline | head -n 1) ($PWD)"
   DIFF="$(git diff)"
   if [[ -n "$DIFF" ]]; then
     echo -e "\n=========================================================================="
@@ -27,9 +29,12 @@ print_diff() {
 
 print_diff_and_env() {
   print_diff
+  # Print tensorflow diff
+  work_dir="$PWD"
   cd "$TF_DIR"
   print_diff
-  echo -e "My commit is $(git log --oneline | head -n 1)"
+  cd "$work_dir"
+  # Print env vars
   echo -e "\n=========================================================================="
   echo -e "My environment variables:"
   echo -e "--------------------------------------------------------------------------"
