@@ -2,7 +2,7 @@
 
 source common.sh
 
-export JOB_NAME="bert-glue-${TIMESTAMP}"
+set_job_name "bert-glue"
 export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/bert/glue/finetuning_data}"
 export TRAIN_DIR="${TRAIN_DIR:=${BASE_DIR}/train_data/${JOB_NAME}}"
 export LOG_FILE="${LOG_DIR}/${JOB_NAME}.log"

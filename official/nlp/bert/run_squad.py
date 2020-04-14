@@ -137,11 +137,17 @@ def predict_squad_customized(strategy, input_meta_data, bert_config,
   """Make predictions using a Bert-based squad model."""
   primary_cpu_task = '/job:worker' if FLAGS.tpu else ''
 
+
+  # The batch sizes used by the input datasets may be smaller than the actual batch size
+  # because each device may process multiple virtual nodes.
+  # TODO: better handling for the case when the batch size doesn't divide
+  predict_dataset_batch_size = FLAGS.predict_batch_size / FLAGS.num_virtual_nodes_per_device
+
   with tf.device(primary_cpu_task):
     predict_dataset = input_pipeline.create_squad_dataset(
         predict_tfrecord_path,
         input_meta_data['max_seq_length'],
-        FLAGS.predict_batch_size,
+        predict_dataset_batch_size,
         is_training=False)
     predict_iterator = iter(
         strategy.experimental_distribute_dataset(predict_dataset))
@@ -206,11 +212,16 @@ def train_squad(strategy,
   max_seq_length = input_meta_data['max_seq_length']
   steps_per_epoch = int(num_train_examples / FLAGS.train_batch_size)
   warmup_steps = int(epochs * num_train_examples * 0.1 / FLAGS.train_batch_size)
+
+  # The batch sizes used by the input datasets may be smaller than the actual batch size
+  # because each device may process multiple virtual nodes.
+  # TODO: better handling for the case when the batch size doesn't divide
+  train_dataset_batch_size = FLAGS.train_batch_size / FLAGS.num_virtual_nodes_per_device
   train_input_fn = functools.partial(
       input_pipeline.create_squad_dataset,
       FLAGS.train_data_path,
       max_seq_length,
-      FLAGS.train_batch_size,
+      train_dataset_batch_size,
       is_training=True)
 
   def _get_squad_model():

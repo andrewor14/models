@@ -223,6 +223,8 @@ def run_keras_compile_fit(model_dir,
       custom_callbacks = []
     custom_callbacks += [summary_callback, checkpoint_callback, time_history_callback]
 
+    bert_model.summary()
+
     bert_model.fit(
         x=training_dataset,
         validation_data=evaluation_dataset,
@@ -271,8 +273,7 @@ def run_bert(strategy, input_meta_data):
   train_data_size = input_meta_data['train_data_size']
   steps_per_epoch = int(train_data_size / FLAGS.train_batch_size)
   warmup_steps = int(epochs * train_data_size * 0.1 / FLAGS.train_batch_size)
-  eval_steps = int(
-      math.ceil(input_meta_data['eval_data_size'] / FLAGS.eval_batch_size))
+  eval_steps = int(input_meta_data['eval_data_size'] / FLAGS.eval_batch_size)
 
   if FLAGS.num_train_steps > 0:
     epochs = 1

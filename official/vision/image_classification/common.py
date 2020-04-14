@@ -360,6 +360,12 @@ def define_keras_flags(dynamic_loss_scale=True):
       help='Number of steps per graph-mode loop. Only training step happens '
       'inside the loop. Callbacks will not be called inside. Will be capped at '
       'steps per epoch.')
+  flags.DEFINE_integer(
+      'num_virtual_nodes_per_device', 1,
+      'Number of virtual nodes mapped to each device in each batch. '
+      'Virtual nodes are processed one after another, with the number of examples '
+      'processed per virtual node equal to the per device batch size divided by '
+      'this value.')
 
 
 def get_synth_input_fn(height, width, num_channels, num_classes,

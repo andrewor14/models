@@ -118,10 +118,15 @@ def run(flags_obj):
   # in the dataset, as XLA-GPU doesn't support dynamic shapes.
   drop_remainder = flags_obj.enable_xla
 
+  # The batch sizes used by the input datasets may be smaller than the actual batch size
+  # because each device may process multiple virtual nodes.
+  # TODO: better handling for the case when the batch size doesn't divide
+  virtual_node_batch_size = flags_obj.batch_size // flags_obj.num_virtual_nodes_per_device
+
   train_input_dataset = input_fn(
       is_training=True,
       data_dir=flags_obj.data_dir,
-      batch_size=flags_obj.batch_size,
+      batch_size=virtual_node_batch_size,
       num_epochs=flags_obj.train_epochs,
       parse_record_fn=imagenet_preprocessing.parse_record,
       datasets_num_private_threads=flags_obj.datasets_num_private_threads,
@@ -135,7 +140,7 @@ def run(flags_obj):
     eval_input_dataset = input_fn(
         is_training=False,
         data_dir=flags_obj.data_dir,
-        batch_size=flags_obj.batch_size,
+        batch_size=virtual_node_batch_size,
         num_epochs=flags_obj.train_epochs,
         parse_record_fn=imagenet_preprocessing.parse_record,
         dtype=dtype,
@@ -225,6 +230,8 @@ def run(flags_obj):
 
   train_dir = os.environ["TRAIN_DIR"]
   callbacks.append(tf.keras.callbacks.TensorBoard(log_dir=train_dir, histogram_freq=1))
+
+  model.summary()
 
   history = model.fit(train_input_dataset,
                       epochs=train_epochs,

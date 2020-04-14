@@ -2,7 +2,7 @@
 
 source common.sh
 
-export JOB_NAME="resnet-imagenet-${TIMESTAMP}"
+set_job_name "resnet-imagenet"
 export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/imagenet}"
 export TRAIN_DIR="${TRAIN_DIR:=${BASE_DIR}/train_data/${JOB_NAME}}"
 export LOG_FILE="${LOG_DIR}/${JOB_NAME}.log"
@@ -16,6 +16,7 @@ export SKIP_EVAL="${SKIP_EVAL:=false}"
 export DTYPE="${DTYPE:=fp16}"
 export ENABLE_EAGER="${ENABLE_EAGER:=true}"
 export ENABLE_XLA="${ENABLE_XLA:=false}"
+export NUM_VIRTUAL_NODES_PER_DEVICE="${NUM_VIRTUAL_NODES_PER_DEVICE:=1}"
 export LOG_STEPS="${LOG_STEPS:=1}"
 
 mkdir -p "$TRAIN_DIR"
@@ -34,5 +35,6 @@ python3 "${RESNET_CODE_DIR}/resnet_imagenet_main.py"\
   --dtype="$DTYPE"\
   --enable_eager="$ENABLE_EAGER"\
   --enable_xla="$ENABLE_XLA"\
+  --num_virtual_nodes_per_device="$NUM_VIRTUAL_NODES_PER_DEVICE" \
   --log_steps="$LOG_STEPS" >> "$LOG_FILE" 2>&1
 

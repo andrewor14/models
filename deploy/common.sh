@@ -15,6 +15,14 @@ if [[ "$LOG_MEMORY_ENABLED" == "true" ]]; then
   export TF_CPP_MIN_VLOG_LEVEL="1"
 fi
 
+set_job_name() {
+  JOB_NAME="$1"
+  if [[ -n "$RUN_TAG" ]]; then
+    JOB_NAME="${JOB_NAME}-${RUN_TAG}"
+  fi
+  export JOB_NAME="${JOB_NAME}-${TIMESTAMP}"
+}
+
 print_diff() {
   echo -e "My commit is $(git log --oneline | head -n 1) ($PWD)"
   DIFF="$(git diff)"
