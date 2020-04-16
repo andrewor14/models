@@ -7,7 +7,6 @@ export LOG_DIR="${LOG_DIR:=$BASE_DIR/logs}"
 export RESNET_CODE_DIR="${RESNET_CODE_DIR:=$BASE_DIR/models/official/vision/image_classification}"
 export BERT_BASE_DIR="${BERT_BASE_DIR:=$BASE_DIR/dataset/bert/uncased_L-12_H-768_A-12}"
 export BERT_CODE_DIR="${BERT_CODE_DIR:=$BASE_DIR/models/official/nlp/bert}"
-export TF_DEALLOCATE_OP_PATH="${TF_DEALLOCATE_OP_PATH:=$TF_DIR/bazel-bin/tensorflow/core/user_ops/deallocate.so}"
 
 export LOG_MEMORY_ENABLED="${LOG_MEMORY_ENABLED:=false}"
 if [[ "$LOG_MEMORY_ENABLED" == "true" ]]; then

@@ -2,8 +2,19 @@
 
 source common.sh
 
-set_job_name "resnet-imagenet"
-export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/imagenet}"
+export DATASET="${DATASET:=imagenet}"
+if [[ "$DATASET" == "imagenet" ]]; then
+  export RUN_FILE="resnet_imagenet_main.py"
+  export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/imagenet}"
+elif [[ "$DATASET" == "cifar10" ]]; then
+  export RUN_FILE="resnet_cifar_main.py"
+  export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/cifar10/cifar-10-batches-bin}"
+else
+  echo "ERROR: Unknown dataset '$DATASET'"
+  exit 1
+fi
+
+set_job_name "resnet-$DATASET"
 export TRAIN_DIR="${TRAIN_DIR:=${BASE_DIR}/train_data/${JOB_NAME}}"
 export LOG_FILE="${LOG_DIR}/${JOB_NAME}.log"
 
@@ -23,7 +34,7 @@ mkdir -p "$TRAIN_DIR"
 
 print_diff_and_env > "$LOG_FILE" 2>&1
 
-python3 "${RESNET_CODE_DIR}/resnet_imagenet_main.py"\
+python3 "${RESNET_CODE_DIR}/${RUN_FILE}"\
   --num_gpus="$NUM_GPUS"\
   --data_dir="$DATA_DIR"\
   --batch_size="$BATCH_SIZE"\
