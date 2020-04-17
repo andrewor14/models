@@ -29,6 +29,7 @@ from absl import logging
 import tensorflow as tf
 
 # pylint: disable=g-import-not-at-top,redefined-outer-name,reimported
+from deploy import mpi_helper
 from official.modeling import model_training_utils
 from official.nlp import bert_modeling as modeling
 from official.nlp import bert_models
@@ -259,6 +260,8 @@ def export_classifier(model_export_path, input_meta_data):
 
 def run_bert(strategy, input_meta_data):
   """Run BERT training."""
+  mpi_helper.set_tf_config()
+
   if FLAGS.mode == 'export_only':
     export_classifier(FLAGS.model_export_path, input_meta_data)
     return

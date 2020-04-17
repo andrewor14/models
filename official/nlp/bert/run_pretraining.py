@@ -26,6 +26,7 @@ from absl import logging
 import tensorflow as tf
 
 # pylint: disable=unused-import,g-import-not-at-top,redefined-outer-name,reimported
+from deploy import mpi_helper
 from official.modeling import model_training_utils
 from official.nlp import bert_modeling as modeling
 from official.nlp import bert_models
@@ -167,6 +168,7 @@ def run_customized_training(strategy,
 
 def run_bert_pretrain(strategy):
   """Runs BERT pre-training."""
+  mpi_helper.set_tf_config()
 
   bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
   if not strategy:

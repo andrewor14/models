@@ -25,6 +25,7 @@ from absl import flags
 from absl import logging
 import tensorflow as tf
 
+from deploy import mpi_helper
 from official.benchmark.models import trivial_model
 from official.utils.flags import core as flags_core
 from official.utils.logs import logger
@@ -48,6 +49,8 @@ def run(flags_obj):
   Returns:
     Dictionary of training and eval stats.
   """
+  mpi_helper.set_tf_config()
+
   keras_utils.set_session_config(
       enable_eager=flags_obj.enable_eager,
       enable_xla=flags_obj.enable_xla)
