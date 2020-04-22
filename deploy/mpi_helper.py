@@ -11,6 +11,7 @@ import tensorflow as tf
 # Environment variables
 TF_CONFIG = "TF_CONFIG"
 MPI_SPAWN_RANK = "MPI_SPAWN_RANK"
+NUM_VIRTUAL_NODES_PER_DEVICE = "NUM_VIRTUAL_NODES_PER_DEVICE"
 
 def set_tf_config(base_port=2222):
   """
@@ -28,4 +29,13 @@ def set_tf_config(base_port=2222):
   tf_config = json.dumps(tf_config)
   logging.info("Setting %s to %s" % (TF_CONFIG, tf_config))
   os.environ[TF_CONFIG] = tf_config
+
+def get_input_contexts():
+  """
+  Return a list of `tf.distribute.InputContext`s that matches this process' rank.
+  """
+  n = int(os.getenv(NUM_VIRTUAL_NODES_PER_DEVICE) or 1)
+  num_shards = MPI.COMM_WORLD.size * n
+  shard_indices = [MPI.COMM_WORLD.rank * n + i for i in range(n)]
+  return [tf.distribute.InputContext(num_shards, i) for i in shard_indices]
 

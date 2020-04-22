@@ -18,6 +18,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
+
 from absl import flags
 from absl import app as absl_app
 import tensorflow as tf
@@ -134,28 +136,34 @@ def run(flags_obj):
   # because each device may process multiple virtual nodes.
   # TODO: better handling for the case when the batch size doesn't divide
   virtual_node_batch_size = flags_obj.batch_size // flags_obj.num_virtual_nodes_per_device
+  input_contexts = mpi_helper.get_input_contexts()
+  train_input_datasets = []
+  eval_input_datasets = []
 
-  train_input_dataset = input_fn(
-      is_training=True,
-      data_dir=flags_obj.data_dir,
-      batch_size=virtual_node_batch_size,
-      num_epochs=flags_obj.train_epochs,
-      parse_record_fn=cifar_preprocessing.parse_record,
-      datasets_num_private_threads=flags_obj.datasets_num_private_threads,
-      dtype=dtype,
-      # Setting drop_remainder to avoid the partial batch logic in normalization
-      # layer, which triggers tf.where and leads to extra memory copy of input
-      # sizes between host and GPU.
-      drop_remainder=(not flags_obj.enable_get_next_as_optional))
-
-  eval_input_dataset = None
-  if not flags_obj.skip_eval:
-    eval_input_dataset = input_fn(
-        is_training=False,
+  for input_context in input_contexts:
+    train_input_datasets.append(input_fn(
+        is_training=True,
         data_dir=flags_obj.data_dir,
         batch_size=virtual_node_batch_size,
         num_epochs=flags_obj.train_epochs,
-        parse_record_fn=cifar_preprocessing.parse_record)
+        parse_record_fn=cifar_preprocessing.parse_record,
+        datasets_num_private_threads=flags_obj.datasets_num_private_threads,
+        dtype=dtype,
+        # Setting drop_remainder to avoid the partial batch logic in normalization
+        # layer, which triggers tf.where and leads to extra memory copy of input
+        # sizes between host and GPU.
+        drop_remainder=(not flags_obj.enable_get_next_as_optional),
+        input_context=input_context))
+
+  if not flags_obj.skip_eval:
+    for input_context in input_contexts:
+      eval_input_datasets.append(input_fn(
+          is_training=False,
+          data_dir=flags_obj.data_dir,
+          batch_size=virtual_node_batch_size,
+          num_epochs=flags_obj.train_epochs,
+          parse_record_fn=cifar_preprocessing.parse_record,
+          input_context=input_context))
 
   with strategy_scope:
     optimizer = common.get_optimizer()
@@ -192,7 +200,7 @@ def run(flags_obj):
   num_eval_steps = (cifar_preprocessing.NUM_IMAGES['validation'] //
                     flags_obj.batch_size)
 
-  validation_data = eval_input_dataset
+  validation_data = eval_input_datasets
   if flags_obj.skip_eval:
     if flags_obj.set_learning_phase_to_train:
       # TODO(haoyuzhang): Understand slowdown of setting learning phase when
@@ -209,7 +217,7 @@ def run(flags_obj):
 
   model.summary()
 
-  history = model.fit(train_input_dataset,
+  history = model.fit(train_input_datasets,
                       epochs=train_epochs,
                       steps_per_epoch=train_steps,
                       callbacks=callbacks,
@@ -219,7 +227,7 @@ def run(flags_obj):
                       verbose=2)
   eval_output = None
   if not flags_obj.skip_eval:
-    eval_output = model.evaluate(eval_input_dataset,
+    eval_output = model.evaluate(eval_input_datasets,
                                  steps=num_eval_steps,
                                  verbose=2)
 

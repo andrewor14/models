@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import os
 
 from absl import app
@@ -125,29 +126,35 @@ def run(flags_obj):
   # because each device may process multiple virtual nodes.
   # TODO: better handling for the case when the batch size doesn't divide
   virtual_node_batch_size = flags_obj.batch_size // flags_obj.num_virtual_nodes_per_device
+  input_contexts = mpi_helper.get_input_contexts()
+  train_input_datasets = []
+  eval_input_datasets = []
 
-  train_input_dataset = input_fn(
-      is_training=True,
-      data_dir=flags_obj.data_dir,
-      batch_size=virtual_node_batch_size,
-      num_epochs=flags_obj.train_epochs,
-      parse_record_fn=imagenet_preprocessing.parse_record,
-      datasets_num_private_threads=flags_obj.datasets_num_private_threads,
-      dtype=dtype,
-      drop_remainder=drop_remainder,
-      tf_data_experimental_slack=flags_obj.tf_data_experimental_slack,
-  )
-
-  eval_input_dataset = None
-  if not flags_obj.skip_eval:
-    eval_input_dataset = input_fn(
-        is_training=False,
+  for input_context in input_contexts:
+    train_input_datasets.append(input_fn(
+        is_training=True,
         data_dir=flags_obj.data_dir,
         batch_size=virtual_node_batch_size,
         num_epochs=flags_obj.train_epochs,
         parse_record_fn=imagenet_preprocessing.parse_record,
+        datasets_num_private_threads=flags_obj.datasets_num_private_threads,
         dtype=dtype,
-        drop_remainder=drop_remainder)
+        drop_remainder=drop_remainder,
+        tf_data_experimental_slack=flags_obj.tf_data_experimental_slack,
+        input_context=input_context
+    ))
+
+  if not flags_obj.skip_eval:
+    for input_context in input_contexts:
+      eval_input_datasets.append(input_fn(
+          is_training=False,
+          data_dir=flags_obj.data_dir,
+          batch_size=virtual_node_batch_size,
+          num_epochs=flags_obj.train_epochs,
+          parse_record_fn=imagenet_preprocessing.parse_record,
+          dtype=dtype,
+          drop_remainder=drop_remainder,
+          input_context=input_context))
 
   lr_schedule = 0.1
   if flags_obj.use_tensor_lr:
@@ -213,7 +220,7 @@ def run(flags_obj):
   num_eval_steps = (
       imagenet_preprocessing.NUM_IMAGES['validation'] // flags_obj.batch_size)
 
-  validation_data = eval_input_dataset
+  validation_data = eval_input_datasets
   if flags_obj.skip_eval:
     # Only build the training graph. This reduces memory usage introduced by
     # control flow ops in layers that have different implementations for
@@ -236,7 +243,7 @@ def run(flags_obj):
 
   model.summary()
 
-  history = model.fit(train_input_dataset,
+  history = model.fit(train_input_datasets,
                       epochs=train_epochs,
                       steps_per_epoch=train_steps,
                       callbacks=callbacks,
@@ -254,7 +261,7 @@ def run(flags_obj):
 
   eval_output = None
   if not flags_obj.skip_eval:
-    eval_output = model.evaluate(eval_input_dataset,
+    eval_output = model.evaluate(eval_input_datasets,
                                  steps=num_eval_steps,
                                  verbose=2)
 

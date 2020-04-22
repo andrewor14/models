@@ -135,6 +135,7 @@ def process_record_dataset(dataset,
 
   options = tf.data.Options()
   options.experimental_slack = tf_data_experimental_slack
+  options.experimental_distribute.auto_shard = False
   dataset = dataset.with_options(options)
 
   return dataset
