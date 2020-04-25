@@ -26,7 +26,6 @@ from absl import logging
 import tensorflow as tf
 
 # pylint: disable=unused-import,g-import-not-at-top,redefined-outer-name,reimported
-from deploy import mpi_helper
 from official.modeling import model_training_utils
 from official.nlp import bert_modeling as modeling
 from official.nlp import bert_models
@@ -35,6 +34,7 @@ from official.nlp.bert import common_flags
 from official.nlp.bert import input_pipeline
 from official.nlp.bert import model_saving_utils
 from official.utils.misc import tpu_lib
+from virtual import virtual_helper
 
 flags.DEFINE_string('input_files', None,
                     'File path to retrieve training data for pre-training.')
@@ -168,8 +168,6 @@ def run_customized_training(strategy,
 
 def run_bert_pretrain(strategy):
   """Runs BERT pre-training."""
-  mpi_helper.set_tf_config()
-
   bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
   if not strategy:
     raise ValueError('Distribution strategy is not specified.')
@@ -196,6 +194,8 @@ def run_bert_pretrain(strategy):
 def main(_):
   # Users should always run this script under TF 2.x
   assert tf.version.VERSION.startswith('2.')
+
+  virtual_helper.initialize()
 
   if not FLAGS.model_dir:
     FLAGS.model_dir = '/tmp/bert20/'

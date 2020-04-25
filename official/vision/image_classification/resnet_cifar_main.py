@@ -24,7 +24,6 @@ from absl import flags
 from absl import app as absl_app
 import tensorflow as tf
 
-from deploy import mpi_helper
 from official.utils.flags import core as flags_core
 from official.utils.logs import logger
 from official.utils.misc import distribution_utils
@@ -32,7 +31,7 @@ from official.utils.misc import keras_utils
 from official.vision.image_classification import cifar_preprocessing
 from official.vision.image_classification import common
 from official.vision.image_classification import resnet_cifar_model
-
+from virtual import virtual_helper
 
 LR_SCHEDULE = [  # (multiplier, epoch to start) tuples
     (0.1, 91), (0.01, 136), (0.001, 182)
@@ -80,8 +79,6 @@ def run(flags_obj):
   Returns:
     Dictionary of training and eval stats.
   """
-  mpi_helper.set_tf_config()
-
   keras_utils.set_session_config(
       enable_eager=flags_obj.enable_eager,
       enable_xla=flags_obj.enable_xla)
@@ -136,7 +133,7 @@ def run(flags_obj):
   # because each device may process multiple virtual nodes.
   # TODO: better handling for the case when the batch size doesn't divide
   virtual_node_batch_size = flags_obj.batch_size // flags_obj.num_virtual_nodes_per_device
-  input_contexts = mpi_helper.get_input_contexts()
+  input_contexts = virtual_helper.get_input_contexts()
   train_input_datasets = []
   eval_input_datasets = []
 
@@ -249,6 +246,7 @@ def define_cifar_flags():
 
 
 def main(_):
+  virtual_helper.initialize()
   with logger.benchmark_context(flags.FLAGS):
     return run(flags.FLAGS)
 

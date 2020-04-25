@@ -20,8 +20,10 @@ else
 fi
 set_job_name "$BASE_JOB_NAME"
 
-# Set distribution strategy based on number of nodes
-if [[ "$NUM_NODES" > "1" ]]; then
+# Set distribution strategy
+if [[ "$HOROVOD_ENABLED" == "true" ]]; then
+  export DISTRIBUTION_STRATEGY="mirrored"
+elif [[ "$NUM_NODES" > "1" ]]; then
   export DISTRIBUTION_STRATEGY="multi_worker_mirrored"
 fi
 

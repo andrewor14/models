@@ -26,7 +26,6 @@ from absl import flags
 from absl import logging
 import tensorflow as tf
 
-from deploy import mpi_helper
 from official.benchmark.models import trivial_model
 from official.utils.flags import core as flags_core
 from official.utils.logs import logger
@@ -36,6 +35,7 @@ from official.utils.misc import model_helpers
 from official.vision.image_classification import common
 from official.vision.image_classification import imagenet_preprocessing
 from official.vision.image_classification import resnet_model
+from virtual import virtual_helper
 
 
 def run(flags_obj):
@@ -50,8 +50,6 @@ def run(flags_obj):
   Returns:
     Dictionary of training and eval stats.
   """
-  mpi_helper.set_tf_config()
-
   keras_utils.set_session_config(
       enable_eager=flags_obj.enable_eager,
       enable_xla=flags_obj.enable_xla)
@@ -126,7 +124,7 @@ def run(flags_obj):
   # because each device may process multiple virtual nodes.
   # TODO: better handling for the case when the batch size doesn't divide
   virtual_node_batch_size = flags_obj.batch_size // flags_obj.num_virtual_nodes_per_device
-  input_contexts = mpi_helper.get_input_contexts()
+  input_contexts = virtual_helper.get_input_contexts()
   train_input_datasets = []
   eval_input_datasets = []
 
@@ -284,6 +282,7 @@ def define_imagenet_keras_flags():
 
 def main(_):
   model_helpers.apply_clean(flags.FLAGS)
+  virtual_helper.initialize()
   with logger.benchmark_context(flags.FLAGS):
     stats = run(flags.FLAGS)
   logging.info('Run stats:\n%s', stats)

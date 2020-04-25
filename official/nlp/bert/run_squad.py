@@ -28,7 +28,6 @@ from absl import logging
 import tensorflow as tf
 
 # pylint: disable=unused-import,g-import-not-at-top,redefined-outer-name,reimported
-from deploy import mpi_helper
 from official.modeling import model_training_utils
 from official.nlp import bert_modeling as modeling
 from official.nlp import bert_models
@@ -40,6 +39,7 @@ from official.nlp.bert import squad_lib
 from official.nlp.bert import tokenization
 from official.utils.misc import keras_utils
 from official.utils.misc import tpu_lib
+from virtual import virtual_helper
 
 flags.DEFINE_enum(
     'mode', 'train_and_predict',
@@ -363,7 +363,7 @@ def main(_):
   # Users should always run this script under TF 2.x
   assert tf.version.VERSION.startswith('2.')
 
-  mpi_helper.set_tf_config()
+  virtual_helper.initialize()
 
   with tf.io.gfile.GFile(FLAGS.input_meta_data_path, 'rb') as reader:
     input_meta_data = json.loads(reader.read().decode('utf-8'))

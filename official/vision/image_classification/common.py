@@ -27,6 +27,7 @@ import tensorflow as tf
 from tensorflow.python.keras.optimizer_v2 import gradient_descent as gradient_descent_v2
 from official.utils.flags import core as flags_core
 from official.utils.misc import keras_utils
+from virtual import elasticity_callback, virtual_helper
 
 FLAGS = flags.FLAGS
 BASE_LEARNING_RATE = 0.1  # This matches Jing's version.
@@ -231,6 +232,9 @@ def get_callbacks(learning_rate_schedule_fn=None, num_images=None):
         FLAGS.profile_steps,
         FLAGS.enable_tensorboard)
     callbacks.append(profiler_callback)
+
+  if virtual_helper.horovod_enabled():
+    callbacks.append(elasticity_callback.ElasticityCallback())
 
   return callbacks
 
