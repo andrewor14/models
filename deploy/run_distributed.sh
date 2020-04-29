@@ -20,13 +20,6 @@ else
 fi
 set_job_name "$BASE_JOB_NAME"
 
-# Set distribution strategy
-if [[ "$HOROVOD_ENABLED" == "true" ]]; then
-  export DISTRIBUTION_STRATEGY="mirrored"
-elif [[ "$NUM_NODES" > "1" ]]; then
-  export DISTRIBUTION_STRATEGY="multi_worker_mirrored"
-fi
-
 # Tell MPI which hosts to use
 HOST_FLAG=""
 if [[ -n "$MPI_HOSTS" ]]; then

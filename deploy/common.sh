@@ -26,7 +26,6 @@ export PYTHONPATH="$PYTHONPATH:$BASE_DIR/models"
 export DTYPE="${DTYPE:=fp16}"
 export LOG_STEPS="${LOG_STEPS:=1}"
 export SKIP_EVAL="${SKIP_EVAL:=false}"
-export DISTRIBUTION_STRATEGY="${DISTRIBUTION_STRATEGY:=default}"
 export NUM_VIRTUAL_NODES_PER_DEVICE="${NUM_VIRTUAL_NODES_PER_DEVICE:=1}"
 
 export ENABLE_XLA="${ENABLE_XLA:=false}"
@@ -66,10 +65,12 @@ print_diff() {
 print_diff_and_env() {
   print_diff
   # Print tensorflow diff
-  work_dir="$PWD"
-  cd "$TF_DIR"
-  print_diff
-  cd "$work_dir"
+  if [[ -d "$TF_DIR" ]]; then
+    work_dir="$PWD"
+    cd "$TF_DIR"
+    print_diff
+    cd "$work_dir"
+  fi
   # Print env vars
   echo -e "\n=========================================================================="
   echo -e "My environment variables:"

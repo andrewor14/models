@@ -18,6 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from absl import logging
 import tensorflow as tf
 
 
@@ -36,7 +37,7 @@ def decode_record(record, name_to_features):
   return example
 
 
-def file_based_input_fn_builder(input_file, name_to_features):
+def file_based_input_fn_builder(input_file, name_to_features, input_context=None):
   """Creates an `input_fn` closure to be passed for BERT custom training."""
 
   def input_fn():
@@ -44,6 +45,12 @@ def file_based_input_fn_builder(input_file, name_to_features):
     # For training, we want a lot of parallel reading and shuffling.
     # For eval, we want no shuffling and parallel reading doesn't matter.
     d = tf.data.TFRecordDataset(input_file)
+    if input_context is not None:
+      logging.info(
+        'Sharding the dataset: input_pipeline_id=%d num_input_pipelines=%d',
+        input_context.input_pipeline_id, input_context.num_input_pipelines)
+      d = d.shard(input_context.num_input_pipelines, input_context.input_pipeline_id)
+
     d = d.map(lambda record: decode_record(record, name_to_features))
 
     # When `input_file` is a path to a single file or a list
@@ -137,7 +144,8 @@ def create_classifier_dataset(file_path,
                               seq_length,
                               batch_size,
                               is_training=True,
-                              drop_remainder=True):
+                              drop_remainder=True,
+                              input_context=None):
   """Creates input dataset from (tf)records files for train/eval."""
   name_to_features = {
       'input_ids': tf.io.FixedLenFeature([seq_length], tf.int64),
@@ -146,7 +154,7 @@ def create_classifier_dataset(file_path,
       'label_ids': tf.io.FixedLenFeature([], tf.int64),
       'is_real_example': tf.io.FixedLenFeature([], tf.int64),
   }
-  input_fn = file_based_input_fn_builder(file_path, name_to_features)
+  input_fn = file_based_input_fn_builder(file_path, name_to_features, input_context)
   dataset = input_fn()
 
   def _select_data_from_record(record):

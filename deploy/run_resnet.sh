@@ -27,6 +27,14 @@ export NUM_STEPS="${NUM_STEPS:=0}"
 export EPOCHS_BETWEEN_EVALS="${EPOCHS_BETWEEN_EVALS:=4}"
 export ENABLE_EAGER="${ENABLE_EAGER:=true}"
 
+# Set distribution strategy
+if [[ "$HOROVOD_ENABLED" == "true" ]]; then
+  export DISTRIBUTION_STRATEGY="mirrored"
+elif [[ "$NUM_NODES" > "1" ]]; then
+  export DISTRIBUTION_STRATEGY="multi_worker_mirrored"
+fi
+export DISTRIBUTION_STRATEGY="${DISTRIBUTION_STRATEGY:=default}"
+
 mkdir -p "$TRAIN_DIR"
 
 print_diff_and_env > "$LOG_FILE" 2>&1

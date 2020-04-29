@@ -47,7 +47,6 @@ print_diff_and_env > "$LOG_FILE" 2>&1
   --dtype="$DTYPE"\
   --enable_xla="$ENABLE_XLA"\
   --use_keras_compile_fit="$USE_KERAS_COMPILE_FIT"\
-  --distribution_strategy="$DISTRIBUTION_STRATEGY"\
   --num_virtual_nodes_per_device="$NUM_VIRTUAL_NODES_PER_DEVICE"\
   >> "$LOG_FILE" 2>&1
 

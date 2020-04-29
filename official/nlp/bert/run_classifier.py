@@ -204,8 +204,11 @@ def run_keras_compile_fit(model_dir,
   """Runs BERT classifier model using Keras compile/fit API."""
 
   with strategy.scope():
-    training_dataset = train_input_fn()
-    evaluation_dataset = eval_input_fn() if eval_input_fn is not None else None
+    input_contexts = virtual_helper.get_input_contexts()
+    training_datasets = [train_input_fn(input_context=ic) for ic in input_contexts]
+    evaluation_datasets = None
+    if eval_input_fn is not None:
+      evaluation_datasets = [eval_input_fn(input_context=ic) for ic in input_contexts]
     bert_model, sub_model = model_fn()
     optimizer = bert_model.optimizer
 
@@ -227,8 +230,8 @@ def run_keras_compile_fit(model_dir,
     bert_model.summary()
 
     bert_model.fit(
-        x=training_dataset,
-        validation_data=evaluation_dataset,
+        x=training_datasets,
+        validation_data=evaluation_datasets,
         steps_per_epoch=steps_per_epoch,
         epochs=epochs,
         validation_steps=eval_steps,
