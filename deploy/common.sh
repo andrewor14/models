@@ -9,6 +9,10 @@ elif [[ "$ENVIRONMENT" == "ns" ]]; then
   export BASE_DIR="/home/andrewor"
   export PYTHON_COMMAND="/usr/licensed/anaconda3/5.2.0/bin/python3.6"
   export NUM_GPUS="0"
+elif [[ -n "$IN_DOCKER_CONTAINER" ]]; then
+  export ENVIRONMENT="docker"
+  export BASE_DIR="/root/dev"
+  export PYTHON_COMMAND="/usr/bin/python3"
 else
   echo "ERROR: Unknown environment '$ENVIRONMENT'"
   exit 1

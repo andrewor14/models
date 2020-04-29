@@ -32,6 +32,9 @@ HOST_FLAG=""
 if [[ -n "$MPI_HOSTS" ]]; then
   # If MPI_HOSTS is defined, just use it directly
   HOST_FLAG="--host $MPI_HOSTS"
+elif [[ -n "$MPI_HOST_FILE" ]]; then
+  # Else, use the hostfile flag
+  HOST_FLAG="--hostfile $MPI_HOST_FILE"
 elif [[ -n "$(command -v sinfo)" ]]; then
   # If slurm is installed, get the idle hosts from it and use the hosts in --host
   SLURM_HOSTS="$(sinfo -N --state=idle | tail -n +2 | awk '{print $1}')"
