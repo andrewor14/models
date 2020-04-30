@@ -58,7 +58,7 @@ FLAGS = flags.FLAGS
 
 
 def get_pretrain_input_data(input_file_pattern, seq_length,
-                            max_predictions_per_seq, batch_size, strategy):
+                            max_predictions_per_seq, batch_size, strategy, input_context=None):
   """Returns input dataset from input file string."""
 
   # When using TPU pods, we need to clone dataset across
@@ -86,7 +86,7 @@ def get_pretrain_input_data(input_file_pattern, seq_length,
     # The batch sizes used by the input datasets may be smaller than the actual batch size
     # because each device may process multiple virtual nodes.
     # TODO: better handling for the case when the batch size doesn't divide
-    virtual_node_batch_size = batch_size / FLAGS.num_virtual_nodes_per_device
+    virtual_node_batch_size = int(batch_size / FLAGS.num_virtual_nodes_per_device)
 
     train_dataset = input_pipeline.create_pretrain_dataset(
         input_files,
@@ -97,7 +97,7 @@ def get_pretrain_input_data(input_file_pattern, seq_length,
         input_pipeline_context=ctx)
     return train_dataset
 
-  return _dataset_fn if use_dataset_fn else _dataset_fn()
+  return _dataset_fn if use_dataset_fn else _dataset_fn(input_context)
 
 
 def get_loss_fn(loss_factor=1.0):

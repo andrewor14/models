@@ -12,8 +12,16 @@ if [[ "$MODEL" == "resnet" ]]; then
   DATASET="${DATASET:=imagenet}"
   BASE_JOB_NAME="resnet-$DATASET"
 elif [[ "$MODEL" == "bert" ]]; then
-  RUN_SCRIPT="run_bert_glue.sh"
-  BASE_JOB_NAME="bert-glue"
+  BERT_TASK="${BERT_TASK:=glue}"
+  if [[ "$BERT_TASK" == "glue" ]]; then
+    RUN_SCRIPT="run_bert_glue.sh"
+    BASE_JOB_NAME="bert-glue"
+  elif [[ "$BERT_TASK" == "pretraining" ]]; then
+    RUN_SCRIPT="run_bert_pretraining.sh"
+    BASE_JOB_NAME="bert-pretraining"
+  else
+    echo "Unknown BERT task '$BERT_TASK'"
+  fi
 else
   echo "Unknown model '$MODEL'"
   exit 1

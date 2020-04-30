@@ -5,6 +5,7 @@ source common.sh
 set_job_name "bert-glue"
 export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/bert/glue/finetuning_data}"
 export PRETRAINED_DATA_DIR="${PRETRAINED_DATA_DIR:=$BASE_DIR/dataset/bert/uncased_L-12_H-768_A-12}"
+export CHECKPOINT_NAME="$(ls "$PRETRAINED_DATA_DIR" | grep index | sed 's/\.index//g')"
 export CODE_DIR="${CODE_DIR:=$BASE_DIR/models/official/nlp/bert}"
 export TRAIN_DIR="${TRAIN_DIR:=${BASE_DIR}/train_data/${JOB_NAME}}"
 export LOG_FILE="${LOG_FILE:=${LOG_DIR}/${JOB_NAME}.log}"
@@ -34,7 +35,7 @@ print_diff_and_env > "$LOG_FILE" 2>&1
   --train_data_path="${DATA_DIR}/${GLUE_TASK}_train.tf_record"\
   --eval_data_path="${DATA_DIR}/${GLUE_TASK}_eval.tf_record"\
   --bert_config_file="${PRETRAINED_DATA_DIR}/bert_config.json"\
-  --init_checkpoint="${PRETRAINED_DATA_DIR}/bert_model.ckpt"\
+  --init_checkpoint="${PRETRAINED_DATA_DIR}/${CHECKPOINT_NAME}"\
   --model_dir="$TRAIN_DIR"\
   --train_batch_size="$TRAIN_BATCH_SIZE"\
   --eval_batch_size="$EVAL_BATCH_SIZE"\
