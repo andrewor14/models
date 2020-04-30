@@ -25,6 +25,7 @@ from absl import logging
 import tensorflow as tf
 from official.utils.misc import distribution_utils
 from official.utils.misc import tpu_lib
+from virtual import virtual_helper
 
 _SUMMARY_TXT = 'training_summary.txt'
 _MIN_SUMMARY_STEPS = 10
@@ -39,13 +40,13 @@ def _save_checkpoint(checkpoint, model_dir, checkpoint_prefix):
   return
 
 
-def _get_input_iterator(input_fn, strategy):
+def _get_input_iterator(input_fn, strategy, input_context=None):
   """Returns distributed dataset iterator."""
 
   # When training with TPU pods, datasets needs to be cloned across
   # workers. Since Dataset instance cannot be cloned in eager mode, we instead
   # pass callable that returns a dataset.
-  input_data = input_fn()
+  input_data = input_fn(input_context=input_context)
   if callable(input_data):
     iterator = iter(
         strategy.experimental_distribute_datasets_from_function(input_data))
@@ -189,7 +190,8 @@ def run_customized_training_loop(
 
   # To reduce unnecessary send/receive input pipeline operation, we place input
   # pipeline ops in worker task.
-  train_iterator = _get_input_iterator(train_input_fn, strategy)
+  input_contexts = virtual_helper.get_input_contexts()
+  train_iterators = [_get_input_iterator(train_input_fn, strategy, ic) for ic in input_contexts]
 
   with distribution_utils.get_strategy_scope(strategy):
     # To correctly place the model weights on accelerators,
@@ -234,9 +236,66 @@ def run_customized_training_loop(
     # Collects training variables.
     training_vars = model.trainable_variables
 
+    def _wrapped_execution_function(iterators, fn, training):
+      """
+      A wrapper around the underlying execution function that handles virtual node processing.
+
+      This wrapper is intended to be called as a per replica function. It allows each
+      replica to process multiple batches, one after another, within the same function call.
+      Each virtual node uses its own input iterator.
+
+      Return a list of gradients aggregated across the virtual nodes, `None` if `training` is False.
+
+      Note: this function closely mirrors the logic in `wrapped_execution_function` here:
+      https://github.com/andrewor14/tensorflow/blob/6e166ba24adb1617b8b0706df28323d035ebb2a6/
+        tensorflow/python/keras/engine/training_v2_utils.py#L215
+      """
+      num_virtual_nodes = int(os.getenv("NUM_VIRTUAL_NODES_PER_DEVICE") or 1)
+      if len(iterators) != num_virtual_nodes:
+        raise ValueError("Wrong number of input iterators %s, should've been %s" %
+          (len(iterators), num_virtual_nodes))
+
+      last_output = None
+      aggregated_grads = None
+      for i in range(num_virtual_nodes):
+        # Ensure we have finished running the previous virtual node before proceeding
+        dependencies = [last_output] if last_output is not None else []
+        dependencies.extend(aggregated_grads or [])
+        # Actually process the current virtual node
+        with tf.control_dependencies(dependencies):
+          print_op = tf.print("Running virtual node %s/%s" % (i+1, num_virtual_nodes))
+          with tf.control_dependencies([print_op]):
+            inputs = next(iterators[i])
+            if training:
+              output, grads = fn(inputs)
+              # Convert all IndexedSlices to dense tensors
+              # TODO: find a more efficient way to handle this, e.g. processing them in place
+              for j, grad in enumerate(grads):
+                if isinstance(grad, tf.IndexedSlices):
+                  grads[j] = tf.convert_to_tensor(grad)
+              # Sum all intermediate gradients and divide them later
+              if aggregated_grads is not None:
+                if len(grads) != len(aggregated_grads):
+                  raise ValueError("Wrong number of gradients in virtual node %s output" % (i+1))
+                for j in range(len(aggregated_grads)):
+                  aggregated_grads[j] += grads[j]
+              else:
+                aggregated_grads = grads
+            else:
+              output = fn(inputs)
+            last_output = output
+
+      # Finish averaging gradients and update the model
+      if aggregated_grads is not None:
+        for j in range(len(aggregated_grads)):
+          aggregated_grads[j] /= num_virtual_nodes
+        # If Horovod is enabled, we will apply the gradients outside the per replica function
+        if not virtual_helper.horovod_enabled():
+          model.optimizer.apply_gradients(zip(aggregated_grads, training_vars))
+      return aggregated_grads
+
     def _replicated_step(inputs):
       """Replicated training step."""
-
       inputs, labels = inputs
       with tf.GradientTape() as tape:
         model_outputs = model(inputs, training=True)
@@ -249,14 +308,14 @@ def run_customized_training_loop(
         grads = optimizer.get_unscaled_gradients(scaled_grads)
       else:
         grads = tape.gradient(loss, training_vars)
-      optimizer.apply_gradients(zip(grads, training_vars))
       # For reporting, the metric takes the mean of losses.
       train_loss_metric.update_state(loss)
       for metric in train_metrics:
         metric.update_state(labels, model_outputs)
+      return model_outputs, grads
 
     @tf.function
-    def train_steps(iterator, steps):
+    def train_steps(iterators, steps):
       """Performs distributed training steps in a loop.
 
       Args:
@@ -272,9 +331,28 @@ def run_customized_training_loop(
                          'retracing.')
 
       for _ in tf.range(steps):
-        strategy.experimental_run_v2(_replicated_step, args=(next(iterator),))
+        train_single_step(iterators)
 
-    def train_single_step(iterator):
+    def convert_iterators(iterators):
+      """
+      Convert each iterator to a `PerReplica` value of individual iterators.
+      We assume each iterator is an instance of `DistributedIterator`.
+      We do this to allow each device to independently fetch the next batch.
+      """
+      from tensorflow.python.distribute import input_lib, values
+      all_per_replica_iterators = []
+      for it in iterators:
+        if not isinstance(it, input_lib.DistributedIterator):
+          raise ValueError("Expected input iterator to be a DistributedIterator")
+        if len(it._iterators) != 1:
+          raise ValueError("Expected a single input iterator from CPU")
+        # DistributedIterator -> _SingleWorkerDatasetIterator -> MultiDeviceIterator -> IteratorV2
+        per_replica_iterators = it._iterators[0]._iterator._device_iterators
+        per_replica_iterators = values.regroup(it._input_workers.device_map, per_replica_iterators)
+        all_per_replica_iterators.append(per_replica_iterators)
+      return all_per_replica_iterators
+
+    def train_single_step(iterators):
       """Performs a distributed training step.
 
       Args:
@@ -283,29 +361,40 @@ def run_customized_training_loop(
       Raises:
         ValueError: Any of the arguments or tensor shapes are invalid.
       """
-      strategy.experimental_run_v2(_replicated_step, args=(next(iterator),))
+      iterators = convert_iterators(iterators)
+      grads = strategy.experimental_run_v2(
+        _wrapped_execution_function, args=(iterators, _replicated_step, True))
+      # When using Horovod, we first synchronize the gradients across the devices
+      # assigned to each worker before passing them to Horovod
+      if virtual_helper.horovod_enabled():
+        grads = strategy.reduce(reduce_util.ReduceOp.MEAN, grads, axis=None)
+        grads = virtual_helper.HOROVOD_ALLREDUCE_FUNCTION(grads)
+        func = lambda g: model.optimizer.apply_gradients(zip(g, training_vars))
+        strategy.experimental_run_v2(func, args=(grads,))
 
-    def test_step(iterator):
+    def test_step(iterators):
       """Calculates evaluation metrics on distributed devices."""
 
       def _test_step_fn(inputs):
         """Replicated accuracy calculation."""
-
         inputs, labels = inputs
         model_outputs = model(inputs, training=False)
         for metric in eval_metrics:
           metric.update_state(labels, model_outputs)
+        return model_outputs
 
-      strategy.experimental_run_v2(_test_step_fn, args=(next(iterator),))
+      iterators = convert_iterators(iterators)
+      strategy.experimental_run_v2(
+        _wrapped_execution_function, args=(iterators, _test_step_fn, False))
 
     if not run_eagerly:
       train_single_step = tf.function(train_single_step)
       test_step = tf.function(test_step)
 
-    def _run_evaluation(current_training_step, test_iterator):
+    def _run_evaluation(current_training_step, test_iterators):
       """Runs validation steps and aggregate metrics."""
       for _ in range(eval_steps):
-        test_step(test_iterator)
+        test_step(test_iterators)
 
       with eval_summary_writer.as_default():
         for metric in eval_metrics + model.metrics:
@@ -357,10 +446,10 @@ def run_customized_training_loop(
       if steps == 1:
         # TODO(zongweiz): merge with train_steps once tf.while_loop
         # GPU performance bugs are fixed.
-        train_single_step(train_iterator)
+        train_single_step(train_iterators)
       else:
         # Converts steps to a Tensor to avoid tf.function retracing.
-        train_steps(train_iterator,
+        train_steps(train_iterators,
                     tf.convert_to_tensor(steps, dtype=tf.int32))
       _run_callbacks_on_batch_end(current_step)
       current_step += steps
@@ -391,8 +480,8 @@ def run_customized_training_loop(
 
         if eval_input_fn:
           logging.info('Running evaluation after step: %s.', current_step)
-          _run_evaluation(current_step,
-                          _get_input_iterator(eval_input_fn, strategy))
+          eval_iterators = [_get_input_iterator(eval_input_fn, strategy, ic) for ic in input_contexts]
+          _run_evaluation(current_step, eval_iterators)
           # Re-initialize evaluation metric.
           for metric in eval_metrics + model.metrics:
             metric.reset_states()
@@ -402,8 +491,8 @@ def run_customized_training_loop(
 
     if eval_input_fn:
       logging.info('Running final evaluation after training is complete.')
-      _run_evaluation(current_step,
-                      _get_input_iterator(eval_input_fn, strategy))
+      eval_iterators = [_get_input_iterator(eval_input_fn, strategy, ic) for ic in input_contexts]
+      _run_evaluation(current_step, eval_iterators)
 
     training_summary = {
         'total_training_steps': total_training_steps,
