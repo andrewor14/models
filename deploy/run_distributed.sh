@@ -82,7 +82,7 @@ mpirun\
   $HOST_FLAG\
   $HOROVOD_FLAGS\
   --allow-run-as-root\
-  --nooversubscribe\
+  --map-by node\
   --np "$NUM_NODES"\
   --output-filename "$LOG_DIR/$JOB_NAME"\
   "$RUN_SCRIPT"\
