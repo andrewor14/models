@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 import functools
+import os
 
 from absl import flags
 from absl import app as absl_app
@@ -186,6 +187,12 @@ def run(flags_obj):
 
   callbacks = common.get_callbacks(
       learning_rate_schedule, cifar_preprocessing.NUM_IMAGES['train'])
+  if flags_obj.enable_checkpoint_and_export:
+    ckpt_full_path = os.path.join(flags_obj.model_dir, 'model.ckpt-{epoch:04d}')
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint(ckpt_full_path,
+      save_weights_only=True))
+    callbacks.append(virtual_helper.DeleteOldCheckpointsCallback(
+      flags_obj.model_dir, flags_obj.num_checkpoints_to_keep))
 
   train_steps = cifar_preprocessing.NUM_IMAGES['train'] // flags_obj.batch_size
   train_epochs = flags_obj.train_epochs
@@ -222,6 +229,13 @@ def run(flags_obj):
                       validation_data=validation_data,
                       validation_freq=flags_obj.epochs_between_evals,
                       verbose=2)
+  if flags_obj.enable_checkpoint_and_export:
+    if dtype == tf.bfloat16:
+      logging.warning("Keras model.save does not support bfloat16 dtype.")
+    else:
+      # Keras model.save assumes a float32 input designature.
+      export_path = os.path.join(flags_obj.model_dir, 'saved_model')
+      model.save(export_path, include_optimizer=False)
   eval_output = None
   if not flags_obj.skip_eval:
     eval_output = model.evaluate(eval_input_datasets,

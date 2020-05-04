@@ -69,6 +69,11 @@ fi
 # Redirect downstream scripts outputs to our log file
 export LOG_FILE="/dev/stderr"
 
+# If we're inside a container, store model checkpoints under log dir for easier access
+if [[ "$IN_DOCKER_CONTAINER" == "true" ]]; then
+  export TRAIN_DIR="$LOG_DIR/$JOB_NAME"
+fi
+
 # Pass all environment variables to mpirun, with some exceptions
 # The format expected by MPI is "-x ENV_VAR1 -x ENV_VAR2 ..."
 ALL_ENV_VARS="$(printenv | grep "=" | awk -F "=" '{print $1}')"

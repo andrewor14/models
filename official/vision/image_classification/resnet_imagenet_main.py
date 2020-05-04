@@ -205,8 +205,11 @@ def run(flags_obj):
       common.learning_rate_schedule, imagenet_preprocessing.NUM_IMAGES['train'])
   if flags_obj.enable_checkpoint_and_export:
     ckpt_full_path = os.path.join(flags_obj.model_dir, 'model.ckpt-{epoch:04d}')
-    callbacks.append(tf.keras.callbacks.ModelCheckpoint(ckpt_full_path,
-                                                        save_weights_only=True))
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint(
+      ckpt_full_path, save_weights_only=True))
+    callbacks.append(virtual_helper.DeleteOldCheckpointsCallback(
+      flags_obj.model_dir, flags_obj.num_checkpoints_to_keep))
+
   train_steps = (
       imagenet_preprocessing.NUM_IMAGES['train'] // flags_obj.batch_size)
   train_epochs = flags_obj.train_epochs

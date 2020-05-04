@@ -370,6 +370,10 @@ def define_keras_flags(dynamic_loss_scale=True):
       'Virtual nodes are processed one after another, with the number of examples '
       'processed per virtual node equal to the per device batch size divided by '
       'this value.')
+  flags.DEFINE_integer(
+      'num_checkpoints_to_keep', 5,
+      'Number of most recent checkpoints to keep, only read if '
+      '`enable_checkpoint_and_export` is set.')
 
 
 def get_synth_input_fn(height, width, num_channels, num_classes,

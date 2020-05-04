@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import glob
 import json
 import os
 
@@ -97,4 +98,23 @@ def initialize_horovod(comm, restarting=False):
     return grads
   global HOROVOD_ALLREDUCE_FUNCTION
   HOROVOD_ALLREDUCE_FUNCTION = allreduce
+
+
+class DeleteOldCheckpointsCallback(tf.keras.callbacks.Callback):
+  """
+  Helper callback to delete old checkpoints.
+  """
+  def __init__(self, model_dir, num_to_keep=5):
+    if num_to_keep < 1:
+      raise ValueError("Must keep at least 1 checkpoint")
+    self.model_dir = model_dir
+    self.num_to_keep = num_to_keep
+
+  def on_epoch_end(self, epoch, logs=None):
+    index_files = glob.glob("%s/*ckpt*.index" % self.model_dir)
+    index_files.sort(key=lambda x: os.path.getmtime(x))
+    for index_file in index_files[:-1 * self.num_to_keep]:
+      for f in glob.glob("%s*" % index_file.strip(".index")):
+        logging.info("Deleting old checkpoint %s" % f)
+        os.remove(f)
 
