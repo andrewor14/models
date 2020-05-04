@@ -26,6 +26,7 @@ export NUM_EPOCHS="${NUM_EPOCHS:=90}"
 export NUM_STEPS="${NUM_STEPS:=0}"
 export EPOCHS_BETWEEN_EVALS="${EPOCHS_BETWEEN_EVALS:=4}"
 export ENABLE_EAGER="${ENABLE_EAGER:=true}"
+export ENABLE_CHECKPOINTS="${ENABLE_CHECKPOINTS:=false}"
 
 # Set distribution strategy
 if [[ "$HOROVOD_ENABLED" == "true" ]]; then
@@ -50,6 +51,7 @@ print_diff_and_env > "$LOG_FILE" 2>&1
   --model_dir="$TRAIN_DIR"\
   --dtype="$DTYPE"\
   --enable_eager="$ENABLE_EAGER"\
+  --enable_checkpoint_and_export="$ENABLE_CHECKPOINTS"\
   --enable_xla="$ENABLE_XLA"\
   --log_steps="$LOG_STEPS"\
   --distribution_strategy="$DISTRIBUTION_STRATEGY"\
