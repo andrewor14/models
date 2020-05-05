@@ -28,6 +28,7 @@ export EPOCHS_BETWEEN_EVALS="${EPOCHS_BETWEEN_EVALS:=4}"
 export ENABLE_EAGER="${ENABLE_EAGER:=true}"
 export ENABLE_CHECKPOINTS="${ENABLE_CHECKPOINTS:=false}"
 export NUM_CHECKPOINTS_TO_KEEP="${NUM_CHECKPOINTS_TO_KEEP:=5}"
+export SAVED_CHECKPOINT_DIR="${SAVED_CHECKPOINT_DIR:=}"
 
 # Set distribution strategy
 if [[ "$HOROVOD_ENABLED" == "true" ]]; then
@@ -54,6 +55,7 @@ print_diff_and_env > "$LOG_FILE" 2>&1
   --enable_eager="$ENABLE_EAGER"\
   --enable_checkpoint_and_export="$ENABLE_CHECKPOINTS"\
   --num_checkpoints_to_keep="$NUM_CHECKPOINTS_TO_KEEP"\
+  --saved_checkpoint_dir="$SAVED_CHECKPOINT_DIR"\
   --enable_xla="$ENABLE_XLA"\
   --log_steps="$LOG_STEPS"\
   --distribution_strategy="$DISTRIBUTION_STRATEGY"\

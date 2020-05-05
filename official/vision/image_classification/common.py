@@ -365,15 +365,18 @@ def define_keras_flags(dynamic_loss_scale=True):
       'inside the loop. Callbacks will not be called inside. Will be capped at '
       'steps per epoch.')
   flags.DEFINE_integer(
-      'num_virtual_nodes_per_device', 1,
-      'Number of virtual nodes mapped to each device in each batch. '
+      name='num_virtual_nodes_per_device', default=1,
+      help='Number of virtual nodes mapped to each device in each batch. '
       'Virtual nodes are processed one after another, with the number of examples '
       'processed per virtual node equal to the per device batch size divided by '
       'this value.')
   flags.DEFINE_integer(
-      'num_checkpoints_to_keep', 5,
-      'Number of most recent checkpoints to keep, only read if '
+      name='num_checkpoints_to_keep', default=5,
+      help='Number of most recent checkpoints to keep, only read if '
       '`enable_checkpoint_and_export` is set.')
+  flags.DEFINE_string(
+      name='saved_checkpoint_dir', default='',
+      help='Directory containing an existing checkpoint to restore.')
 
 
 def get_synth_input_fn(height, width, num_channels, num_classes,

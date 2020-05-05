@@ -52,6 +52,7 @@ class TimeHistory(tf.keras.callbacks.Callback):
     super(TimeHistory, self).__init__()
     self.log_steps = log_steps
     self.global_steps = 0
+    self.train_finish_time = None
 
     # Logs start of step 1 then end of each step based on log_steps interval.
     self.timestamp_log = []

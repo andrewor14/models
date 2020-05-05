@@ -21,8 +21,9 @@ from __future__ import print_function
 import functools
 import os
 
-from absl import flags
 from absl import app as absl_app
+from absl import flags
+from absl import logging
 import tensorflow as tf
 
 from official.utils.flags import core as flags_core
@@ -167,6 +168,12 @@ def run(flags_obj):
     optimizer = common.get_optimizer()
     model = resnet_cifar_model.resnet56(classes=cifar_preprocessing.NUM_CLASSES)
 
+    # Optionally restore from a saved checkpoint
+    if flags_obj.saved_checkpoint_dir:
+      checkpoint_path = virtual_helper.get_checkpoint_path(flags_obj.saved_checkpoint_dir)
+      logging.info("Restoring from saved checkpoint %s" % checkpoint_path)
+      model.load_weights(checkpoint_path).assert_existing_objects_matched().expect_partial()
+
     # TODO(b/138957587): Remove when force_v2_in_keras_compile is on longer
     # a valid arg for this model. Also remove as a valid flag.
     if flags_obj.force_v2_in_keras_compile is not None:
@@ -221,21 +228,25 @@ def run(flags_obj):
 
   model.summary()
 
-  history = model.fit(train_input_datasets,
-                      epochs=train_epochs,
-                      steps_per_epoch=train_steps,
-                      callbacks=callbacks,
-                      validation_steps=num_eval_steps,
-                      validation_data=validation_data,
-                      validation_freq=flags_obj.epochs_between_evals,
-                      verbose=2)
-  if flags_obj.enable_checkpoint_and_export:
-    if dtype == tf.bfloat16:
-      logging.warning("Keras model.save does not support bfloat16 dtype.")
-    else:
-      # Keras model.save assumes a float32 input designature.
-      export_path = os.path.join(flags_obj.model_dir, 'saved_model')
-      model.save(export_path, include_optimizer=False)
+  if flags_obj.train_epochs > 0:
+    history = model.fit(train_input_datasets,
+                        epochs=train_epochs,
+                        steps_per_epoch=train_steps,
+                        callbacks=callbacks,
+                        validation_steps=num_eval_steps,
+                        validation_data=validation_data,
+                        validation_freq=flags_obj.epochs_between_evals,
+                        verbose=2)
+    if flags_obj.enable_checkpoint_and_export:
+      if dtype == tf.bfloat16:
+        logging.warning("Keras model.save does not support bfloat16 dtype.")
+      else:
+        # Keras model.save assumes a float32 input designature.
+        export_path = os.path.join(flags_obj.model_dir, 'saved_model')
+        model.save(export_path, include_optimizer=False)
+  else:
+    history = None
+
   eval_output = None
   if not flags_obj.skip_eval:
     eval_output = model.evaluate(eval_input_datasets,
@@ -266,6 +277,6 @@ def main(_):
 
 
 if __name__ == '__main__':
-  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  logging.set_verbosity(logging.INFO)
   define_cifar_flags()
   absl_app.run(main)

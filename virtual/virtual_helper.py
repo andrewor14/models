@@ -99,6 +99,22 @@ def initialize_horovod(comm, restarting=False):
   global HOROVOD_ALLREDUCE_FUNCTION
   HOROVOD_ALLREDUCE_FUNCTION = allreduce
 
+def get_checkpoint_path(checkpoint_dir):
+  """
+  Given a checkpoint directory, return the path to the final checkpoint in the directory.
+  """
+  metadata_file = "%s/checkpoint" % checkpoint_dir
+  if not os.path.isfile(metadata_file):
+    raise ValueError("Did not find metadata file 'checkpoint' in directory %s" % checkpoint_dir)
+  checkpoint_name = None
+  with open(metadata_file) as f:
+    for line in f.readlines():
+      if "model_checkpoint_path" in line:
+        checkpoint_name = line.split(":")[1].strip().strip("\"")
+        break
+  if checkpoint_name is None:
+    raise ValueError("Could not parse checkpoint name from metadata file %s" % metadata_file)
+  return os.path.join(checkpoint_dir, checkpoint_name)
 
 class DeleteOldCheckpointsCallback(tf.keras.callbacks.Callback):
   """
