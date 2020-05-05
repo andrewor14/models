@@ -194,7 +194,7 @@ def run(flags_obj):
 
   callbacks = common.get_callbacks(
       learning_rate_schedule, cifar_preprocessing.NUM_IMAGES['train'])
-  if flags_obj.enable_checkpoint_and_export:
+  if flags_obj.enable_checkpoint_and_export and virtual_helper.is_master():
     ckpt_full_path = os.path.join(flags_obj.model_dir, 'model.ckpt-{epoch:04d}')
     callbacks.append(tf.keras.callbacks.ModelCheckpoint(ckpt_full_path,
       save_weights_only=True))
@@ -237,7 +237,7 @@ def run(flags_obj):
                         validation_data=validation_data,
                         validation_freq=flags_obj.epochs_between_evals,
                         verbose=2)
-    if flags_obj.enable_checkpoint_and_export:
+    if flags_obj.enable_checkpoint_and_export and virtual_helper.is_master():
       if dtype == tf.bfloat16:
         logging.warning("Keras model.save does not support bfloat16 dtype.")
       else:

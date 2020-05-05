@@ -32,6 +32,12 @@ def initialize():
   else:
     set_tf_config()
 
+def is_master(comm=MPI.COMM_WORLD):
+  """
+  Return whether this process is the master in the given communicator.
+  """
+  return comm.rank == 0
+
 def set_tf_config(base_port=2222):
   """
   Set TF_CONFIG based on hostnames of all processes in MPI.COMM_WORLD.
