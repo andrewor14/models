@@ -222,7 +222,6 @@ def run(flags_obj):
 
   if flags_obj.train_steps:
     train_steps = min(flags_obj.train_steps, train_steps)
-    train_epochs = 1
 
   num_eval_steps = (
       imagenet_preprocessing.NUM_IMAGES['validation'] // flags_obj.batch_size)

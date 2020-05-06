@@ -6,9 +6,11 @@ export DATASET="${DATASET:=imagenet}"
 if [[ "$DATASET" == "imagenet" ]]; then
   export RUN_FILE="resnet_imagenet_main.py"
   export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/imagenet}"
+  export DEFAULT_NUM_EPOCHS="90"
 elif [[ "$DATASET" == "cifar10" ]]; then
   export RUN_FILE="resnet_cifar_main.py"
   export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/cifar10/cifar-10-batches-bin}"
+  export DEFAULT_NUM_EPOCHS="200"
 else
   echo "ERROR: Unknown dataset '$DATASET'"
   exit 1
@@ -20,10 +22,13 @@ export TRAIN_DIR="${TRAIN_DIR:=${BASE_DIR}/train_data/${JOB_NAME}}"
 export LOG_FILE="${LOG_FILE:=${LOG_DIR}/${JOB_NAME}.log}"
 
 # Workload-specific flags
+if [[ -n "$NUM_STEPS" ]]; then
+  export DEFAULT_NUM_EPOCHS=1
+fi
 export NUM_GPUS="${NUM_GPUS:=1}"
-export BATCH_SIZE="${BATCH_SIZE:=192}"
-export NUM_EPOCHS="${NUM_EPOCHS:=90}"
+export BATCH_SIZE="${BATCH_SIZE:=128}"
 export NUM_STEPS="${NUM_STEPS:=0}"
+export NUM_EPOCHS="${NUM_EPOCHS:=$DEFAULT_NUM_EPOCHS}"
 export EPOCHS_BETWEEN_EVALS="${EPOCHS_BETWEEN_EVALS:=4}"
 export ENABLE_EAGER="${ENABLE_EAGER:=true}"
 export ENABLE_CHECKPOINTS="${ENABLE_CHECKPOINTS:=false}"
