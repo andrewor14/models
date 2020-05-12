@@ -227,9 +227,8 @@ def run(flags_obj):
       model_dir=flags_obj.model_dir)
 
   # if mutliple epochs, ignore the train_steps flag.
-  if train_epochs <= 1 and flags_obj.train_steps:
+  if flags_obj.train_steps:
     steps_per_epoch = min(flags_obj.train_steps, steps_per_epoch)
-    train_epochs = 1
 
   num_eval_steps = (
       imagenet_preprocessing.NUM_IMAGES['validation'] // flags_obj.batch_size)
