@@ -36,6 +36,7 @@ from official.vision.image_classification import test_utils
 from official.vision.image_classification.resnet import common
 from official.vision.image_classification.resnet import imagenet_preprocessing
 from official.vision.image_classification.resnet import resnet_model
+from virtual import virtual_helper
 
 
 def run(flags_obj):
@@ -121,10 +122,17 @@ def run(flags_obj):
   # output format should be same as the keras backend image data format or just
   # channel-last format.
   use_keras_image_data_format = (flags_obj.model == 'mobilenet')
+
+  # The batch sizes used by the input datasets may be smaller than the actual batch size
+  # because each device may process multiple virtual nodes.
+  # TODO: better handling for the case when the batch size doesn't divide
+  virtual_node_batch_size = flags_obj.batch_size // flags_obj.num_virtual_nodes_per_device
+  input_context = virtual_helper.get_input_context()
+
   train_input_dataset = input_fn(
       is_training=True,
       data_dir=flags_obj.data_dir,
-      batch_size=flags_obj.batch_size,
+      batch_size=virtual_node_batch_size,
       parse_record_fn=imagenet_preprocessing.get_parse_record_fn(
           use_keras_image_data_format=use_keras_image_data_format),
       datasets_num_private_threads=flags_obj.datasets_num_private_threads,
@@ -132,18 +140,19 @@ def run(flags_obj):
       drop_remainder=drop_remainder,
       tf_data_experimental_slack=flags_obj.tf_data_experimental_slack,
       training_dataset_cache=flags_obj.training_dataset_cache,
-  )
+      input_context=input_context)
 
   eval_input_dataset = None
   if not flags_obj.skip_eval:
     eval_input_dataset = input_fn(
         is_training=False,
         data_dir=flags_obj.data_dir,
-        batch_size=flags_obj.batch_size,
+        batch_size=virtual_node_batch_size,
         parse_record_fn=imagenet_preprocessing.get_parse_record_fn(
             use_keras_image_data_format=use_keras_image_data_format),
         dtype=dtype,
-        drop_remainder=drop_remainder)
+        drop_remainder=drop_remainder,
+        input_context=input_context)
 
   lr_schedule = common.PiecewiseConstantDecayWithWarmup(
       batch_size=flags_obj.batch_size,
@@ -191,6 +200,7 @@ def run(flags_obj):
           classes=imagenet_preprocessing.NUM_CLASSES,
           layers=tf.keras.layers)
     if flags_obj.pretrained_filepath:
+      logging.info("Restoring from checkpoint %s" % flags.pretrained_filepath)
       model.load_weights(flags_obj.pretrained_filepath)
 
     if flags_obj.pruning_method == 'polynomial_decay':
@@ -224,9 +234,9 @@ def run(flags_obj):
       steps_per_epoch=steps_per_epoch,
       pruning_method=flags_obj.pruning_method,
       enable_checkpoint_and_export=flags_obj.enable_checkpoint_and_export,
-      model_dir=flags_obj.model_dir)
+      model_dir=flags_obj.model_dir,
+      num_checkpoints_to_keep=flags_obj.num_checkpoints_to_keep)
 
-  # if mutliple epochs, ignore the train_steps flag.
   if flags_obj.train_steps:
     steps_per_epoch = min(flags_obj.train_steps, steps_per_epoch)
 
@@ -295,6 +305,7 @@ def define_imagenet_keras_flags():
 
 def main(_):
   model_helpers.apply_clean(flags.FLAGS)
+  virtual_helper.initialize()
   with logger.benchmark_context(flags.FLAGS):
     stats = run(flags.FLAGS)
   logging.info('Run stats:\n%s', stats)

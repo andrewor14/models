@@ -8,11 +8,9 @@ if [[ "$DATASET" == "imagenet" ]]; then
   export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/imagenet}"
   export DEFAULT_NUM_EPOCHS="90"
 elif [[ "$DATASET" == "cifar10" ]]; then
-  #export RUN_FILE="resnet_cifar_main.py"
-  #export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/cifar10/cifar-10-batches-bin}"
-  #export DEFAULT_NUM_EPOCHS="200"
-  echo "ERROR: currently not supported"
-  exit 1
+  export RUN_FILE="resnet_cifar_main.py"
+  export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/cifar10/cifar-10-batches-bin}"
+  export DEFAULT_NUM_EPOCHS="200"
 else
   echo "ERROR: Unknown dataset '$DATASET'"
   exit 1
@@ -35,7 +33,8 @@ export EPOCHS_BETWEEN_EVALS="${EPOCHS_BETWEEN_EVALS:=4}"
 export ENABLE_EAGER="${ENABLE_EAGER:=true}"
 export ENABLE_CHECKPOINTS="${ENABLE_CHECKPOINTS:=false}"
 export NUM_CHECKPOINTS_TO_KEEP="${NUM_CHECKPOINTS_TO_KEEP:=5}"
-export SAVED_CHECKPOINT_DIR="${SAVED_CHECKPOINT_DIR:=}"
+export SAVED_CHECKPOINT_PATH="${SAVED_CHECKPOINT_PATH:=}"
+export NUM_VIRTUAL_NODES_PER_DEVICE="${NUM_VIRTUAL_NODES_PER_DEVICE:=1}"
 
 # Set distribution strategy
 if [[ "$HOROVOD_ENABLED" == "true" ]]; then
@@ -66,5 +65,7 @@ print_diff_and_env > "$LOG_FILE" 2>&1
   --enable_xla="$ENABLE_XLA"\
   --log_steps="$LOG_STEPS"\
   --distribution_strategy="$DISTRIBUTION_STRATEGY"\
+  --num_virtual_nodes_per_device="$NUM_VIRTUAL_NODES_PER_DEVICE"\
+  --pretrained_filepath="$SAVED_CHECKPOINT_PATH"\
   >> "$LOG_FILE" 2>&1
 

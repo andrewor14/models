@@ -22,13 +22,14 @@ from absl import app
 from absl import flags
 import numpy as np
 import tensorflow as tf
-from official.benchmark.models import resnet_cifar_model
 from official.utils.flags import core as flags_core
 from official.utils.logs import logger
 from official.utils.misc import distribution_utils
 from official.utils.misc import keras_utils
 from official.vision.image_classification.resnet import cifar_preprocessing
 from official.vision.image_classification.resnet import common
+from official.vision.image_classification.resnet import resnet_cifar_model
+from virtual import virtual_helper
 
 
 LR_SCHEDULE = [  # (multiplier, epoch to start) tuples
@@ -170,25 +171,33 @@ def run(flags_obj):
     distribution_utils.undo_set_up_synthetic_data()
     input_fn = cifar_preprocessing.input_fn
 
+  # The batch sizes used by the input datasets may be smaller than the actual batch size
+  # because each device may process multiple virtual nodes.
+  # TODO: better handling for the case when the batch size doesn't divide
+  virtual_node_batch_size = flags_obj.batch_size // flags_obj.num_virtual_nodes_per_device
+  input_context = virtual_helper.get_input_context()
+
   train_input_dataset = input_fn(
       is_training=True,
       data_dir=flags_obj.data_dir,
-      batch_size=flags_obj.batch_size,
+      batch_size=virtual_node_batch_size,
       parse_record_fn=cifar_preprocessing.parse_record,
       datasets_num_private_threads=flags_obj.datasets_num_private_threads,
       dtype=dtype,
       # Setting drop_remainder to avoid the partial batch logic in normalization
       # layer, which triggers tf.where and leads to extra memory copy of input
       # sizes between host and GPU.
-      drop_remainder=(not flags_obj.enable_get_next_as_optional))
+      drop_remainder=(not flags_obj.enable_get_next_as_optional),
+      input_context=input_context)
 
   eval_input_dataset = None
   if not flags_obj.skip_eval:
     eval_input_dataset = input_fn(
         is_training=False,
         data_dir=flags_obj.data_dir,
-        batch_size=flags_obj.batch_size,
-        parse_record_fn=cifar_preprocessing.parse_record)
+        batch_size=virtual_node_batch_size,
+        parse_record_fn=cifar_preprocessing.parse_record,
+        input_context=input_context)
 
   steps_per_epoch = (
       cifar_preprocessing.NUM_IMAGES['train'] // flags_obj.batch_size)
@@ -203,6 +212,11 @@ def run(flags_obj):
   with strategy_scope:
     optimizer = common.get_optimizer(lr_schedule)
     model = resnet_cifar_model.resnet56(classes=cifar_preprocessing.NUM_CLASSES)
+
+    if flags_obj.pretrained_filepath:
+      logging.info("Restoring from checkpoint %s" % flags.pretrained_filepath)
+      model.load_weights(flags_obj.pretrained_filepath)
+
     model.compile(
         loss='sparse_categorical_crossentropy',
         optimizer=optimizer,
@@ -212,7 +226,10 @@ def run(flags_obj):
 
   train_epochs = flags_obj.train_epochs
 
-  callbacks = common.get_callbacks(steps_per_epoch)
+  callbacks = common.get_callbacks(
+    steps_per_epoch=steps_per_epoch,
+    model_dir=flags_obj.model_dir,
+    num_checkpoints_to_keep=flags_obj.num_checkpoints_to_keep)
 
   if not flags_obj.use_tensor_lr:
     lr_callback = LearningRateBatchScheduler(
@@ -221,10 +238,8 @@ def run(flags_obj):
         steps_per_epoch=steps_per_epoch)
     callbacks.append(lr_callback)
 
-  # if mutliple epochs, ignore the train_steps flag.
-  if train_epochs <= 1 and flags_obj.train_steps:
+  if flags_obj.train_steps:
     steps_per_epoch = min(flags_obj.train_steps, steps_per_epoch)
-    train_epochs = 1
 
   num_eval_steps = (cifar_preprocessing.NUM_IMAGES['validation'] //
                     flags_obj.batch_size)
@@ -275,6 +290,7 @@ def define_cifar_flags():
 
 
 def main(_):
+  virtual_helper.initialize()
   with logger.benchmark_context(flags.FLAGS):
     return run(flags.FLAGS)
 
