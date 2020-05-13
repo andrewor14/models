@@ -13,14 +13,30 @@ import tensorflow as tf
 # instead of rebuilding the entire graph to speed up the restart process
 HOROVOD_ALLREDUCE_FUNCTION = None
 
+# Offset between the port used by tensorflow and that used by the elasticity server
+ELASTICITY_PORT_OFFSET = 7000
+
+# Time to wait before retrying an action
+RETRY_INTERVAL_SECONDS = 0.5
+
 # Environment variables
 TF_CONFIG = "TF_CONFIG"
-MPI_SPAWN_RANK = "MPI_SPAWN_RANK"
 NUM_VIRTUAL_NODES_PER_DEVICE = "NUM_VIRTUAL_NODES_PER_DEVICE"
+ELASTICITY_MASTER_HOST_PORT = "ELASTICITY_MASTER_HOST_PORT"
+
+# Horovod environment variables
 HOROVOD_ENABLED = "HOROVOD_ENABLED"
 HOROVOD_VERBOSE = "HOROVOD_VERBOSE"
 HOROVOD_COMPRESS = "HOROVOD_COMPRESS"
 HOROVOD_USE_CPU = "HOROVOD_USE_CPU"
+
+# Environment variables for launching new processes
+PYTHONPATH = "PYTHONPATH"
+MODELS_DIR = "MODELS_DIR"
+DEPLOY_DIR = "DEPLOY_DIR"
+MPI_SPAWN_LOG_DIR = "MPI_SPAWN_LOG_DIR"
+MPI_SPAWN_RANK = "MPI_SPAWN_RANK"
+OMPI_MCA_orte_output_filename = "OMPI_MCA_orte_output_filename"
 
 def initialize():
   """
@@ -34,7 +50,16 @@ def initialize():
 def set_tf_config(base_port=2222):
   """
   Set TF_CONFIG based on hostnames of all processes in MPI.COMM_WORLD.
+  """
+  os.environ[TF_CONFIG] = json.dumps(get_tf_config())
+  logging.info("Setting %s to %s" % (TF_CONFIG, os.environ[TF_CONFIG]))
+
+def get_tf_config(base_port=2222):
+  """
+  Construct TF_CONFIG based on hostnames of all processes in MPI.COMM_WORLD.
+
   To avoid port collisions, we add a process' rank to its port.
+  Return a dictionary representing the TF_CONFIG.
   """
   my_host = MPI.Get_processor_name()
   my_index = MPI.COMM_WORLD.rank
@@ -43,10 +68,7 @@ def set_tf_config(base_port=2222):
   else:
     all_hosts = MPI.COMM_WORLD.allgather(my_host)
     host_ports = ["%s:%s" % (host, base_port + i) for i, host in enumerate(all_hosts)]
-  tf_config = {"cluster": {"worker": host_ports}, "task": {"type": "worker", "index": my_index}}
-  tf_config = json.dumps(tf_config)
-  logging.info("Setting %s to %s" % (TF_CONFIG, tf_config))
-  os.environ[TF_CONFIG] = tf_config
+  return {"cluster": {"worker": host_ports}, "task": {"type": "worker", "index": my_index}}
 
 def get_input_contexts():
   """

@@ -26,7 +26,7 @@ else
   echo "Unknown model '$MODEL'"
   exit 1
 fi
-RUN_SCRIPT="try2.sh"
+RUN_SCRIPT="entry.sh"
 BASE_JOB_NAME="trying"
 set_job_name "$BASE_JOB_NAME"
 
