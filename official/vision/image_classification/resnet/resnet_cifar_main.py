@@ -228,6 +228,7 @@ def run(flags_obj):
 
   callbacks = common.get_callbacks(
     steps_per_epoch=steps_per_epoch,
+    enable_checkpoint_and_export=flags_obj.enable_checkpoint_and_export,
     model_dir=flags_obj.model_dir,
     num_checkpoints_to_keep=flags_obj.num_checkpoints_to_keep)
 
@@ -272,6 +273,14 @@ def run(flags_obj):
     eval_output = model.evaluate(eval_input_dataset,
                                  steps=num_eval_steps,
                                  verbose=2)
+
+  if flags_obj.enable_checkpoint_and_export:
+    if dtype == tf.bfloat16:
+      logging.warning('Keras model.save does not support bfloat16 dtype.')
+    else:
+      # Keras model.save assumes a float32 input designature.
+      export_path = os.path.join(flags_obj.model_dir, 'saved_model')
+      model.save(export_path, include_optimizer=False)
 
   if not strategy and flags_obj.explicit_gpu_placement:
     no_dist_strat_device.__exit__()
