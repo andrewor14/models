@@ -47,6 +47,11 @@ else
 fi
 export DISTRIBUTION_STRATEGY="${DISTRIBUTION_STRATEGY:=$DEFAULT_DISTRIBUTION_STRATEGY}"
 
+# Force GPU memory to grow if we're monitoring it
+if [[ "$ENABLE_MONITOR_MEMORY" == "true" ]]; then
+  export TF_FORCE_GPU_ALLOW_GROWTH="true"
+fi
+
 mkdir -p "$TRAIN_DIR"
 
 print_diff_and_env > "$LOG_FILE" 2>&1
