@@ -113,7 +113,8 @@ def get_callbacks(
     pruning_method=None,
     enable_checkpoint_and_export=False,
     model_dir=None,
-    num_checkpoints_to_keep=None):
+    num_checkpoints_to_keep=None,
+    enable_monitor_memory=False):
   """Returns common callbacks."""
   time_callback = keras_utils.TimeHistory(
       FLAGS.batch_size,
@@ -149,6 +150,10 @@ def get_callbacks(
                                              save_weights_only=True))
       callbacks.append(virtual_helper.DeleteOldCheckpointsCallback(
         model_dir, num_checkpoints_to_keep))
+
+  if enable_monitor_memory:
+    should_trigger_gc = not os.getenv("DISABLE_GC_COLLECT", "").lower() == "true"
+    callbacks.append(virtual_helper.MonitorMemoryCallback(should_trigger_gc))
 
   if virtual_helper.horovod_enabled():
     callbacks.append(elasticity_callback.ElasticityCallback())
@@ -293,6 +298,9 @@ def define_keras_flags(
       name='num_checkpoints_to_keep', default=5,
       help='Number of most recent checkpoints to keep, only read if '
       '`enable_checkpoint_and_export` is set.')
+  flags.DEFINE_boolean(
+      name='enable_monitor_memory', default=False,
+      help='Whether to enable a callback that periodically monitors GPU memory usage.')
 
   if model:
     flags.DEFINE_string('model', 'resnet50_v1.5',

@@ -35,6 +35,7 @@ export ENABLE_CHECKPOINTS="${ENABLE_CHECKPOINTS:=false}"
 export NUM_CHECKPOINTS_TO_KEEP="${NUM_CHECKPOINTS_TO_KEEP:=5}"
 export SAVED_CHECKPOINT_PATH="${SAVED_CHECKPOINT_PATH:=}"
 export NUM_VIRTUAL_NODES_PER_DEVICE="${NUM_VIRTUAL_NODES_PER_DEVICE:=1}"
+export ENABLE_MONITOR_MEMORY="${ENABLE_MONITOR_MEMORY:=false}"
 
 # Set distribution strategy
 if [[ "$HOROVOD_ENABLED" == "true" ]]; then
@@ -67,5 +68,6 @@ print_diff_and_env > "$LOG_FILE" 2>&1
   --distribution_strategy="$DISTRIBUTION_STRATEGY"\
   --num_virtual_nodes_per_device="$NUM_VIRTUAL_NODES_PER_DEVICE"\
   --pretrained_filepath="$SAVED_CHECKPOINT_PATH"\
+  --enable_monitor_memory="$ENABLE_MONITOR_MEMORY"\
   >> "$LOG_FILE" 2>&1
 

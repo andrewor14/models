@@ -230,7 +230,8 @@ def run(flags_obj):
     steps_per_epoch=steps_per_epoch,
     enable_checkpoint_and_export=flags_obj.enable_checkpoint_and_export,
     model_dir=flags_obj.model_dir,
-    num_checkpoints_to_keep=flags_obj.num_checkpoints_to_keep)
+    num_checkpoints_to_keep=flags_obj.num_checkpoints_to_keep,
+    enable_monitor_memory=flags_obj.enable_monitor_memory)
 
   if not flags_obj.use_tensor_lr:
     lr_callback = LearningRateBatchScheduler(

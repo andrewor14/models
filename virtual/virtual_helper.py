@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import gc
 import glob
 import json
 import os
@@ -22,6 +23,7 @@ HOROVOD_ENABLED = "HOROVOD_ENABLED"
 HOROVOD_VERBOSE = "HOROVOD_VERBOSE"
 HOROVOD_COMPRESS = "HOROVOD_COMPRESS"
 HOROVOD_USE_CPU = "HOROVOD_USE_CPU"
+CUDA_VISIBLE_DEVICES = "CUDA_VISIBLE_DEVICES"
 
 def initialize():
   """
@@ -136,4 +138,37 @@ class DeleteOldCheckpointsCallback(tf.keras.callbacks.Callback):
       for f in glob.glob("%s*" % index_file.strip(".index")):
         logging.info("Deleting old checkpoint %s" % f)
         os.remove(f)
+
+class MonitorMemoryCallback(tf.keras.callbacks.Callback):
+  """
+  Helper callback to monitor GPU usage periodically.
+  """
+  def __init__(self, should_trigger_gc=True):
+    self.should_trigger_gc = should_trigger_gc
+    cuda_visible_devices = os.getenv(CUDA_VISIBLE_DEVICES)
+    if cuda_visible_devices is None:
+      raise ValueError("%s must be set to monitor GPU memory usage" % CUDA_VISIBLE_DEVICES)
+    self.devices = [int(d) for d in cuda_visible_devices.split(",")]
+    import nvidia_smi
+    nvidia_smi.nvmlInit()
+
+  def on_batch_end(self, batch, logs=None):
+    import nvidia_smi
+    memory_used = {}
+    total_memory = None
+    for d in self.devices:
+      handle = nvidia_smi.nvmlDeviceGetHandleByIndex(d)
+      info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
+      memory_used[d] = info.used
+      total_memory = total_memory or info.total
+    logging.info("GPU memory at the end of batch %s: avg = %s bytes (out of %s bytes), all = %s" %
+      (batch, round(sum(memory_used.values()) / len(memory_used)), total_memory, memory_used))
+
+  def on_epoch_end(self, epoch, logs=None):
+    if self.should_trigger_gc:
+      logging.info("Triggering gc.collect()")
+      gc.collect()
+
+  def on_train_end(self, logs=None):
+    nvidia_smi.nvmlShutdown()
 
