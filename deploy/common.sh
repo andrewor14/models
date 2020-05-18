@@ -28,7 +28,7 @@ export LOG_STEPS="${LOG_STEPS:=1}"
 export SKIP_EVAL="${SKIP_EVAL:=false}"
 export NUM_VIRTUAL_NODES_PER_DEVICE="${NUM_VIRTUAL_NODES_PER_DEVICE:=1}"
 
-export ENABLE_XLA="${ENABLE_XLA:=false}"
+export ENABLE_XLA="${ENABLE_XLA:=true}"
 if [[ "$ENABLE_XLA" == "true" ]]; then
   export TF_XLA_FLAGS="${TF_XLA_FLAGS:=--tf_xla_cpu_global_jit}"
 fi
