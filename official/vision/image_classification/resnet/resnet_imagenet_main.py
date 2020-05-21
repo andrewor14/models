@@ -200,7 +200,7 @@ def run(flags_obj):
           classes=imagenet_preprocessing.NUM_CLASSES,
           layers=tf.keras.layers)
     if flags_obj.pretrained_filepath:
-      logging.info("Restoring from checkpoint %s" % flags.pretrained_filepath)
+      logging.info("Restoring from checkpoint %s" % flags_obj.pretrained_filepath)
       model.load_weights(flags_obj.pretrained_filepath)
 
     if flags_obj.pruning_method == 'polynomial_decay':

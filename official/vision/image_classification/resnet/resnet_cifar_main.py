@@ -214,7 +214,7 @@ def run(flags_obj):
     model = resnet_cifar_model.resnet56(classes=cifar_preprocessing.NUM_CLASSES)
 
     if flags_obj.pretrained_filepath:
-      logging.info("Restoring from checkpoint %s" % flags.pretrained_filepath)
+      logging.info("Restoring from checkpoint %s" % flags_obj.pretrained_filepath)
       model.load_weights(flags_obj.pretrained_filepath)
 
     model.compile(
