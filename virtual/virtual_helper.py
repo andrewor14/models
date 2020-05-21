@@ -154,15 +154,20 @@ class MonitorMemoryCallback(tf.keras.callbacks.Callback):
 
   def on_batch_end(self, batch, logs=None):
     import nvidia_smi
-    memory_used = {}
-    total_memory = None
+    import psutil
+    gpu_memory_used = {}
+    total_gpu_memory = None
     for d in self.devices:
       handle = nvidia_smi.nvmlDeviceGetHandleByIndex(d)
       info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
-      memory_used[d] = info.used
-      total_memory = total_memory or info.total
-    logging.info("GPU memory at the end of batch %s: avg = %s bytes (out of %s bytes), all = %s" %
-      (batch, round(sum(memory_used.values()) / len(memory_used)), total_memory, memory_used))
+      gpu_memory_used[d] = info.used
+      total_gpu_memory = total_gpu_memory or info.total
+    average_gpu_memory_used = round(sum(gpu_memory_used.values()) / len(gpu_memory_used))
+    main_memory = psutil.virtual_memory()
+    logging.info("GPU memory at the end of batch %s: avg = %s bytes (out of %s bytes), all = %s" %\
+      (batch, average_gpu_memory_used, total_gpu_memory, gpu_memory_used))
+    logging.info("Main memory at the end of batch %s: used = %s bytes (out of %s bytes)" %\
+      (batch, main_memory.used, main_memory.total))
 
   def on_epoch_end(self, epoch, logs=None):
     if self.should_trigger_gc:
