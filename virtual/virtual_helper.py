@@ -141,33 +141,33 @@ class DeleteOldCheckpointsCallback(tf.keras.callbacks.Callback):
 
 class MonitorMemoryCallback(tf.keras.callbacks.Callback):
   """
-  Helper callback to monitor GPU usage periodically.
+  Helper callback to monitor memory usage periodically.
   """
   def __init__(self, should_trigger_gc=True):
     self.should_trigger_gc = should_trigger_gc
-    cuda_visible_devices = os.getenv(CUDA_VISIBLE_DEVICES)
-    if cuda_visible_devices is None:
-      raise ValueError("%s must be set to monitor GPU memory usage" % CUDA_VISIBLE_DEVICES)
-    self.devices = [int(d) for d in cuda_visible_devices.split(",")]
-    import nvidia_smi
-    nvidia_smi.nvmlInit()
+    self.devices = os.getenv(CUDA_VISIBLE_DEVICES)
+    if self.devices is not None:
+      self.devices = [int(d) for d in self.devices.split(",")]
+      import nvidia_smi
+      nvidia_smi.nvmlInit()
 
   def on_batch_end(self, batch, logs=None):
-    import nvidia_smi
     import psutil
-    gpu_memory_used = {}
-    total_gpu_memory = None
-    for d in self.devices:
-      handle = nvidia_smi.nvmlDeviceGetHandleByIndex(d)
-      info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
-      gpu_memory_used[d] = info.used
-      total_gpu_memory = total_gpu_memory or info.total
-    average_gpu_memory_used = round(sum(gpu_memory_used.values()) / len(gpu_memory_used))
     main_memory = psutil.virtual_memory()
-    logging.info("GPU memory at the end of batch %s: avg = %s bytes (out of %s bytes), all = %s" %\
-      (batch, average_gpu_memory_used, total_gpu_memory, gpu_memory_used))
     logging.info("Main memory at the end of batch %s: used = %s bytes (out of %s bytes)" %\
       (batch, main_memory.used, main_memory.total))
+    if self.devices is not None:
+      import nvidia_smi
+      gpu_memory_used = {}
+      total_gpu_memory = None
+      for d in self.devices:
+        handle = nvidia_smi.nvmlDeviceGetHandleByIndex(d)
+        info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
+        gpu_memory_used[d] = info.used
+        total_gpu_memory = total_gpu_memory or info.total
+      average_gpu_memory_used = round(sum(gpu_memory_used.values()) / len(gpu_memory_used))
+      logging.info("GPU memory at the end of batch %s: avg = %s bytes (out of %s bytes), all = %s" %\
+        (batch, average_gpu_memory_used, total_gpu_memory, gpu_memory_used))
 
   def on_epoch_end(self, epoch, logs=None):
     if self.should_trigger_gc:
@@ -175,5 +175,7 @@ class MonitorMemoryCallback(tf.keras.callbacks.Callback):
       gc.collect()
 
   def on_train_end(self, logs=None):
-    nvidia_smi.nvmlShutdown()
+    if self.devices is not None:
+      import nvidia_smi
+      nvidia_smi.nvmlShutdown()
 
