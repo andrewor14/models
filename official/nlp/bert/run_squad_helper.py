@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import functools
 import os
 from absl import flags
 from absl import logging
@@ -142,10 +143,15 @@ def get_dataset_fn(input_file_pattern, max_seq_length, global_batch_size,
     """Returns tf.data.Dataset for distributed BERT pretraining."""
     batch_size = ctx.get_per_replica_batch_size(
         global_batch_size) if ctx else global_batch_size
+    # The batch sizes used by the input datasets may be smaller than the actual batch size
+    # because each device may process multiple virtual nodes.
+    # TODO: better handling for the case when the batch size doesn't divide
+    virtual_node_batch_size = batch_size // FLAGS.num_virtual_nodes_per_device
+
     dataset = input_pipeline.create_squad_dataset(
         input_file_pattern,
         max_seq_length,
-        batch_size,
+        virtual_node_batch_size,
         is_training=is_training,
         input_pipeline_context=ctx)
     return dataset
@@ -221,8 +227,9 @@ def train_squad(strategy,
   epochs = FLAGS.num_train_epochs
   num_train_examples = input_meta_data['train_data_size']
   max_seq_length = input_meta_data['max_seq_length']
-  steps_per_epoch = int(num_train_examples / FLAGS.train_batch_size)
+  steps_per_epoch = FLAGS.num_train_steps or int(num_train_examples / FLAGS.train_batch_size)
   warmup_steps = int(epochs * num_train_examples * 0.1 / FLAGS.train_batch_size)
+
   train_input_fn = get_dataset_fn(
       FLAGS.train_data_path,
       max_seq_length,

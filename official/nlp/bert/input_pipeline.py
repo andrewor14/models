@@ -43,14 +43,10 @@ def single_file_dataset(input_file, name_to_features):
   d = tf.data.TFRecordDataset(input_file)
   d = d.map(lambda record: decode_record(record, name_to_features))
 
-  # When `input_file` is a path to a single file or a list
-  # containing a single path, disable auto sharding so that
-  # same input file is sent to all workers.
-  if isinstance(input_file, str) or len(input_file) == 1:
-    options = tf.data.Options()
-    options.experimental_distribute.auto_shard_policy = (
-        tf.data.experimental.AutoShardPolicy.OFF)
-    d = d.with_options(options)
+  options = tf.data.Options()
+  options.experimental_distribute.auto_shard_policy = (
+      tf.data.experimental.AutoShardPolicy.OFF)
+  d = d.with_options(options)
   return d
 
 

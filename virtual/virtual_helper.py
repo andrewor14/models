@@ -125,11 +125,11 @@ class DeleteOldCheckpointsCallback(tf.keras.callbacks.Callback):
   """
   Helper callback to delete old checkpoints.
   """
-  def __init__(self, model_dir, num_to_keep=5):
-    if num_to_keep < 1:
-      raise ValueError("Must keep at least 1 checkpoint")
+  def __init__(self, model_dir, num_to_keep=None):
     self.model_dir = model_dir
-    self.num_to_keep = num_to_keep
+    self.num_to_keep = num_to_keep or 5
+    if self.num_to_keep < 1:
+      raise ValueError("Must keep at least 1 checkpoint")
 
   def on_epoch_end(self, epoch, logs=None):
     index_files = glob.glob("%s/*ckpt*.index" % self.model_dir)
@@ -143,8 +143,9 @@ class MonitorMemoryCallback(tf.keras.callbacks.Callback):
   """
   Helper callback to monitor memory usage periodically.
   """
-  def __init__(self, should_trigger_gc=True):
-    self.should_trigger_gc = should_trigger_gc
+  def __init__(self, should_trigger_gc=None):
+    self.should_trigger_gc = should_trigger_gc or\
+      os.getenv("DISABLE_GC_COLLECT", "").lower() != "true"
     self.devices = os.getenv(CUDA_VISIBLE_DEVICES)
     if self.devices is not None:
       self.devices = [int(d) for d in self.devices.split(",")]

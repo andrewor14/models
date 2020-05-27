@@ -25,32 +25,11 @@ export LOG_FILE="${LOG_FILE:=${LOG_DIR}/${JOB_NAME}.log}"
 if [[ -n "$NUM_STEPS" ]]; then
   export DEFAULT_NUM_EPOCHS=1
 fi
-export NUM_GPUS="${NUM_GPUS:=1}"
 export BATCH_SIZE="${BATCH_SIZE:=128}"
 export NUM_STEPS="${NUM_STEPS:=0}"
 export NUM_EPOCHS="${NUM_EPOCHS:=$DEFAULT_NUM_EPOCHS}"
 export EPOCHS_BETWEEN_EVALS="${EPOCHS_BETWEEN_EVALS:=4}"
 export ENABLE_EAGER="${ENABLE_EAGER:=true}"
-export ENABLE_CHECKPOINTS="${ENABLE_CHECKPOINTS:=false}"
-export NUM_CHECKPOINTS_TO_KEEP="${NUM_CHECKPOINTS_TO_KEEP:=5}"
-export SAVED_CHECKPOINT_PATH="${SAVED_CHECKPOINT_PATH:=}"
-export NUM_VIRTUAL_NODES_PER_DEVICE="${NUM_VIRTUAL_NODES_PER_DEVICE:=1}"
-export ENABLE_MONITOR_MEMORY="${ENABLE_MONITOR_MEMORY:=false}"
-
-# Set distribution strategy
-if [[ "$HOROVOD_ENABLED" == "true" ]]; then
-  export DEFAULT_DISTRIBUTION_STRATEGY="mirrored"
-elif [[ "$NUM_NODES" > "1" ]]; then
-  export DEFAULT_DISTRIBUTION_STRATEGY="multi_worker_mirrored"
-else
-  export DEFAULT_DISTRIBUTION_STRATEGY="mirrored"
-fi
-export DISTRIBUTION_STRATEGY="${DISTRIBUTION_STRATEGY:=$DEFAULT_DISTRIBUTION_STRATEGY}"
-
-# Force GPU memory to grow if we're monitoring it
-if [[ "$ENABLE_MONITOR_MEMORY" == "true" ]]; then
-  export TF_FORCE_GPU_ALLOW_GROWTH="true"
-fi
 
 mkdir -p "$TRAIN_DIR"
 
@@ -65,14 +44,15 @@ print_diff_and_env > "$LOG_FILE" 2>&1
   --epochs_between_evals="$EPOCHS_BETWEEN_EVALS"\
   --skip_eval="$SKIP_EVAL"\
   --model_dir="$TRAIN_DIR"\
+  --pretrained_filepath="$SAVED_CHECKPOINT_PATH"\
   --dtype="$DTYPE"\
   --enable_eager="$ENABLE_EAGER"\
-  --enable_checkpoint_and_export="$ENABLE_CHECKPOINTS"\
   --enable_xla="$ENABLE_XLA"\
+  --enable_checkpoint_and_export="$ENABLE_CHECKPOINTS"\
+  --num_checkpoints_to_keep="$NUM_CHECKPOINTS_TO_KEEP"\
   --log_steps="$LOG_STEPS"\
   --distribution_strategy="$DISTRIBUTION_STRATEGY"\
   --num_virtual_nodes_per_device="$NUM_VIRTUAL_NODES_PER_DEVICE"\
-  --pretrained_filepath="$SAVED_CHECKPOINT_PATH"\
   --enable_monitor_memory="$ENABLE_MONITOR_MEMORY"\
   >> "$LOG_FILE" 2>&1
 

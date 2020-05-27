@@ -152,8 +152,7 @@ def get_callbacks(
         model_dir, num_checkpoints_to_keep))
 
   if enable_monitor_memory:
-    should_trigger_gc = not os.getenv("DISABLE_GC_COLLECT", "").lower() == "true"
-    callbacks.append(virtual_helper.MonitorMemoryCallback(should_trigger_gc))
+    callbacks.append(virtual_helper.MonitorMemoryCallback())
 
   if virtual_helper.horovod_enabled():
     callbacks.append(elasticity_callback.ElasticityCallback())

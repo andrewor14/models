@@ -23,20 +23,37 @@ export LOG_DIR="${LOG_DIR:=$BASE_DIR/logs}"
 export PYTHONPATH="$PYTHONPATH:$BASE_DIR/models"
 
 # Tensorflow related flags
+export NUM_GPUS="${NUM_GPUS:=1}"
 export DTYPE="${DTYPE:=fp16}"
 export LOG_STEPS="${LOG_STEPS:=1}"
 export SKIP_EVAL="${SKIP_EVAL:=false}"
 export NUM_VIRTUAL_NODES_PER_DEVICE="${NUM_VIRTUAL_NODES_PER_DEVICE:=1}"
-
+export SAVED_CHECKPOINT_PATH="${SAVED_CHECKPOINT_PATH:=}"
+export ENABLE_CHECKPOINTS="${ENABLE_CHECKPOINTS:=false}"
+export NUM_CHECKPOINTS_TO_KEEP="${NUM_CHECKPOINTS_TO_KEEP:=5}"
+export ENABLE_MONITOR_MEMORY="${ENABLE_MONITOR_MEMORY:=false}"
+if [[ "$ENABLE_MONITOR_MEMORY" == "true" ]]; then
+  # Force GPU memory to grow if we're monitoring it
+  export TF_FORCE_GPU_ALLOW_GROWTH="true"
+fi
 export ENABLE_XLA="${ENABLE_XLA:=true}"
 if [[ "$ENABLE_XLA" == "true" ]]; then
   export TF_XLA_FLAGS="${TF_XLA_FLAGS:=--tf_xla_cpu_global_jit}"
 fi
-
 export LOG_MEMORY_ENABLED="${LOG_MEMORY_ENABLED:=false}"
 if [[ "$LOG_MEMORY_ENABLED" == "true" ]]; then
   export TF_CPP_MIN_VLOG_LEVEL="1"
 fi
+
+# Set distribution strategy
+if [[ "$HOROVOD_ENABLED" == "true" ]]; then
+  export DEFAULT_DISTRIBUTION_STRATEGY="mirrored"
+elif [[ "$NUM_NODES" > "1" ]]; then
+  export DEFAULT_DISTRIBUTION_STRATEGY="multi_worker_mirrored"
+else
+  export DEFAULT_DISTRIBUTION_STRATEGY="mirrored"
+fi
+export DISTRIBUTION_STRATEGY="${DISTRIBUTION_STRATEGY:=$DEFAULT_DISTRIBUTION_STRATEGY}"
 
 # Set `JOB_NAME` to a unique, identifiable value
 set_job_name() {
