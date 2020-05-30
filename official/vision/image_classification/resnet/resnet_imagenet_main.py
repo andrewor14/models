@@ -236,7 +236,9 @@ def run(flags_obj):
       enable_checkpoint_and_export=flags_obj.enable_checkpoint_and_export,
       model_dir=flags_obj.model_dir,
       num_checkpoints_to_keep=flags_obj.num_checkpoints_to_keep,
-      enable_monitor_memory=flags_obj.enable_monitor_memory)
+      enable_monitor_memory=flags_obj.enable_monitor_memory,
+      enable_elasticity=flags_obj.enable_elasticity,
+      distribution_strategy=strategy)
 
   if flags_obj.train_steps:
     steps_per_epoch = min(flags_obj.train_steps, steps_per_epoch)

@@ -114,7 +114,9 @@ def get_callbacks(
     enable_checkpoint_and_export=False,
     model_dir=None,
     num_checkpoints_to_keep=None,
-    enable_monitor_memory=False):
+    enable_monitor_memory=False,
+    enable_elasticity=False,
+    distribution_strategy=None):
   """Returns common callbacks."""
   time_callback = keras_utils.TimeHistory(
       FLAGS.batch_size,
@@ -154,8 +156,11 @@ def get_callbacks(
   if enable_monitor_memory:
     callbacks.append(virtual_helper.MonitorMemoryCallback())
 
-  if virtual_helper.horovod_enabled():
-    callbacks.append(elasticity_callback.ElasticityCallback())
+  if enable_elasticity:
+    if distribution_strategy is None:
+      raise ValueError("Elasticity requires distribution strategy")
+    callbacks.append(
+      elasticity_callback.ElasticityCallback(distribution_strategy))
 
   return callbacks
 
@@ -300,6 +305,9 @@ def define_keras_flags(
   flags.DEFINE_boolean(
       name='enable_monitor_memory', default=False,
       help='Whether to enable a callback that periodically monitors GPU memory usage.')
+  flags.DEFINE_boolean(
+      name='enable_elasticity', default=False,
+      help='Whether to enable a callback that provides resource elasticity.')
 
   if model:
     flags.DEFINE_string('model', 'resnet50_v1.5',
