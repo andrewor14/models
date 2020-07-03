@@ -57,6 +57,16 @@ def set_tf_config(base_port=2222):
   logging.info("Setting %s to %s" % (TF_CONFIG, tf_config))
   os.environ[TF_CONFIG] = tf_config
 
+def get_tf_config():
+  """
+  Get the value of TF_CONFIG as a python dictionary.
+  """
+  tf_config = os.getenv(TF_CONFIG)
+  if tf_config is None:
+    return None
+  else:
+    return json.loads(tf_config)
+
 def get_input_context(comm=MPI.COMM_WORLD):
   """
   Return a `tf.distribute.InputContext`s that matches this process' rank.
