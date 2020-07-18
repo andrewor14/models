@@ -112,11 +112,8 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       self.popped_workers = workers[2:]
       tf_config["cluster"]["worker"] = workers[:2]
       self.replace_strategy_extended(tf_config, 1234)
-    elif MPI.COMM_WORLD.rank == 2:
-      self.wait_to_join()
     else:
-      logging.info("It seems I'm no longer needed. Exiting.")
-      sys.exit()
+      self.wait_to_join()
 
   def second_change(self, batch):
     """
@@ -126,25 +123,52 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       group_key = 2345
       tf_config = virtual_helper.get_tf_config()
       logging.info("Old TF_CONFIG = %s" % json.dumps(tf_config))
+      new_workers = self.popped_workers
       workers = tf_config["cluster"]["worker"]
-      new_worker = self.popped_workers[0]
-      workers.append(new_worker)
-      self.popped_workers = self.popped_workers[1:]
+      workers.extend(new_workers)
+      self.popped_workers = []
       self.replace_strategy_extended(tf_config, group_key)
-      # Wake rank 2
-      if MPI.COMM_WORLD.rank == 0:
-        tf_config = copy.deepcopy(tf_config)
-        tf_config["task"]["index"] = 2
-        tf_config = json.dumps(tf_config)
+    # Wake ranks 2 and 3
+    if MPI.COMM_WORLD.rank == 0:
+      for i, new_worker in enumerate(new_workers):
+        conf = copy.deepcopy(tf_config)
+        conf["task"]["index"] = 2 + i
+        conf = json.dumps(conf)
         get_client(new_worker.split(":")[0]).set_join_metadata(
-          (tf_config, group_key, batch))
+          (conf, group_key, batch))
+
+  def third_change(self, new_workers, batch):
+    """
+    Original cluster of ranks 0-3 will invite a new cluster with 4 nodes to join them.
+    """
+    group_key = 3456
+    tf_config = virtual_helper.get_tf_config()
+    logging.info("Old TF_CONFIG = %s" % json.dumps(tf_config))
+    workers = tf_config["cluster"]["worker"]
+    workers.extend(new_workers)
+    self.replace_strategy_extended(tf_config, group_key)
+    # Wake all those new workers
+    if MPI.COMM_WORLD.rank == 0:
+      for i, new_worker in enumerate(new_workers):
+        conf = copy.deepcopy(tf_config)
+        conf["task"]["index"] = 4 + i
+        conf = json.dumps(conf)
+        get_client(new_worker.split(":")[0]).set_join_metadata(
+          (conf, group_key, batch))
 
   def on_batch_begin(self, batch, logs=None):
     logging.info("Beginning batch %s" % batch)
-    if batch == 10:
-      self.first_change()
-    elif batch == 20:
-      self.second_change(batch)
+    if "SPAWNED" in os.environ:
+      if batch == 0:
+        self.wait_to_join()
+    else:
+      if batch == 50:
+        self.first_change()
+      elif batch == 100:
+        self.second_change(batch)
+      elif batch == 500000:
+        new_workers = ["ns-l10c1n9:2222", "ns-l10c1n10:2223", "ns-l10c1n11:2224", "ns-l10c1n12:2225"]
+        self.third_change(new_workers, batch)
 
   def on_batch_end(self, batch, logs=None):
     global COLLECTIVE_ALLREDUCE_GROUP_KEY
