@@ -21,6 +21,7 @@ RETRY_INTERVAL_SECONDS = 1
 COLLECTIVE_ALLREDUCE_GROUP_KEY = None
 COLLECTIVE_ALLREDUCE_GROUP_SIZE = None
 START_BATCH = None
+START_EPOCH = None
 ELASTICITY_VERBOSE = os.getenv("ELASTICITY_VERBOSE", "").lower() == "true"
 
 
@@ -37,6 +38,7 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
     self.join_lock = threading.Lock()
     self.join_metadata = None
     self.popped_workers = []
+    self.current_epoch = 0
     # Listen for requests
     server = xmlrpc.server.SimpleXMLRPCServer(
       (socket.gethostname(), PORT), logRequests=False, allow_none=True)
@@ -63,10 +65,13 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
           break
       time.sleep(RETRY_INTERVAL_SECONDS)
     logging.info("Received join metadata from master: %s" % self.join_metadata)
-    (tf_config, group_key, batch) = self.join_metadata
+    (tf_config, group_key, batch, epoch) = self.join_metadata
     self.replace_strategy_extended(tf_config, group_key)
     global START_BATCH
+    global START_EPOCH
     START_BATCH = batch
+    START_EPOCH = epoch
+    self.current_epoch = epoch
     with self.join_lock:
       self.join_metadata = None
 
@@ -136,7 +141,7 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
         conf["task"]["index"] = 2 + i
         conf = json.dumps(conf)
         get_client(new_worker.split(":")[0]).set_join_metadata(
-          (conf, group_key, batch))
+          (conf, group_key, batch, self.current_epoch))
 
   def third_change(self, new_workers, batch):
     """
@@ -155,10 +160,12 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
         conf["task"]["index"] = 4 + i
         conf = json.dumps(conf)
         get_client(new_worker.split(":")[0]).set_join_metadata(
-          (conf, group_key, batch))
+          (conf, group_key, batch, self.current_epoch))
 
   def on_batch_begin(self, batch, logs=None):
     logging.info("Beginning batch %s" % batch)
+    if self.current_epoch != 0:
+      return
     if "SPAWNED" in os.environ:
       if batch == 0:
         self.wait_to_join()
@@ -175,7 +182,12 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
     global COLLECTIVE_ALLREDUCE_GROUP_KEY
     global COLLECTIVE_ALLREDUCE_GROUP_SIZE
     global START_BATCH
+    global START_EPOCH
     COLLECTIVE_ALLREDUCE_GROUP_KEY = None
     COLLECTIVE_ALLREDUCE_GROUP_SIZE = None
     START_BATCH = None
+    START_EPOCH = None
+
+  def on_epoch_begin(self, epoch, logs=None):
+    self.current_epoch = epoch
 

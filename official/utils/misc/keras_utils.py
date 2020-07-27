@@ -45,6 +45,8 @@ class BatchTimestamp(object):
 class TimeHistory(tf.keras.callbacks.Callback):
   """Callback for Keras models."""
 
+  # TODO: Keep stats updated when elasticity is enabled
+
   def __init__(self, batch_size, log_steps, logdir=None):
     """Callback for logging performance.
 
