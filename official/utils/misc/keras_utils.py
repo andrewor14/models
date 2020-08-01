@@ -27,8 +27,6 @@ import tensorflow.compat.v2 as tf
 from tensorflow.python import tf2
 from tensorflow.python.profiler import profiler_v2 as profiler
 
-from virtual.virtual_helper import get_tf_config
-
 
 class BatchTimestamp(object):
   """A structure to store batch time stamp."""
@@ -64,7 +62,6 @@ class TimeHistory(tf.keras.callbacks.Callback):
     self.steps_before_epoch = 0
     self.steps_in_epoch = 0
     self.start_time = None
-    self.initial_num_workers = len(get_tf_config()["cluster"]["worker"])
 
     if logdir:
       self.summary_writer = tf.summary.create_file_writer(logdir)
@@ -118,8 +115,7 @@ class TimeHistory(tf.keras.callbacks.Callback):
       now = time.time()
       elapsed_time = now - self.start_time
       steps_per_second = steps_since_last_log / elapsed_time
-      examples_per_second = steps_per_second * self.batch_size *\
-        len(get_tf_config()["cluster"]["worker"]) / self.initial_num_workers
+      examples_per_second = steps_per_second * self.batch_size
 
       self.timestamp_log.append(BatchTimestamp(self.global_steps, now))
       logging.info(
