@@ -28,30 +28,17 @@ def is_master(comm=MPI.COMM_WORLD):
   """
   return comm.rank == 0
 
-def set_tf_config(base_port=2222):
+def set_tf_config(base_port=2222, comm=MPI.COMM_WORLD):
   """
-  Set TF_CONFIG based on hostnames of all processes in MPI.COMM_WORLD.
+  Set TF_CONFIG based on hostnames of all processes in the given MPI communicator.
   To avoid port collisions, we add a process' rank to its port.
   """
-  my_host = MPI.Get_processor_name()
-  my_index = MPI.COMM_WORLD.rank
-  if MPI.COMM_WORLD.size == 1:
-    host_ports = ["%s:%s" % (my_host, base_port + int(os.getenv(MPI_SPAWN_RANK, 0)))]
-  else:
-    all_hosts = MPI.COMM_WORLD.allgather(my_host)
-    host_ports = ["%s:%s" % (host, base_port + i) for i, host in enumerate(all_hosts)]
-  tf_config = {"cluster": {"worker": host_ports}, "task": {"type": "worker", "index": my_index}}
+  all_hosts = comm.allgather(MPI.Get_processor_name())
+  host_ports = ["%s:%s" % (host, base_port + i) for i, host in enumerate(all_hosts)]
+  tf_config = {"cluster": {"worker": host_ports}, "task": {"type": "worker", "index": comm.rank}}
   tf_config = json.dumps(tf_config)
   logging.info("Setting %s to %s" % (TF_CONFIG, tf_config))
   os.environ[TF_CONFIG] = tf_config
-  ## TODO: delete
-  #if "SPAWNED" in os.environ:
-  #  old_workers = ["ns-l10c1n1:2222", "ns-l10c1n3:2223", "ns-l10c1n4:2224", "ns-l10c1n5:2225"]
-  #  tf_config = json.loads(tf_config)
-  #  tf_config["cluster"]["worker"] = old_workers + tf_config["cluster"]["worker"]
-  #  tf_config["task"]["index"] += len(old_workers)
-  #  tf_config = json.dumps(tf_config)
-  #  os.environ[TF_CONFIG] = tf_config
 
 def get_tf_config():
   """
