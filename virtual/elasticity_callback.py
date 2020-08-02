@@ -109,23 +109,23 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
 
   def first_change(self):
     """
-    Ranks 0 and 1 will synchronize with each other while all other workers will block.
+    Rank 0 asks all other workers to leave.
     """
-    if MPI.COMM_WORLD.rank <= 1:
+    if MPI.COMM_WORLD.rank == 0:
       tf_config = virtual_helper.get_tf_config()
       logging.info("Old TF_CONFIG = %s" % json.dumps(tf_config))
       workers = tf_config["cluster"]["worker"]
-      self.popped_workers = workers[2:]
-      tf_config["cluster"]["worker"] = workers[:2]
+      self.popped_workers = workers[1:]
+      tf_config["cluster"]["worker"] = workers[:1]
       self.replace_strategy_extended(tf_config, 1234)
     else:
       self.wait_to_join()
 
   def second_change(self, batch):
     """
-    Ranks 0 and 1 will invite rank 2 to rejoin them.
+    Rank 0 wakes all sleeping workers.
     """
-    if MPI.COMM_WORLD.rank <= 1:
+    if MPI.COMM_WORLD.rank == 0:
       group_key = 2345
       tf_config = virtual_helper.get_tf_config()
       logging.info("Old TF_CONFIG = %s" % json.dumps(tf_config))
@@ -134,11 +134,11 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       workers.extend(new_workers)
       self.popped_workers = []
       self.replace_strategy_extended(tf_config, group_key)
-    # Wake ranks 2 and 3
+    # Wake sleeping workers
     if MPI.COMM_WORLD.rank == 0:
       for i, new_worker in enumerate(new_workers):
         conf = copy.deepcopy(tf_config)
-        conf["task"]["index"] = 2 + i
+        conf["task"]["index"] = 1 + i
         conf = json.dumps(conf)
         get_client(new_worker.split(":")[0]).set_join_metadata(
           (conf, group_key, batch, self.current_epoch))
@@ -164,19 +164,14 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
 
   def on_batch_begin(self, batch, logs=None):
     logging.info("Beginning batch %s" % batch)
-    if self.current_epoch != 0:
-      return
     if "SPAWNED" in os.environ:
       if batch == 0:
         self.wait_to_join()
     else:
-      if batch == 50:
+      if batch == 10 and self.current_epoch == 0:
         self.first_change()
-      elif batch == 100:
+      elif batch == 20 and self.current_epoch == 0:
         self.second_change(batch)
-      elif batch == 500000:
-        new_workers = ["ns-l10c1n9:2222", "ns-l10c1n10:2223", "ns-l10c1n11:2224", "ns-l10c1n12:2225"]
-        self.third_change(new_workers, batch)
 
   def on_batch_end(self, batch, logs=None):
     global COLLECTIVE_ALLREDUCE_GROUP_KEY
