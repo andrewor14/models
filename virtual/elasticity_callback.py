@@ -93,7 +93,8 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
     self.group_key = self.next_group_key
     self.next_group_key += GROUP_KEY_INCREMENT
     for removed_rank in range(self.world_comm.size)[num_workers:]:
-      self.tags_for_removed_workers[removed_rank] = self.group_key + removed_rank
+      if removed_rank not in self.tags_for_removed_workers:
+        self.tags_for_removed_workers[removed_rank] = self.group_key + removed_rank
 
   def transition(self, new_size, group_key, batch):
     """
