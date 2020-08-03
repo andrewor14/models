@@ -16,6 +16,10 @@ else
   exit 1
 fi
 
+if [[ "$USE_MPI_RANKS_FOR_CVD" == "true" ]]; then
+  export CUDA_VISIBLE_DEVICES="$OMPI_COMM_WORLD_RANK"
+fi
+
 set_job_name "resnet-$DATASET"
 export CODE_DIR="${CODE_DIR:=$BASE_DIR/models/official/vision/image_classification/resnet}"
 export TRAIN_DIR="${TRAIN_DIR:=${BASE_DIR}/train_data/${JOB_NAME}}"
@@ -54,5 +58,6 @@ print_diff_and_env > "$LOG_FILE" 2>&1
   --distribution_strategy="$DISTRIBUTION_STRATEGY"\
   --num_virtual_nodes_per_device="$NUM_VIRTUAL_NODES_PER_DEVICE"\
   --enable_monitor_memory="$ENABLE_MONITOR_MEMORY"\
+  --enable_elasticity="$ENABLE_ELASTICITY"\
   >> "$LOG_FILE" 2>&1
 
