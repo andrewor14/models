@@ -25,6 +25,7 @@ STARTING_GROUP_KEY = 1234
 GROUP_KEY_INCREMENT = 1000
 INSTANCE_KEY_MULTIPLE = 10
 VARIABLE_INSTANCE_KEY_MULTIPLE = 1000
+BROADCAST_INSTANCE_KEY_MULTIPLE = 400
 
 # Elasticity state passed to tensorflow
 # Setting these will signal tensorflow to rebuild the graph
