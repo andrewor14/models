@@ -2,7 +2,10 @@
 
 source common.sh
 
-set_job_name "bert-pretraining"
+if [[ -z "$JOB_NAME" ]]; then
+  set_job_name "bert-pretraining"
+fi
+maybe_set_spawn_log_file
 export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/bert/pretrain}"
 export INPUT_FILES="${INPUT_FILES:=${DATA_DIR}/tf_examples.tfrecord*}"
 export BERT_CONFIG="${BERT_CONFIG_FILE:=${DATA_DIR}/bert_config.json}"

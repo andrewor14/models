@@ -19,6 +19,7 @@ else
   echo "Unknown model '$MODEL'"
   exit 1
 fi
+export RUN_SCRIPT
 set_job_name "$BASE_JOB_NAME"
 
 # Tell MPI which hosts to use
@@ -38,6 +39,7 @@ else
   # Otherwise, assuming we're running in a single node
   HOST_FLAG="--host localhost:$NUM_WORKERS_PER_NODE"
 fi
+export HOST_FLAG
 
 # Horovod flags: see https://github.com/horovod/horovod/blob/master/docs/mpirun.rst
 INTERFACES_TO_EXCLUDE="lo,docker0"

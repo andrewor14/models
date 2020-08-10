@@ -12,9 +12,18 @@ import tensorflow as tf
 
 # Environment variables
 TF_CONFIG = "TF_CONFIG"
-MPI_SPAWN_RANK = "MPI_SPAWN_RANK"
+PYTHONPATH = "PYTHONPATH"
+MODELS_DIR = "MODELS_DIR"
 NUM_VIRTUAL_NODES_PER_DEVICE = "NUM_VIRTUAL_NODES_PER_DEVICE"
 CUDA_VISIBLE_DEVICES = "CUDA_VISIBLE_DEVICES"
+OMPI_MCA_initial_wdir = "OMPI_MCA_initial_wdir"
+RUN_SCRIPT = "RUN_SCRIPT"
+SPAWN_GROUP = "SPAWN_GROUP"
+SPAWN_START_RANK = "SPAWN_START_RANK"
+
+# Constants
+LAUNCH_DIRECTORY = os.getenv(OMPI_MCA_initial_wdir, "")
+EXECUTABLE = "bash"
 
 def initialize():
   """
@@ -72,6 +81,50 @@ def get_checkpoint_path(checkpoint_dir):
   if checkpoint_name is None:
     raise ValueError("Could not parse checkpoint name from metadata file %s" % metadata_file)
   return os.path.join(checkpoint_dir, checkpoint_name)
+
+def get_all_mpi_hosts():
+  """
+  Return a list of all possible hosts that MPI can use to spawn processes.
+  """
+  flag_name, value = os.environ["HOST_FLAG"].split(" ")
+  if flag_name == "--host":
+    return [h.split(":")[0] for h in value.split(",")]
+  if flag_name == "--hostfile":
+    with open(value) as f:
+      return [l.strip() for l in f.readlines()]
+  return []
+
+def mpi_spawn(target_hosts, start_rank, env={}):
+  """
+  Spawn a process on each of the given target hosts through MPI.
+
+  This is a helper for spawning a process that will be merged into an existing communicator.
+  This method assumes the caller was launched using `mpirun` with either the `--host` or the
+  `--hostfile` option, which controls the machines on which the new processes will be launched.
+  The spawned processes will be grouped in the same MPI world.
+  """
+  logging.info("MPI spawn on target hosts %s (start rank = %s)" % (target_hosts, start_rank))
+  # Set environment variables
+  env = env.copy()
+  env[PYTHONPATH] = os.getenv(MODELS_DIR)
+  env[SPAWN_GROUP] = ",".join(target_hosts)
+  env[SPAWN_START_RANK] = start_rank
+  # Note: there is a max character limit for the value of MPI.Info!
+  # Here we take care not to exceed it, otherwise we will see MPI_ERR_INFO_VALUE...
+  env = "\n".join(["%s=%s" % (k, v) for k, v in env.items() if v is not None])
+  if len(env) > MPI.MAX_INFO_VAL:
+    raise ValueError("MPI environment string is longer than MPI_MAX_INFO_VAL(%s):\n%s" %\
+      (MPI.MAX_INFO_VAL, env))
+  info = MPI.Info.Create()
+  info.Set("env", env)
+  info.Set("host", ",".join(target_hosts))
+  info.Set("map_by", "node")
+  # Setting "bind_to" to "none" (default was "core") significantly improves MPI performance
+  # for multi-threaded applications. See https://www.open-mpi.org/doc/v1.8/man1/mpirun.1.php
+  info.Set("bind_to", "none")
+  # Set arguments, assuming the scripts are in the same directory as this file
+  run_script = os.path.join(LAUNCH_DIRECTORY, os.environ[RUN_SCRIPT])
+  return MPI.COMM_SELF.Spawn(EXECUTABLE, args=[run_script], info=info, maxprocs=len(target_hosts))
 
 class DeleteOldCheckpointsCallback(tf.keras.callbacks.Callback):
   """

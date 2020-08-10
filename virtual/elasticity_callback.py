@@ -65,6 +65,13 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       # Next group key to use, incremented by X after each resize
       self.next_group_key = STARTING_GROUP_KEY
 
+      # The communicator returned from the last call to MPI spawn, if any
+      self.spawned_communicator = None
+
+      # The host names of the machines on which the new processes will be spawned
+      # This is set by the last call to MPI spawn, and reset when the new processes join
+      self.spawned_hosts = []
+
       # Map from MPI rank to tag to use when requesting the worker to rejoin
       self.tags_for_removed_workers = {}
 
@@ -72,6 +79,7 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       server = xmlrpc.server.SimpleXMLRPCServer(
         (socket.gethostname(), ELASTICITY_PORT), logRequests=False, allow_none=True)
       server.register_function(self.set_num_workers)
+      server.register_function(self.spawn)
       t = threading.Thread(target=server.serve_forever)
       t.setDaemon(True)
       t.start()
@@ -96,6 +104,25 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
     for removed_rank in range(self.world_comm.size)[num_workers:]:
       if removed_rank not in self.tags_for_removed_workers:
         self.tags_for_removed_workers[removed_rank] = self.group_key + removed_rank
+
+  def spawn(self, n):
+    """
+    Spawn processes through MPI.
+
+    This can only be called once before the set of spawned processes join.
+    """
+    if not self.is_master:
+      raise ValueError("Only the master can spawn processes")
+    if self.spawned_communicator is not None or len(self.spawned_hosts) > 0:
+      raise ValueError("Existing spawn request in progress, not accepting further requests")
+    all_possible_hosts = virtual_helper.get_all_mpi_hosts()
+    existing_hosts = [hp.split(":")[0] for hp in self.members]
+    target_hosts = [h for h in all_possible_hosts if h not in existing_hosts]
+    if len(target_hosts) >= n:
+      self.spawned_hosts = target_hosts[:n]
+      self.spawned_communicator = virtual_helper.mpi_spawn(self.spawned_hosts, len(self.members))
+    else:
+      logging.warn("Not enough hosts to spawn %s more processes, ignoring spawn request" % n)
 
   def transition(self, new_size, group_key, batch):
     """

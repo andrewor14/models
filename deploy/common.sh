@@ -20,7 +20,8 @@ fi
 export TIMESTAMP=`date +%m_%d_%y_%s%3N`
 export TF_DIR="$BASE_DIR/tensorflow"
 export LOG_DIR="${LOG_DIR:=$BASE_DIR/logs}"
-export PYTHONPATH="$PYTHONPATH:$BASE_DIR/models"
+export MODELS_DIR="$BASE_DIR/models"
+export PYTHONPATH="$PYTHONPATH:$MODELS_DIR"
 
 # Tensorflow related flags
 export NUM_GPUS="${NUM_GPUS:=1}"
@@ -95,5 +96,17 @@ print_diff_and_env() {
   echo -e "--------------------------------------------------------------------------"
   printenv
   echo -e "==========================================================================\n"
+}
+
+# If this is a spawned process, set the log file accordingly
+maybe_set_spawn_log_file() {
+  if [[ -n "$SPAWN_GROUP" ]] && [[ -n "$SPAWN_START_RANK" ]]; then
+    MY_HOST="$(hostname)"
+    MY_INDEX="$(echo $SPAWN_GROUP | sed "s/${MY_HOST}.*//g" | sed 's/[^,]//g' | tr -d '\n' | wc -c)"
+    MY_RANK="$((SPAWN_START_RANK + MY_INDEX))"
+    LOG_DIR="${LOG_DIR}/${JOB_NAME}/1/rank.${MY_RANK}"
+    mkdir -p "$LOG_DIR"
+    export LOG_FILE="${LOG_DIR}/stderr"
+  fi
 }
 

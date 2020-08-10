@@ -20,7 +20,10 @@ if [[ "$USE_MPI_RANKS_FOR_CVD" == "true" ]]; then
   export CUDA_VISIBLE_DEVICES="$OMPI_COMM_WORLD_RANK"
 fi
 
-set_job_name "resnet-$DATASET"
+if [[ -z "$JOB_NAME" ]]; then
+  set_job_name "resnet-$DATASET"
+fi
+maybe_set_spawn_log_file
 export CODE_DIR="${CODE_DIR:=$BASE_DIR/models/official/vision/image_classification/resnet}"
 export TRAIN_DIR="${TRAIN_DIR:=${BASE_DIR}/train_data/${JOB_NAME}}"
 export LOG_FILE="${LOG_FILE:=${LOG_DIR}/${JOB_NAME}.log}"

@@ -2,7 +2,10 @@
 
 source common.sh
 
-set_job_name "bert-glue"
+if [[ -z "$JOB_NAME" ]]; then
+  set_job_name "bert-glue"
+fi
+maybe_set_spawn_log_file
 export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/bert/finetuning}"
 export PRETRAINED_DATA_DIR="${PRETRAINED_DATA_DIR:=${BASE_DIR}/dataset/bert/uncased_L-12_H-768_A-12}"
 export CHECKPOINT_NAME="${CHECKPOINT_NAME:=bert_model.ckpt}"
