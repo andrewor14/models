@@ -18,7 +18,7 @@ typing
 sentencepiece
 Cython
 matplotlib
-opencv-python-headless
+opencv-python-headless==4.2.0.32
 pyyaml
 Pillow
 -e git+https://github.com/cocodataset/cocoapi#egg=pycocotools&subdirectory=PythonAPI
