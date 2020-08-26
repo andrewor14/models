@@ -116,7 +116,7 @@ def get_callbacks(
     num_checkpoints_to_keep=None,
     enable_monitor_memory=False,
     enable_elasticity=False,
-    distribution_strategy=None):
+    model=None):
   """Returns common callbacks."""
   time_callback = keras_utils.TimeHistory(
       FLAGS.batch_size,
@@ -157,10 +157,9 @@ def get_callbacks(
     callbacks.append(virtual_helper.MonitorMemoryCallback())
 
   if enable_elasticity:
-    if distribution_strategy is None:
-      raise ValueError("Elasticity requires distribution strategy")
-    callbacks.append(
-      elasticity_callback.ElasticityCallback(distribution_strategy))
+    if model is None:
+      raise ValueError("Elasticity callback requires the model")
+    callbacks.append(elasticity_callback.ElasticityCallback(model))
 
   return callbacks
 

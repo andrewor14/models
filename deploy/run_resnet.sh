@@ -16,10 +16,6 @@ else
   exit 1
 fi
 
-if [[ "$USE_MPI_RANKS_FOR_CVD" == "true" ]]; then
-  export CUDA_VISIBLE_DEVICES="$OMPI_COMM_WORLD_RANK"
-fi
-
 if [[ -z "$JOB_NAME" ]]; then
   set_job_name "resnet-$DATASET"
 fi

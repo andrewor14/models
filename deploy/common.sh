@@ -48,14 +48,22 @@ if [[ "$LOG_MEMORY_ENABLED" == "true" ]]; then
 fi
 
 # Set distribution strategy
-if [[ "$HOROVOD_ENABLED" == "true" ]]; then
+if [[ "$ENABLE_ELASTICITY" == "true" ]] || [[ "$NUM_NODES" == "1" ]]; then
   export DEFAULT_DISTRIBUTION_STRATEGY="mirrored"
-elif [[ "$NUM_NODES" > "1" ]]; then
-  export DEFAULT_DISTRIBUTION_STRATEGY="multi_worker_mirrored"
 else
-  export DEFAULT_DISTRIBUTION_STRATEGY="mirrored"
+  export DEFAULT_DISTRIBUTION_STRATEGY="multi_worker_mirrored"
 fi
 export DISTRIBUTION_STRATEGY="${DISTRIBUTION_STRATEGY:=$DEFAULT_DISTRIBUTION_STRATEGY}"
+
+# Optionally use MPI rank as CUDA_VISIBLE_DEVICES
+# If this is a spawned process, use the real rank that this worker is assigned to
+if [[ "$USE_MPI_RANKS_FOR_CVD" == "true" ]] && [[ -n "$OMPI_COMM_WORLD_RANK" ]]; then
+  if [[ -n "$SPAWN_START_RANK" ]]; then
+    export CUDA_VISIBLE_DEVICES="$((SPAWN_START_RANK + OMPI_COMM_WORLD_RANK))"
+  else
+    export CUDA_VISIBLE_DEVICES="$OMPI_COMM_WORLD_RANK"
+  fi
+fi
 
 # Set `JOB_NAME` to a unique, identifiable value
 set_job_name() {
@@ -100,13 +108,17 @@ print_diff_and_env() {
 
 # If this is a spawned process, set the log file accordingly
 maybe_set_spawn_log_file() {
-  if [[ -n "$SPAWN_GROUP" ]] && [[ -n "$SPAWN_START_RANK" ]]; then
-    MY_HOST="$(hostname)"
-    MY_INDEX="$(echo $SPAWN_GROUP | sed "s/${MY_HOST}.*//g" | sed 's/[^,]//g' | tr -d '\n' | wc -c)"
-    MY_RANK="$((SPAWN_START_RANK + MY_INDEX))"
+  if [[ -n "$SPAWN_START_RANK" ]]; then
+    MY_RANK="$((SPAWN_START_RANK + OMPI_COMM_WORLD_RANK))"
     LOG_DIR="${LOG_DIR}/${JOB_NAME}/1/rank.${MY_RANK}"
     mkdir -p "$LOG_DIR"
     export LOG_FILE="${LOG_DIR}/stderr"
+    # If the log file already exists, append a .x to the file name
+    i=1
+    while [[ -f "$LOG_FILE" ]]; do
+      export LOG_FILE="${LOG_DIR}/stderr.${i}"
+      i="$((i+1))"
+    done
   fi
 }
 

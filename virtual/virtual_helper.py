@@ -14,22 +14,34 @@ import tensorflow as tf
 TF_CONFIG = "TF_CONFIG"
 PYTHONPATH = "PYTHONPATH"
 MODELS_DIR = "MODELS_DIR"
+NUM_NODES = "NUM_NODES"
 NUM_VIRTUAL_NODES_PER_DEVICE = "NUM_VIRTUAL_NODES_PER_DEVICE"
 CUDA_VISIBLE_DEVICES = "CUDA_VISIBLE_DEVICES"
 OMPI_MCA_initial_wdir = "OMPI_MCA_initial_wdir"
 RUN_SCRIPT = "RUN_SCRIPT"
-SPAWN_GROUP = "SPAWN_GROUP"
-SPAWN_START_RANK = "SPAWN_START_RANK"
+HOROVOD_COMPRESS = "HOROVOD_COMPRESS"
+HOROVOD_USE_CPU = "HOROVOD_USE_CPU"
 
 # Constants
 LAUNCH_DIRECTORY = os.getenv(OMPI_MCA_initial_wdir, "")
 EXECUTABLE = "bash"
+
+# Tag used for expanding the MPI communicator, incremented once per expand
+MPI_CURRENT_TAG = 14444
+
+# A tensorflow function that averages a list of gradients with horovod
+# We refresh this function every time the cluster membership changes
+# instead of rebuilding the entire graph to speed up the restart process
+HOROVOD_ALLREDUCE_FUNCTION = None
 
 def initialize():
   """
   Initialize the program for virtual node processing.
   """
   set_tf_config()
+  from virtual.elasticity_callback import ENABLE_ELASTICITY, ELASTICITY_VERBOSE
+  if ENABLE_ELASTICITY:
+    initialize_horovod()
 
 def is_master(comm=MPI.COMM_WORLD):
   """
@@ -42,9 +54,16 @@ def set_tf_config(base_port=2222, comm=MPI.COMM_WORLD):
   Set TF_CONFIG based on hostnames of all processes in the given MPI communicator.
   To avoid port collisions, we add a process' rank to its port.
   """
-  all_hosts = comm.allgather(MPI.Get_processor_name())
-  host_ports = ["%s:%s" % (host, base_port + i) for i, host in enumerate(all_hosts)]
-  tf_config = {"cluster": {"worker": host_ports}, "task": {"type": "worker", "index": comm.rank}}
+  from virtual.elasticity_callback import ENABLE_ELASTICITY
+  my_host = MPI.Get_processor_name()
+  if ENABLE_ELASTICITY:
+    my_index = 0
+    host_ports = ["%s:%s" % (my_host, base_port + comm.rank)]
+  else:
+    my_index = comm.rank
+    all_hosts = comm.allgather(my_host)
+    host_ports = ["%s:%s" % (host, base_port + i) for i, host in enumerate(all_hosts)]
+  tf_config = {"cluster": {"worker": host_ports}, "task": {"type": "worker", "index": my_index}}
   tf_config = json.dumps(tf_config)
   logging.info("Setting %s to %s" % (TF_CONFIG, tf_config))
   os.environ[TF_CONFIG] = tf_config
@@ -94,7 +113,7 @@ def get_all_mpi_hosts():
       return [l.strip() for l in f.readlines()]
   return []
 
-def mpi_spawn(target_hosts, start_rank, env={}):
+def mpi_spawn(target_hosts, env={}):
   """
   Spawn a process on each of the given target hosts through MPI.
 
@@ -103,12 +122,10 @@ def mpi_spawn(target_hosts, start_rank, env={}):
   `--hostfile` option, which controls the machines on which the new processes will be launched.
   The spawned processes will be grouped in the same MPI world.
   """
-  logging.info("MPI spawn on target hosts %s (start rank = %s)" % (target_hosts, start_rank))
+  logging.info("MPI spawn on target hosts %s" % target_hosts)
   # Set environment variables
   env = env.copy()
   env[PYTHONPATH] = os.getenv(MODELS_DIR)
-  env[SPAWN_GROUP] = ",".join(target_hosts)
-  env[SPAWN_START_RANK] = start_rank
   # Note: there is a max character limit for the value of MPI.Info!
   # Here we take care not to exceed it, otherwise we will see MPI_ERR_INFO_VALUE...
   env = "\n".join(["%s=%s" % (k, v) for k, v in env.items() if v is not None])
@@ -125,6 +142,112 @@ def mpi_spawn(target_hosts, start_rank, env={}):
   # Set arguments, assuming the scripts are in the same directory as this file
   run_script = os.path.join(LAUNCH_DIRECTORY, os.environ[RUN_SCRIPT])
   return MPI.COMM_SELF.Spawn(EXECUTABLE, args=[run_script], info=info, maxprocs=len(target_hosts))
+
+def mpi_expand(intracomm, intercomm):
+  """
+  Expand an existing intracommunicator by merging an intercommunicator into it.
+
+  All members of both communicators must participate in this process.
+  For example, the intercommunicator may be set to the following:
+    - At the root: the communicator returned by MPI.Comm.Spawn
+    - At the spawned worker: the communicator returned by MPI.Comm.Get_parent
+    - At all other nodes: None
+
+  Return a merged intracommunicator ready to be passed into `hvd.init`.
+  """
+  from virtual.elasticity_callback import ELASTICITY_MASTER
+  global MPI_CURRENT_TAG
+  is_joining = intracomm.rank == 0 and ELASTICITY_MASTER in os.environ
+  is_root = intracomm.rank == 0 and not is_joining
+  tag = MPI_CURRENT_TAG if is_root else None
+
+  if is_joining:
+    logging.info("Joining an existing communicator")
+  else:
+    logging.info("Expanding communicator %s (current size %s)" % (intracomm, intracomm.size))
+
+  # Merge the two intercommunicators into an intracommunicator
+  if intercomm is not None:
+    merged_intracomm = intercomm.Merge(is_joining)
+  else:
+    merged_intracomm = MPI.Intracomm(MPI.COMM_NULL)
+
+  # The root broadcasts its tag in both communicators to make sure everyone has the same tag
+  if intercomm is not None:
+    tag = merged_intracomm.bcast(tag, root=0)
+  tag = intracomm.bcast(tag, root=0)
+
+  # Merge the two intracommunicators into an intercommunicator
+  logging.info("Merging communicators using tag %s" % tag)
+  if is_joining:
+    super_merged_intercomm = MPI.Intracomm.Create_intercomm(intracomm, 0, merged_intracomm, 0, tag)
+  else:
+    super_merged_intercomm = MPI.Intracomm.Create_intercomm(intracomm, 0, merged_intracomm, 1, tag)
+
+  # Finally, convert this intercommunicator into an intracommunicator
+  comm = super_merged_intercomm.Merge(is_joining)
+  logging.info("Our rank in new communicator = %s (size %s)" % (comm.rank, comm.size))
+
+  # Run some collective operations on this communicator
+  mpi_test_communication(comm)
+
+  if is_root:
+    MPI_CURRENT_TAG += 1
+  return comm
+
+def mpi_test_communication(comm):
+  """
+  Helper method to make sure basic communication works in the given communicator.
+  """
+  logging.info("Testing communication in communicator %s (size %s)" % (comm, comm.size))
+  # Try broadcasting a value
+  value = "[root value]" if comm.rank == 0 else None
+  value = comm.bcast(value, root=0)
+  if comm.rank > 0:
+    logging.info("  Received broadcast from root: %s" % value)
+  # Try doing an allreduce
+  value = comm.allreduce(comm.rank, op=MPI.SUM)
+  logging.info("  Allreduce result: %s" % value)
+
+def initialize_horovod(comm=None):
+  """
+  Initialize horovod with the given communicator and set the allreduce
+  function for tensorflow to call during training.
+
+  If `comm` is None, default to the MPI world communicator. Otherwise,
+  we assume horovod has been initialized before, so we shut down the
+  old context and initialize a new one.
+  """
+  import horovod.tensorflow as hvd
+  if comm is None:
+    comm = MPI.COMM_WORLD.Dup()
+  else:
+    hvd.shutdown()
+  logging.info("Initializing horovod with communicator (size = %s)" % comm.size)
+  hvd.init(comm)
+  # Truncate tensor for printing
+  @tf.function
+  def truncate_tensor(t):
+    return tf.reshape(t, [-1])[:5]
+  # Allreduce function
+  @tf.function
+  def allreduce(grads):
+    import horovod.tensorflow as hvd
+    from virtual.elasticity_callback import ELASTICITY_VERBOSE
+    logging.info("Averaging gradients with horovod (size %s)" % hvd.size())
+    compress = os.getenv(HOROVOD_COMPRESS, "").lower() == "true"
+    use_cpu = os.getenv(HOROVOD_USE_CPU, "").lower() == "true"
+    if ELASTICITY_VERBOSE:
+      tf.print("First gradient before horovod allreduce: ", truncate_tensor(grads[0]))
+    compression = hvd.Compression.fp16 if compress else hvd.Compression.none
+    device_dense = "/cpu:0" if use_cpu else ""
+    grads = [hvd.allreduce(grad, device_dense=device_dense, compression=compression)\
+      for grad in grads]
+    if ELASTICITY_VERBOSE:
+      tf.print("First gradient after horovod allreduce: ", truncate_tensor(grads[0]))
+    return grads
+  global HOROVOD_ALLREDUCE_FUNCTION
+  HOROVOD_ALLREDUCE_FUNCTION = allreduce
 
 class DeleteOldCheckpointsCallback(tf.keras.callbacks.Callback):
   """

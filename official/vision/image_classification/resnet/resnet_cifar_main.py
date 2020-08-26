@@ -233,7 +233,7 @@ def run(flags_obj):
     num_checkpoints_to_keep=flags_obj.num_checkpoints_to_keep,
     enable_monitor_memory=flags_obj.enable_monitor_memory,
     enable_elasticity=flags_obj.enable_elasticity,
-    distribution_strategy=strategy)
+    model=model)
 
   if not flags_obj.use_tensor_lr:
     lr_callback = LearningRateBatchScheduler(
