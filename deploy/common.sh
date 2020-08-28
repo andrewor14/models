@@ -33,18 +33,28 @@ export SAVED_CHECKPOINT_PATH="${SAVED_CHECKPOINT_PATH:=}"
 export ENABLE_CHECKPOINTS="${ENABLE_CHECKPOINTS:=false}"
 export NUM_CHECKPOINTS_TO_KEEP="${NUM_CHECKPOINTS_TO_KEEP:=5}"
 export ENABLE_ELASTICITY="${ENABLE_ELASTICITY:=false}"
+
+# Monitor memory
 export ENABLE_MONITOR_MEMORY="${ENABLE_MONITOR_MEMORY:=false}"
 if [[ "$ENABLE_MONITOR_MEMORY" == "true" ]]; then
   # Force GPU memory to grow if we're monitoring it
   export TF_FORCE_GPU_ALLOW_GROWTH="true"
 fi
-export ENABLE_XLA="${ENABLE_XLA:=true}"
-if [[ "$ENABLE_XLA" == "true" ]]; then
-  export TF_XLA_FLAGS="${TF_XLA_FLAGS:=--tf_xla_cpu_global_jit}"
-fi
+
+# Log memory
 export LOG_MEMORY_ENABLED="${LOG_MEMORY_ENABLED:=false}"
 if [[ "$LOG_MEMORY_ENABLED" == "true" ]]; then
   export TF_CPP_MIN_VLOG_LEVEL="1"
+fi
+
+# XLA
+DEFAULT_ENABLE_XLA="true"
+if [[ "$ENABLE_ELASTICITY" == "true" ]]; then
+  DEFAULT_ENABLE_XLA="false"
+fi
+export ENABLE_XLA="${ENABLE_XLA:=$DEFAULT_ENABLE_XLA}"
+if [[ "$ENABLE_XLA" == "true" ]]; then
+  export TF_XLA_FLAGS="${TF_XLA_FLAGS:=--tf_xla_cpu_global_jit}"
 fi
 
 # Set distribution strategy
