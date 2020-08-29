@@ -67,7 +67,9 @@ export DISTRIBUTION_STRATEGY="${DISTRIBUTION_STRATEGY:=$DEFAULT_DISTRIBUTION_STR
 
 # Optionally use MPI rank as CUDA_VISIBLE_DEVICES
 # If this is a spawned process, use the real rank that this worker is assigned to
-if [[ "$USE_MPI_RANKS_FOR_CVD" == "true" ]] && [[ -n "$OMPI_COMM_WORLD_RANK" ]]; then
+if [[ "$USE_MPI_RANKS_FOR_CVD" == "true" ]] &&\
+    [[ -n "$OMPI_COMM_WORLD_RANK" ]] &&\
+    [[ -z "$CUDA_VISIBLE_DEVICES" ]]; then
   if [[ -n "$SPAWN_START_RANK" ]]; then
     export CUDA_VISIBLE_DEVICES="$((SPAWN_START_RANK + OMPI_COMM_WORLD_RANK))"
   else
