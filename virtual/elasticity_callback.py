@@ -31,6 +31,20 @@ NUM_VIRTUAL_NODES = None
 START_BATCH = None
 START_EPOCH = None
 
+# Singleton elasticity callback, defined only if ENABLE_ELASTICITY is true
+ELASTICITY_CALLBACK = None
+
+def initialize_singleton_callback():
+  """
+  Initialize a singleton elasticity callback for this program.
+
+  This needs to be initialized in the very beginning of the program because the
+  elasticity callback fetches the correct CUDA_VISIBLE_DEVICES from the master and
+  sets it for spawned workers.
+  """
+  global ELASTICITY_CALLBACK
+  ELASTICITY_CALLBACK = ElasticityCallback()
+
 def get_elasticity_client(host):
   """
   Return a client that can communicate with the elasticity server on the master.
@@ -41,7 +55,7 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
   """
   A callback that maintains elasticity state for this process.
   """
-  def __init__(self, model):
+  def __init__(self):
     logging.info("Initializing elasticity callback")
     self.comm = MPI.COMM_WORLD.Dup()
     self.is_joining = ELASTICITY_MASTER in os.environ
@@ -206,6 +220,9 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
     """
     if old_size >= new_size:
       return
+
+    if self.model is None:
+      raise ValueError("self.model was not set!")
 
     self.log_parameters("[Before transfer] ", old_size)
 

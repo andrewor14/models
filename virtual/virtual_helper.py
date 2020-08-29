@@ -39,9 +39,10 @@ def initialize():
   Initialize the program for virtual node processing.
   """
   set_tf_config()
-  from virtual.elasticity_callback import ENABLE_ELASTICITY, ELASTICITY_VERBOSE
+  from virtual.elasticity_callback import ENABLE_ELASTICITY, initialize_singleton_callback
   if ENABLE_ELASTICITY:
     initialize_horovod()
+    initialize_singleton_callback()
 
 def is_master(comm=MPI.COMM_WORLD):
   """

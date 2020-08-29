@@ -115,8 +115,7 @@ def get_callbacks(
     model_dir=None,
     num_checkpoints_to_keep=None,
     enable_monitor_memory=False,
-    enable_elasticity=False,
-    model=None):
+    enable_elasticity=False):
   """Returns common callbacks."""
   time_callback = keras_utils.TimeHistory(
       FLAGS.batch_size,
@@ -157,9 +156,10 @@ def get_callbacks(
     callbacks.append(virtual_helper.MonitorMemoryCallback())
 
   if enable_elasticity:
-    if model is None:
-      raise ValueError("Elasticity callback requires the model")
-    callbacks.append(elasticity_callback.ElasticityCallback(model))
+    from virtual.elasticity_callback import ELASTICITY_CALLBACK
+    if ELASTICITY_CALLBACK is None:
+      raise ValueError("Singleton elasticity callback was None")
+    callbacks.append(ELASTICITY_CALLBACK)
 
   return callbacks
 
