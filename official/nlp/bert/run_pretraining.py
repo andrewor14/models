@@ -125,8 +125,9 @@ def run_customized_training(strategy,
     model_dir=model_dir,
     log_steps=FLAGS.log_steps,
     enable_checkpoints=FLAGS.enable_checkpoints,
+    num_checkpoints_to_keep=FLAGS.num_checkpoints_to_keep,
     enable_monitor_memory=FLAGS.enable_monitor_memory,
-    num_checkpoints_to_keep=FLAGS.num_checkpoints_to_keep)
+    enable_elasticity=False)
 
   trained_model = model_training_utils.run_customized_training_loop(
       strategy=strategy,

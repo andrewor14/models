@@ -102,8 +102,9 @@ def main(_):
       model_dir=FLAGS.model_dir,
       log_steps=FLAGS.log_steps,
       enable_checkpoints=FLAGS.enable_checkpoints,
+      num_checkpoints_to_keep=FLAGS.num_checkpoints_to_keep,
       enable_monitor_memory=FLAGS.enable_monitor_memory,
-      num_checkpoints_to_keep=FLAGS.num_checkpoints_to_keep)
+      enable_elasticity=FLAGS.enable_elasticity)
     train_squad(
         strategy,
         input_meta_data,

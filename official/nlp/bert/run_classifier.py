@@ -354,8 +354,9 @@ def run_bert(strategy,
     log_steps=FLAGS.log_steps,
     enable_summaries=True,
     enable_checkpoints=FLAGS.enable_checkpoints,
+    num_checkpoints_to_keep=FLAGS.num_checkpoints_to_keep,
     enable_monitor_memory=FLAGS.enable_monitor_memory,
-    num_checkpoints_to_keep=FLAGS.num_checkpoints_to_keep)
+    enable_elasticity=FLAGS.enable_elasticity)
 
   trained_model = run_bert_classifier(
       strategy,

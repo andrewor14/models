@@ -6,12 +6,17 @@ if [[ -z "$JOB_NAME" ]]; then
   set_job_name "bert-pretraining"
 fi
 maybe_set_spawn_log_file
-export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/bert/pretrain}"
+export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/bert/pretraining}"
 export INPUT_FILES="${INPUT_FILES:=${DATA_DIR}/tf_examples.tfrecord*}"
 export BERT_CONFIG="${BERT_CONFIG_FILE:=${DATA_DIR}/bert_config.json}"
 export CODE_DIR="${CODE_DIR:=$BASE_DIR/models/official/nlp/bert}"
 export TRAIN_DIR="${TRAIN_DIR:=${BASE_DIR}/train_data/${JOB_NAME}}"
 export LOG_FILE="${LOG_FILE:=${LOG_DIR}/${JOB_NAME}.log}"
+
+if [[ "$ENABLE_ELASTICITY" == "true" ]]; then
+  echo "Elasticity is not supported for BERT pre-training"
+  exit 1
+fi
 
 # Workload-specific flags
 if [[ -n "$NUM_STEPS" ]]; then

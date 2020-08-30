@@ -100,6 +100,9 @@ def define_common_bert_flags():
   flags.DEFINE_boolean(
       name='enable_monitor_memory', default=False,
       help='Whether to enable a callback that periodically monitors GPU memory usage.')
+  flags.DEFINE_boolean(
+      name='enable_elasticity', default=False,
+      help='Whether to enable a callback that provides resource elasticity.')
 
   flags_core.define_log_steps()
 
@@ -128,8 +131,9 @@ def get_callbacks(
     log_steps=None,
     enable_summaries=False,
     enable_checkpoints=False,
+    num_checkpoints_to_keep=None,
     enable_monitor_memory=False,
-    num_checkpoints_to_keep=None):
+    enable_elasticity=False):
   """Returns common callbacks."""
   callbacks = []
   if log_steps is not None:
@@ -152,6 +156,11 @@ def get_callbacks(
       model_dir, num_checkpoints_to_keep))
   if enable_monitor_memory:
     callbacks.append(virtual_helper.MonitorMemoryCallback())
+  if enable_elasticity:
+    from virtual.elasticity_callback import ELASTICITY_CALLBACK
+    if ELASTICITY_CALLBACK is None:
+      raise ValueError("Singleton elasticity callback was None")
+    callbacks.append(ELASTICITY_CALLBACK)
   return callbacks
 
 
