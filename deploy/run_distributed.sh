@@ -54,9 +54,11 @@ INTERFACES_TO_EXCLUDE="lo,docker0"
 if [[ "$IN_DOCKER_CONTAINER" == "true" ]]; then
   INTERFACES_TO_EXCLUDE="$INTERFACES_TO_EXCLUDE,eth1"
 fi
+HOROVOD_FLAGS="-mca pml ob1 -mca btl ^openib -mca btl_tcp_if_exclude $INTERFACES_TO_EXCLUDE --bind-to none"
+HOROVOD_FLAGS="$HOROVOD_FLAGS -x NCCL_DEBUG=INFO -x NCCL_SOCKET_IFNAME=^$INTERFACES_TO_EXCLUDE"
+
+# In elasticity mode, we assign a process to each GPU
 if [[ "$ENABLE_ELASTICITY" == "true" ]]; then
-  HOROVOD_FLAGS="-mca pml ob1 -mca btl ^openib -mca btl_tcp_if_exclude $INTERFACES_TO_EXCLUDE --bind-to none"
-  HOROVOD_FLAGS="$HOROVOD_FLAGS -x NCCL_DEBUG=INFO -x NCCL_SOCKET_IFNAME=^$INTERFACES_TO_EXCLUDE"
   MPI_MAP_BY="slot"
 else
   MPI_MAP_BY="node"
