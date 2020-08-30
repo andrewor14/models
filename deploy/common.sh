@@ -65,11 +65,9 @@ else
 fi
 export DISTRIBUTION_STRATEGY="${DISTRIBUTION_STRATEGY:=$DEFAULT_DISTRIBUTION_STRATEGY}"
 
-# Optionally use MPI rank as CUDA_VISIBLE_DEVICES
-if [[ "$USE_MPI_RANKS_FOR_CVD" == "true" ]] &&\
-    [[ -n "$OMPI_COMM_WORLD_RANK" ]] &&\
-    [[ -z "$CUDA_VISIBLE_DEVICES" ]]; then
-  export CUDA_VISIBLE_DEVICES="$OMPI_COMM_WORLD_RANK"
+# Optionally use a process' rank as CUDA_VISIBLE_DEVICES
+if [[ "$USE_RANK_FOR_CVD" == "true" ]]; then
+  export CUDA_VISIBLE_DEVICES="${SPAWN_RANK:-$OMPI_COMM_WORLD_RANK}"
 fi
 
 # Set `JOB_NAME` to a unique, identifiable value
