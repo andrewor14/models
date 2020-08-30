@@ -18,8 +18,8 @@ export BATCH_SIZE="${BATCH_SIZE:=128}"
 export PRETRAINED_DATA_DIR="${PRETRAINED_DATA_DIR:=/root/dev/dataset/bert/uncased_L-24_H-1024_A-16}"
 
 # Number of examples that can be processed on the GPU at a given time
-# This should be 4 for 2080 Ti and 8 for V100
-export VIRTUAL_NODE_SIZE="${VIRTUAL_NODE_SIZE:=8}"
+# This should be 2 for 2080 Ti and 4 for V100
+export VIRTUAL_NODE_SIZE="${VIRTUAL_NODE_SIZE:=4}"
 
 function run_it() {
   export GLUE_TASK="$1"
