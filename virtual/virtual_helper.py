@@ -114,16 +114,15 @@ def get_all_mpi_hosts():
       return [l.strip() for l in f.readlines()]
   return []
 
-def mpi_spawn(target_hosts, env={}):
+def mpi_spawn(target_host, env={}):
   """
-  Spawn a process on each of the given target hosts through MPI.
+  Spawn a process on the given target host through MPI
 
   This is a helper for spawning a process that will be merged into an existing communicator.
   This method assumes the caller was launched using `mpirun` with either the `--host` or the
   `--hostfile` option, which controls the machines on which the new processes will be launched.
-  The spawned processes will be grouped in the same MPI world.
   """
-  logging.info("MPI spawn on target hosts %s" % target_hosts)
+  logging.info("MPI spawn on target host %s" % target_host)
   # Set environment variables
   env = env.copy()
   env[PYTHONPATH] = os.getenv(MODELS_DIR)
@@ -135,14 +134,13 @@ def mpi_spawn(target_hosts, env={}):
       (MPI.MAX_INFO_VAL, env))
   info = MPI.Info.Create()
   info.Set("env", env)
-  info.Set("host", ",".join(target_hosts))
-  info.Set("map_by", "node")
+  info.Set("host", target_host)
   # Setting "bind_to" to "none" (default was "core") significantly improves MPI performance
   # for multi-threaded applications. See https://www.open-mpi.org/doc/v1.8/man1/mpirun.1.php
   info.Set("bind_to", "none")
   # Set arguments, assuming the scripts are in the same directory as this file
   run_script = os.path.join(LAUNCH_DIRECTORY, os.environ[RUN_SCRIPT])
-  return MPI.COMM_SELF.Spawn(EXECUTABLE, args=[run_script], info=info, maxprocs=len(target_hosts))
+  return MPI.COMM_SELF.Spawn(EXECUTABLE, args=[run_script], info=info, maxprocs=1)
 
 def mpi_expand(intracomm, intercomm):
   """

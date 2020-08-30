@@ -23,7 +23,7 @@ ELASTICITY_PORT = 17272
 ELASTICITY_VERBOSE = os.getenv("ELASTICITY_VERBOSE", "").lower() == "true"
 ENABLE_ELASTICITY = os.getenv("ENABLE_ELASTICITY", "").lower() == "true"
 ELASTICITY_MASTER = "ELASTICITY_MASTER"
-SPAWN_START_RANK = "SPAWN_START_RANK"
+SPAWN_RANK = "SPAWN_RANK"
 
 # Elasticity state passed to tensorflow
 # Setting these will signal tensorflow to rebuild the graph
@@ -38,9 +38,9 @@ def initialize_singleton_callback():
   """
   Initialize a singleton elasticity callback for this program.
 
-  This needs to be initialized in the very beginning of the program because the
-  elasticity callback fetches the correct CUDA_VISIBLE_DEVICES from the master and
-  sets it for spawned workers.
+  Initializing the elasticity callback at the beginning of the program allows the
+  master to spawn the rest of the initial set of workers early on, which reduces
+  the start up delay.
   """
   global ELASTICITY_CALLBACK
   ELASTICITY_CALLBACK = ElasticityCallback()
@@ -75,8 +75,31 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       # If set, the next batch will resize the cluster accordingly
       self.new_size = None
 
-      # The communicator returned from the last call to MPI spawn, if any
-      self.spawned_communicator = None
+      # Number of GPUs per node, assumed to be the same across all nodes
+      if virtual_helper.CUDA_VISIBLE_DEVICES in os.environ:
+        cuda_visible_devices = [int(i) for i in os.environ[virtual_helper.CUDA_VISIBLE_DEVICES].split(",")]
+        if cuda_visible_devices != list(range(len(cuda_visible_devices))):
+          raise ValueError("In elasticity mode, CUDA_VISIBLE_DEVICES must be continuous")
+        self.num_gpus_per_node = len(cuda_visible_devices)
+      else:
+        # On CPU clusters, use 1 GPU per node for simplicity
+        self.num_gpus_per_node = 1
+
+      # Map from hostname to a list of size `self.num_gpus_per_node`, where each item in the
+      # list the rank of the process the GPU is assigned to, or None if the GPU is not assigned
+      self.cuda_visible_devices_map = {}
+      for host in virtual_helper.get_all_mpi_hosts():
+        self.cuda_visible_devices_map[host] = [None] * self.num_gpus_per_node
+
+      # Set CUDA_VISIBLE_DEVICES
+      os.environ[virtual_helper.CUDA_VISIBLE_DEVICES] = "0"
+      self.cuda_visible_devices_map[MPI.Get_processor_name()][0] = 0
+
+      # A list of communicators returned from the last call to MPI spawn, if any
+      self.spawned_communicators = []
+
+      # A list of ranks that were spawned and are now ready to join the cluster
+      self.ready_to_join_ranks = []
 
       # Listen for elasticity requests from the user
       server = xmlrpc.server.SimpleXMLRPCServer(
@@ -116,27 +139,70 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
     no outstanding spawned processes.
     """
     self._check_master_request("spawn")
+    # List of 2-tuples (host, gpu_index) for GPUs assigned to the spawned processes
+    assigned_gpus = []
+    # Assign GPUs to processes to be spawned, filling up GPUs within a host first
+    host_index = 0
+    gpu_index = 0
     all_possible_hosts = virtual_helper.get_all_mpi_hosts()
-    target_hosts = [h for h in all_possible_hosts if h not in self.members]
-    if len(target_hosts) >= n:
-      env = {
-        ELASTICITY_MASTER: MPI.Get_processor_name(),
-        SPAWN_START_RANK: self.comm.size
-      }
-      self.spawned_communicator = virtual_helper.mpi_spawn(target_hosts[:n], env)
+    while len(assigned_gpus) < n and host_index < len(all_possible_hosts):
+      host = all_possible_hosts[host_index]
+      gpus = self.cuda_visible_devices_map[host]
+      if gpu_index < len(gpus):
+        if gpus[gpu_index] is None:
+          # Found a free GPU, assign it
+          assigned_gpus.append((host, gpu_index))
+        gpu_index += 1
+      else:
+        gpu_index = 0
+        host_index += 1
+    # Spawn it
+    if len(assigned_gpus) == n:
+      spawn_threads = []
+      max_spawn_parallel = 16
+      self.spawned_communicators = [None] * n
+      for i, (host, gpu_index) in enumerate(assigned_gpus):
+        rank = self.comm.size + i
+        env = {
+          ELASTICITY_MASTER: MPI.Get_processor_name(),
+          SPAWN_RANK: rank,
+          virtual_helper.CUDA_VISIBLE_DEVICES: gpu_index
+        }
+        self.cuda_visible_devices_map[host][gpu_index] = rank
+        def do_spawn(host, env, index):
+          self.spawned_communicators[index] = virtual_helper.mpi_spawn(host, env)
+        t = threading.Thread(target=do_spawn, args=(host, env, i))
+        t.setDaemon(True)
+        t.start()
+        spawn_threads.append(t)
+        # Limit the number of parallel spawns to avoid MPI errors
+        if (i+1) % max_spawn_parallel == 0:
+          for t in spawn_threads:
+            t.join()
+          spawn_threads = []
+      for t in spawn_threads:
+        t.join()
     else:
       logging.warn("Not enough hosts to spawn %s more processes, ignoring spawn request" % n)
 
-  def handle_join(self, spawned_size):
+  def handle_join(self, rank):
     """
-    Notify the master that the spawned workers are ready to join the cluster.
+    Notify the master that a spawned rank is ready to join the cluster.
 
     This should only be called on the master client.
     Return the expected size of the new cluster.
     """
     self._check_master_request("join")
-    self.new_size = self.comm.size + spawned_size
-    return self.new_size
+    new_size = self.comm.size + len(self.spawned_communicators)
+    if rank in self.ready_to_join_ranks:
+      logging.warn("Already received join request from rank %s, ignoring" % rank)
+      return new_size
+    self.ready_to_join_ranks.append(rank)
+    # If all spawned workers are ready, trigger resize
+    if len(self.ready_to_join_ranks) == len(self.spawned_communicators):
+      self.new_size = new_size
+      self.ready_to_join_ranks = []
+    return new_size
 
   def _check_master_request(self, action):
     """
@@ -147,10 +213,10 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
     if self.new_size is not None:
       raise ValueError("Existing resizing request in progress, not accepting further requests")
     if action == "join":
-      if self.spawned_communicator is None:
+      if len(self.spawned_communicators) == 0:
         raise ValueError("Unexpected join request: there was no spawned communicator")
     else:
-      if self.spawned_communicator is not None:
+      if len(self.spawned_communicators) > 0:
         raise ValueError("Existing spawn request in progress, not accepting further requests")
 
   def transition(self, new_size):
@@ -171,25 +237,45 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       self.comm.barrier()
       os._exit(0)
 
-    # If we are expanding the cluster, merge the old and new communicators
     old_comm = self.comm
-    old_size = new_size - self.comm.size if self.is_joining else self.comm.size
-    if new_size > self.comm.size:
+    old_size = self.comm.size
+    if new_size > old_size:
+      # If we are expanding the cluster, merge the old and new communicators
+      logging.info("Expanding communicator from size %s to %s" % (self.comm.size, new_size))
       if self.is_joining:
-        intercomm = MPI.Comm.Get_parent()
-      elif self.is_master:
-        intercomm = self.spawned_communicator
-        if intercomm is None:
-          raise ValueError("Attempted to expand but there was no spawned communicator")
-        self.spawned_communicator = None
-      else:
-        intercomm = None
-      self.comm = virtual_helper.mpi_expand(self.comm, intercomm)
+        self.comm = virtual_helper.mpi_expand(self.comm, MPI.Comm.Get_parent())
+      # Note: MPI only allows us to expand once at a time, so we will do so in a loop.
+      # In each iteration, the master will broadcast whether there are still spawned
+      # communicators waiting to join. If so, all members of the existing communicator
+      # will participate in a round of expansion.
+      while True:
+        should_expand = len(self.spawned_communicators) > 0 if self.is_master else False
+        should_expand = self.comm.bcast(should_expand, root=0)
+        if not should_expand:
+          break
+        if self.is_master:
+          intercomm = self.spawned_communicators.pop(0)
+        else:
+          intercomm = None
+        self.comm = virtual_helper.mpi_expand(self.comm, intercomm)
+      if self.comm.size != new_size:
+        raise ValueError("New communicator size after expanding was %s != expected %s" %\
+          (self.comm.size, new_size))
     else:
       # Otherwise, we are shrinking the cluster, so just use a subset of ranks
       new_group = self.comm.group.Incl(list(range(new_size)))
       self.comm = self.comm.Create_group(new_group)
+      # On the master, remove corresponding entries in our CUDA_VISIBLE_DEVICES mapping
+      if self.is_master:
+        for removed_rank in list(range(new_size, old_size)):
+          host = self.members[removed_rank]
+          for i, r in enumerate(self.cuda_visible_devices_map[host]):
+            if r == removed_rank:
+              self.cuda_visible_devices_map[host][i] = None
+
+    # Update some state using the new communicator
     self.members = self.comm.allgather(MPI.Get_processor_name())
+    old_size = self.comm.bcast(old_size, root=0)
 
     # Reinitialize horovod to use the new communicator
     # We can release the removed workers from the old communicator after doing this
@@ -277,7 +363,7 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       # Notify the master the new workers are ready to join the cluster
       if self.comm.rank == 0:
         master_client = get_elasticity_client(os.environ[ELASTICITY_MASTER])
-        new_size = master_client.handle_join(self.comm.size)
+        new_size = master_client.handle_join(int(os.environ[SPAWN_RANK]))
       new_size = self.comm.bcast(new_size, root=0)
       self.transition(new_size)
       self.is_joining = False

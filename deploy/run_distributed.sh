@@ -54,10 +54,13 @@ INTERFACES_TO_EXCLUDE="lo,docker0"
 if [[ "$IN_DOCKER_CONTAINER" == "true" ]]; then
   INTERFACES_TO_EXCLUDE="$INTERFACES_TO_EXCLUDE,eth1"
 fi
-MPI_MAP_BY="${MPI_MAP_BY:=slot}"
-ENV_FLAG="$ENV_FLAG -x NCCL_DEBUG=INFO -x NCCL_SOCKET_IFNAME=^$INTERFACES_TO_EXCLUDE"
-HOROVOD_FLAGS="-mca pml ob1 -mca btl ^openib -mca btl_tcp_if_exclude $INTERFACES_TO_EXCLUDE "
-HOROVOD_FLAGS="$HOROVOD_FLAGS --bind-to none --map-by $MPI_MAP_BY"
+if [[ "$ENABLE_ELASTICITY" == "true" ]]; then
+  HOROVOD_FLAGS="-mca pml ob1 -mca btl ^openib -mca btl_tcp_if_exclude $INTERFACES_TO_EXCLUDE --bind-to none"
+  HOROVOD_FLAGS="$HOROVOD_FLAGS -x NCCL_DEBUG=INFO -x NCCL_SOCKET_IFNAME=^$INTERFACES_TO_EXCLUDE"
+  MPI_MAP_BY="slot"
+else
+  MPI_MAP_BY="node"
+fi
 
 # Verbosity settings
 MPI_VERBOSE="${MPI_VERBOSE:=false}"
@@ -90,7 +93,7 @@ mpirun\
   $HOST_FLAG\
   $HOROVOD_FLAGS\
   --allow-run-as-root\
-  --map-by node\
+  --map-by "$MPI_MAP_BY"\
   --np "$ACTUAL_NUM_NODES"\
   --output-filename "$LOG_DIR/$JOB_NAME"\
   --oversubscribe\

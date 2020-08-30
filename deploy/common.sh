@@ -66,15 +66,10 @@ fi
 export DISTRIBUTION_STRATEGY="${DISTRIBUTION_STRATEGY:=$DEFAULT_DISTRIBUTION_STRATEGY}"
 
 # Optionally use MPI rank as CUDA_VISIBLE_DEVICES
-# If this is a spawned process, use the real rank that this worker is assigned to
 if [[ "$USE_MPI_RANKS_FOR_CVD" == "true" ]] &&\
     [[ -n "$OMPI_COMM_WORLD_RANK" ]] &&\
     [[ -z "$CUDA_VISIBLE_DEVICES" ]]; then
-  if [[ -n "$SPAWN_START_RANK" ]]; then
-    export CUDA_VISIBLE_DEVICES="$((SPAWN_START_RANK + OMPI_COMM_WORLD_RANK))"
-  else
-    export CUDA_VISIBLE_DEVICES="$OMPI_COMM_WORLD_RANK"
-  fi
+  export CUDA_VISIBLE_DEVICES="$OMPI_COMM_WORLD_RANK"
 fi
 
 # Set `JOB_NAME` to a unique, identifiable value
@@ -120,9 +115,8 @@ print_diff_and_env() {
 
 # If this is a spawned process, set the log file accordingly
 maybe_set_spawn_log_file() {
-  if [[ -n "$SPAWN_START_RANK" ]]; then
-    MY_RANK="$((SPAWN_START_RANK + OMPI_COMM_WORLD_RANK))"
-    LOG_DIR="${LOG_DIR}/${JOB_NAME}/1/rank.${MY_RANK}"
+  if [[ -n "$SPAWN_RANK" ]]; then
+    LOG_DIR="${LOG_DIR}/${JOB_NAME}/1/rank.${SPAWN_RANK}"
     mkdir -p "$LOG_DIR"
     export LOG_FILE="${LOG_DIR}/stderr"
     # If the log file already exists, append a .x to the file name
