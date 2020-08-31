@@ -14,6 +14,9 @@ elif [[ "$MODEL" == "bert" ]]; then
   BERT_TASK="${BERT_TASK:=glue}"
   RUN_SCRIPT="run_bert_${BERT_TASK}.sh"
   BASE_JOB_NAME="bert-${BERT_TASK}"
+elif [[ "$MODEL" == "transformer" ]]; then
+  RUN_SCRIPT="run_transformer.sh"
+  BASE_JOB_NAME="transformer"
 else
   echo "Unknown model '$MODEL'"
   exit 1

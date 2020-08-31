@@ -43,6 +43,8 @@ from official.utils.logs import logger
 from official.utils.misc import distribution_utils
 from official.utils.misc import keras_utils
 
+from virtual import virtual_helper
+
 INF = int(1e9)
 BLEU_DIR = "bleu"
 _SINGLE_SAMPLE = 1
@@ -160,6 +162,10 @@ class TransformerTask(object):
     params["enable_metrics_in_training"] = flags_obj.enable_metrics_in_training
     params["steps_between_evals"] = flags_obj.steps_between_evals
     params["enable_checkpointing"] = flags_obj.enable_checkpointing
+    params["num_checkpoints_to_keep"] = flags_obj.num_checkpoints_to_keep
+    params["num_virtual_nodes_per_device"] = flags_obj.num_virtual_nodes_per_device
+    params["enable_monitor_memory"] = flags_obj.enable_monitor_memory
+    params["enable_elasticity"] = flags_obj.enable_elasticity
 
     self.distribution_strategy = distribution_utils.get_distribution_strategy(
         distribution_strategy=flags_obj.distribution_strategy,
@@ -405,6 +411,15 @@ class TransformerTask(object):
       callbacks.append(
           tf.keras.callbacks.ModelCheckpoint(
               ckpt_full_path, save_weights_only=True))
+      callbacks.append(virtual_helper.DeleteOldCheckpointsCallback(
+        cur_log_dir, params["num_checkpoints_to_keep"]))
+    if params["enable_monitor_memory"]:
+      callbacks.append(virtual_helper.MonitorMemoryCallback())
+    if params["enable_elasticity"]:
+      from virtual.elasticity_callback import ELASTICITY_CALLBACK
+      if ELASTICITY_CALLBACK is None:
+        raise ValueError("Singleton elasticity callback was None")
+      callbacks.append(ELASTICITY_CALLBACK)
     return callbacks
 
   def _load_weights_if_possible(self, model, init_weight_path=None):
@@ -451,6 +466,7 @@ def _ensure_dir(log_dir):
 
 
 def main(_):
+  virtual_helper.initialize()
   flags_obj = flags.FLAGS
   with logger.benchmark_context(flags_obj):
     task = TransformerTask(flags_obj)
