@@ -14,7 +14,7 @@ export BERT_TASK="glue"
 export MPI_VERBOSE="false"
 export ENABLE_XLA="false"
 export ENABLE_MONITOR_MEMORY="true"
-export BATCH_SIZE="${BATCH_SIZE:=128}"
+export BATCH_SIZE="${BATCH_SIZE:=64}"
 export PRETRAINED_DATA_DIR="${PRETRAINED_DATA_DIR:=/root/dev/dataset/bert/uncased_L-24_H-1024_A-16}"
 
 # Number of examples that can be processed on the GPU at a given time
@@ -40,7 +40,7 @@ function run_it() {
     done
   fi
   if [[ "$EXPEIRMENT_MODE" == "distributed" ]] || [[ "$EXPERIMENT_MODE" == "both" ]]; then
-    if [[ "$BATCH_SIZE" == "128" ]]; then
+    if [[ "$BATCH_SIZE" == "64" ]]; then
       export NUM_NODES="2"
       export NUM_GPUS="8"
       export CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
@@ -49,7 +49,7 @@ function run_it() {
       echo "Running experiment $RUN_TAG"
       ./run_distributed.sh
     else
-      echo "Warning: skipping distributed mode for $GLUE_TASK because batch size was not 128 (was $BATCH_SIZE)"
+      echo "Warning: skipping distributed mode for $GLUE_TASK because batch size was not 64 (was $BATCH_SIZE)"
     fi
   fi
 }

@@ -6,7 +6,7 @@ export NUM_NODES="1"
 export MPI_VERBOSE="false"
 export ENABLE_XLA="false"
 export ENABLE_MONITOR_MEMORY="true"
-export BATCH_SIZE="${BATCH_SIZE:=64}"
+export BATCH_SIZE="${BATCH_SIZE:=32}"
 
 # Number of examples that can be processed on the GPU at a given time
 # This should be 2 for 2080 Ti and 4 for V100
