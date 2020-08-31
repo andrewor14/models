@@ -25,7 +25,7 @@ function run_it() {
   export GLUE_TASK="$1"
   if [[ "$EXPERIMENT_MODE" == "local" ]] || [[ "$EXPERIMENT_MODE" == "both" ]] || [[ "$EXPERIMENT_MODE" == "try" ]]; then
     if [[ "$EXPERIMENT_MODE" == "try" ]]; then
-      num_gpus_list="2"
+      num_gpus_list="${NUM_GPUS:-8}"
     else
       num_gpus_list="1 2 4 8"
     fi
@@ -40,17 +40,13 @@ function run_it() {
     done
   fi
   if [[ "$EXPEIRMENT_MODE" == "distributed" ]] || [[ "$EXPERIMENT_MODE" == "both" ]]; then
-    if [[ "$BATCH_SIZE" == "64" ]]; then
-      export NUM_NODES="2"
-      export NUM_GPUS="8"
-      export CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
-      export NUM_VIRTUAL_NODES_PER_DEVICE="1"
-      export RUN_TAG="${GLUE_TASK}_${BATCH_SIZE}bs_${NUM_VIRTUAL_NODES_PER_DEVICE}vn"
-      echo "Running experiment $RUN_TAG"
-      ./run_distributed.sh
-    else
-      echo "Warning: skipping distributed mode for $GLUE_TASK because batch size was not 64 (was $BATCH_SIZE)"
-    fi
+    export NUM_NODES="2"
+    export NUM_GPUS="8"
+    export CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
+    export NUM_VIRTUAL_NODES_PER_DEVICE="1"
+    export RUN_TAG="${GLUE_TASK}_${BATCH_SIZE}bs_${NUM_VIRTUAL_NODES_PER_DEVICE}vn"
+    echo "Running experiment $RUN_TAG"
+    ./run_distributed.sh
   fi
 }
 

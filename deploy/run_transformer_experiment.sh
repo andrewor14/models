@@ -12,7 +12,7 @@ export BATCH_SIZE="${BATCH_SIZE:=32768}"
 export VIRTUAL_NODE_SIZE="${VIRTUAL_NODE_SIZE:=4096}"
 
 if [[ "$EXPERIMENT_MODE" == "try" ]]; then
-  num_gpus_list="2"
+  num_gpus_list="${NUM_GPUS:-8}"
   export NUM_STEPS="10"
   export SKIP_EVAL="true"
   export MPI_VERBOSE="true"
