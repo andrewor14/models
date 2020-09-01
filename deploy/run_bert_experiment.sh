@@ -20,6 +20,7 @@ export ENABLE_MONITOR_MEMORY="true"
 export MPI_VERBOSE="false"
 export MAX_NUM_GPUS="16"
 export PRETRAINED_DATA_DIR="${PRETRAINED_DATA_DIR:=/root/dev/dataset/bert/uncased_L-24_H-1024_A-16}"
+export BASELINE="${BASELINE:=false}"
 
 # Number of examples that can be processed on the GPU at a given time
 export VIRTUAL_NODE_SIZE="${VIRTUAL_NODE_SIZE:=2}"
@@ -51,7 +52,13 @@ function run_it() {
       export NUM_GPUS="$num_gpus"
     fi
     export CUDA_VISIBLE_DEVICES="$(seq -s ',' 0 "$((num_gpus - 1))")"
-    export NUM_VIRTUAL_NODES_PER_DEVICE="$((BATCH_SIZE / NUM_GPUS / NUM_NODES / VIRTUAL_NODE_SIZE))"
+    if [[ "$BASELINE" == "true" ]]; then
+      export NUM_VIRTUAL_NODES_PER_DEVICE="1"
+      export BATCH_SIZE="$((VIRTUAL_NODE_SIZE * NUM_GPUS * NUM_NODES))"
+    else
+      export NUM_VIRTUAL_NODES_PER_DEVICE="$((BATCH_SIZE / NUM_GPUS / NUM_NODES / VIRTUAL_NODE_SIZE))"
+    fi
+    # Set run tag
     export RUN_TAG="${BATCH_SIZE}bs_$((NUM_GPUS * NUM_NODES))gpu_${NUM_VIRTUAL_NODES_PER_DEVICE}vn"
     if [[ "$BERT_TASK" == "glue" ]]; then
       export RUN_TAG="${GLUE_TASK}_${RUN_TAG}"

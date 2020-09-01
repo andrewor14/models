@@ -6,6 +6,7 @@ export ENABLE_XLA="true"
 export ENABLE_MONITOR_MEMORY="true"
 export MPI_VERBOSE="false"
 export MAX_NUM_GPUS="8"
+export BASELINE="${BASELINE:=false}"
 
 # Number of examples that can be processed on the GPU at a given time
 # This should be 2048 for 2080 Ti and 4096 for V100
@@ -24,13 +25,18 @@ if [[ "$EXPERIMENT_MODE" == "try" ]]; then
 else
   num_gpus_list="${NUM_GPUS:-1 2 4 8}"
   export NUM_STEPS="100000"
-  export STEPS_BETWEEN_EVALS="$((NUM_STEPS / 10))"
+  export STEPS_BETWEEN_EVALS="$((NUM_STEPS / 20))"
 fi
 
 for num_gpus in $num_gpus_list; do
   export NUM_GPUS="$num_gpus"
   export CUDA_VISIBLE_DEVICES="$(seq -s ',' 0 "$((num_gpus - 1))")"
-  export NUM_VIRTUAL_NODES_PER_DEVICE="$((BATCH_SIZE / NUM_GPUS / VIRTUAL_NODE_SIZE))"
+  if [[ "$BASELINE" == "true" ]]; then
+    export NUM_VIRTUAL_NODES_PER_DEVICE="1"
+    export BATCH_SIZE="$((VIRTUAL_NODE_SIZE * NUM_GPUS * NUM_NODES))"
+  else
+    export NUM_VIRTUAL_NODES_PER_DEVICE="$((BATCH_SIZE / NUM_GPUS / VIRTUAL_NODE_SIZE))"
+  fi
   export RUN_TAG="${BATCH_SIZE}bs_${NUM_GPUS}gpu_${NUM_VIRTUAL_NODES_PER_DEVICE}vn"
   echo "Running experiment $RUN_TAG"
   ./run_distributed.sh
