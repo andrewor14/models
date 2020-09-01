@@ -103,6 +103,7 @@ def define_common_bert_flags():
   flags.DEFINE_boolean(
       name='enable_elasticity', default=False,
       help='Whether to enable a callback that provides resource elasticity.')
+  flags.DEFINE_boolean(name='skip_eval', default=False, help='Skip evaluation')
 
   flags_core.define_log_steps()
 

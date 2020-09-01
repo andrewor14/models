@@ -25,6 +25,7 @@ export BATCH_SIZE="${BATCH_SIZE:=$DEFAULT_BATCH_SIZE}"
 function run_it() {
   if [[ "$EXPERIMENT_MODE" == "try" ]]; then
     num_gpus_list="${USER_NUM_GPUS:-8}"
+    unset NUM_EPOCHS
     export NUM_STEPS="10"
     export SKIP_EVAL="true"
     export ENABLE_XLA="false"

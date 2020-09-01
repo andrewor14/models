@@ -203,7 +203,7 @@ def run_keras_compile_fit(model_dir,
   with strategy.scope():
     input_context = virtual_helper.get_input_context()
     training_dataset = train_input_fn(input_context)
-    evaluation_dataset = eval_input_fn(input_context)
+    evaluation_dataset = eval_input_fn(input_context) if not FLAGS.skip_eval else None
     bert_model, sub_model = model_fn()
     optimizer = bert_model.optimizer
 

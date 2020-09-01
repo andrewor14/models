@@ -57,6 +57,7 @@ print_diff_and_env > "$LOG_FILE" 2>&1
   --num_train_steps="$NUM_STEPS"\
   --num_train_epochs="$NUM_EPOCHS"\
   --steps_per_loop="$STEPS_PER_LOOP"\
+  --skip_eval="$SKIP_EVAL"\
   --learning_rate="$LEARNING_RATE"\
   --dtype="$DTYPE"\
   --enable_xla="$ENABLE_XLA"\

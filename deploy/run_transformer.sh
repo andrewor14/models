@@ -25,6 +25,7 @@ export STEPS_BETWEEN_EVALS="${STEPS_BETWEEN_EVALS:=$NUM_STEPS}"
 if [[ "$SKIP_EVAL" == "true" ]]; then
   export BLEU_SOURCE=""
   export BLEU_REF=""
+  export STEPS_BETWEEN_EVALS="$NUM_STEPS"
 fi
 
 mkdir -p "$TRAIN_DIR"
