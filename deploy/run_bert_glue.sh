@@ -7,9 +7,11 @@ if [[ -z "$JOB_NAME" ]]; then
 fi
 maybe_set_spawn_log_file
 export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/bert/finetuning}"
-export PRETRAINED_DATA_DIR="${PRETRAINED_DATA_DIR:=${BASE_DIR}/dataset/bert/uncased_L-12_H-768_A-12}"
+export BERT_MODEL_NAME="${BERT_MODEL_NAME:=uncased_L-12_H-768_A-12}"
+export BERT_MODEL_DIR="${BERT_MODEL_DIR:=${BASE_DIR}/dataset/bert/${BERT_MODEL_NAME}}"
+export BERT_CONFIG_FILE="${BERT_CONFIG_FILE:=${BERT_MODEL_DIR}/bert_config.json}"
 export CHECKPOINT_NAME="${CHECKPOINT_NAME:=bert_model.ckpt}"
-export SAVED_CHECKPOINT_PATH="${SAVED_CHECKPOINT_PATH:=${PRETRAINED_DATA_DIR}/${CHECKPOINT_NAME}}"
+export SAVED_CHECKPOINT_PATH="${SAVED_CHECKPOINT_PATH:=${BERT_MODEL_DIR}/${CHECKPOINT_NAME}}"
 export CODE_DIR="${CODE_DIR:=$BASE_DIR/models/official/nlp/bert}"
 export TRAIN_DIR="${TRAIN_DIR:=${BASE_DIR}/train_data/${JOB_NAME}}"
 export LOG_FILE="${LOG_FILE:=${LOG_DIR}/${JOB_NAME}.log}"
@@ -47,7 +49,7 @@ print_diff_and_env > "$LOG_FILE" 2>&1
   --input_meta_data_path="${DATA_DIR}/${GLUE_TASK}_meta_data"\
   --train_data_path="${DATA_DIR}/${GLUE_TASK}_train.tf_record"\
   --eval_data_path="${DATA_DIR}/${GLUE_TASK}_eval.tf_record"\
-  --bert_config_file="${PRETRAINED_DATA_DIR}/bert_config.json"\
+  --bert_config_file="$BERT_CONFIG_FILE"\
   --init_checkpoint="$SAVED_CHECKPOINT_PATH"\
   --model_dir="$TRAIN_DIR"\
   --train_batch_size="$TRAIN_BATCH_SIZE"\

@@ -7,8 +7,10 @@ if [[ -z "$JOB_NAME" ]]; then
 fi
 maybe_set_spawn_log_file
 export DATA_DIR="${DATA_DIR:=${BASE_DIR}/dataset/bert/pretraining}"
+export BERT_MODEL_NAME="${BERT_MODEL_NAME:=uncased_L-12_H-768_A-12}"
+export BERT_MODEL_DIR="${BERT_MODEL_DIR:=${BASE_DIR}/dataset/bert/${BERT_MODEL_NAME}}"
+export BERT_CONFIG_FILE="${BERT_CONFIG_FILE:=${BERT_MODEL_DIR}/bert_config.json}"
 export INPUT_FILES="${INPUT_FILES:=${DATA_DIR}/tf_examples.tfrecord*}"
-export BERT_CONFIG="${BERT_CONFIG_FILE:=${DATA_DIR}/bert_config.json}"
 export CODE_DIR="${CODE_DIR:=$BASE_DIR/models/official/nlp/bert}"
 export TRAIN_DIR="${TRAIN_DIR:=${BASE_DIR}/train_data/${JOB_NAME}}"
 export LOG_FILE="${LOG_FILE:=${LOG_DIR}/${JOB_NAME}.log}"
