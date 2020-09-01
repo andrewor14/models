@@ -307,6 +307,9 @@ def define_keras_flags(
   flags.DEFINE_boolean(
       name='enable_elasticity', default=False,
       help='Whether to enable a callback that provides resource elasticity.')
+  flags.DEFINE_integer(
+      name='learning_rate_batch_size', default=None,
+      help='If provided, use this batch size for the learning rate schedule.')
 
   if model:
     flags.DEFINE_string('model', 'resnet50_v1.5',

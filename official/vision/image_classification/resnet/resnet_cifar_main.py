@@ -201,9 +201,10 @@ def run(flags_obj):
 
   steps_per_epoch = (
       cifar_preprocessing.NUM_IMAGES['train'] // flags_obj.batch_size)
+  learning_rate_batch_size = flags_obj.learning_rate_batch_size or flags_obj.batch_size
   lr_schedule = 0.1
   if flags_obj.use_tensor_lr:
-    initial_learning_rate = common.BASE_LEARNING_RATE * flags_obj.batch_size / 128
+    initial_learning_rate = common.BASE_LEARNING_RATE * learning_rate_batch_size / 128
     lr_schedule = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
         boundaries=list(p[1] * steps_per_epoch for p in LR_SCHEDULE),
         values=[initial_learning_rate] +
@@ -237,7 +238,7 @@ def run(flags_obj):
   if not flags_obj.use_tensor_lr:
     lr_callback = LearningRateBatchScheduler(
         schedule=learning_rate_schedule,
-        batch_size=flags_obj.batch_size,
+        batch_size=learning_rate_batch_size,
         steps_per_epoch=steps_per_epoch)
     callbacks.append(lr_callback)
 

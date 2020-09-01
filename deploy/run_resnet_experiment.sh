@@ -26,8 +26,10 @@ export ENABLE_XLA="true"
 export ENABLE_MONITOR_MEMORY="true"
 export MPI_VERBOSE="false"
 export MAX_NUM_GPUS="32"
+export MAX_BATCH_SIZE="8192"
 export VIRTUAL_NODE_SIZE="256"
-export BATCH_SIZE="8192"
+export BATCH_SIZE="$MAX_BATCH_SIZE"
+export BASELINE="${BASELINE:=false}"
 
 # Helper function to run an experiment across a different number of GPUs
 function run_it() {
@@ -57,7 +59,13 @@ function run_it() {
       export NUM_GPUS="$num_gpus"
     fi
     export CUDA_VISIBLE_DEVICES="$(seq -s ',' 0 "$((num_gpus - 1))")"
-    export NUM_VIRTUAL_NODES_PER_DEVICE="$((BATCH_SIZE / NUM_GPUS / NUM_NODES / VIRTUAL_NODE_SIZE))"
+    if [[ "$BASELINE" == "true" ]]; then
+      export NUM_VIRTUAL_NODES_PER_DEVICE="1"
+      export BATCH_SIZE="$((VIRTUAL_NODE_SIZE * NUM_GPUS * NUM_NODES))"
+      export LEARNING_RATE_BATCH_SIZE="$MAX_BATCH_SIZE"
+    else
+      export NUM_VIRTUAL_NODES_PER_DEVICE="$((BATCH_SIZE / NUM_GPUS / NUM_NODES / VIRTUAL_NODE_SIZE))"
+    fi
     export RUN_TAG="${BATCH_SIZE}bs_$((NUM_GPUS * NUM_NODES))gpu_${NUM_VIRTUAL_NODES_PER_DEVICE}vn"
     echo "Running experiment $RUN_TAG"
     ./run_distributed.sh

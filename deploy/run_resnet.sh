@@ -33,6 +33,7 @@ export NUM_STEPS="${NUM_STEPS:=0}"
 export NUM_EPOCHS="${NUM_EPOCHS:=$DEFAULT_NUM_EPOCHS}"
 export EPOCHS_BETWEEN_EVALS="${EPOCHS_BETWEEN_EVALS:=100000}"
 export ENABLE_EAGER="${ENABLE_EAGER:=true}"
+export LEARNING_RATE_BATCH_SIZE="${LEARNING_RATE_BATCH_SIZE:=0}"
 
 mkdir -p "$TRAIN_DIR"
 
@@ -42,6 +43,7 @@ print_diff_and_env > "$LOG_FILE" 2>&1
   --num_gpus="$NUM_GPUS"\
   --data_dir="$DATA_DIR"\
   --batch_size="$BATCH_SIZE"\
+  --learning_rate_batch_size="$LEARNING_RATE_BATCH_SIZE"\
   --train_steps="$NUM_STEPS"\
   --train_epochs="$NUM_EPOCHS"\
   --epochs_between_evals="$EPOCHS_BETWEEN_EVALS"\

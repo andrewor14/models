@@ -154,8 +154,9 @@ def run(flags_obj):
         drop_remainder=drop_remainder,
         input_context=input_context)
 
+  learning_rate_batch_size = flags_obj.learning_rate_batch_size or flags_obj.batch_size
   lr_schedule = common.PiecewiseConstantDecayWithWarmup(
-      batch_size=flags_obj.batch_size,
+      batch_size=learning_rate_batch_size,
       epoch_size=imagenet_preprocessing.NUM_IMAGES['train'],
       warmup_epochs=common.LR_SCHEDULE[0][1],
       boundaries=list(p[1] for p in common.LR_SCHEDULE[1:]),
@@ -169,7 +170,7 @@ def run(flags_obj):
       optimizer = common.get_optimizer(lr_schedule)
     elif flags_obj.optimizer == 'mobilenet_default':
       initial_learning_rate = \
-          flags_obj.initial_learning_rate_per_sample * flags_obj.batch_size
+          flags_obj.initial_learning_rate_per_sample * learning_rate_batch_size
       optimizer = tf.keras.optimizers.SGD(
           learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
               initial_learning_rate,
