@@ -107,13 +107,7 @@ def get_all_mpi_hosts():
   """
   Return a list of all possible hosts that MPI can use to spawn processes.
   """
-  flag_name, value = os.environ["HOST_FLAG"].split(" ")
-  if flag_name == "--host":
-    return [h.split(":")[0] for h in value.split(",")]
-  if flag_name == "--hostfile":
-    with open(value) as f:
-      return [l.strip() for l in f.readlines()]
-  return []
+  return [h.split(":")[0] for h in os.environ["MPI_HOSTS"].split(",")]
 
 def mpi_spawn(target_host, env={}):
   """

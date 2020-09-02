@@ -25,23 +25,32 @@ export RUN_SCRIPT
 set_job_name "$BASE_JOB_NAME"
 
 # Tell MPI which hosts to use
-HOST_FLAG=""
-if [[ -n "$MPI_HOSTS" ]]; then
-  # If MPI_HOSTS is defined, just use it directly
-  HOST_FLAG="--host $MPI_HOSTS"
-elif [[ -n "$MPI_HOST_FILE" ]]; then
-  # Else, use the hostfile flag
-  HOST_FLAG="--hostfile $MPI_HOST_FILE"
-elif [[ -n "$(command -v sinfo)" ]]; then
-  # If slurm is installed, get the idle hosts from it and use the hosts in --host
-  SLURM_HOSTS="$(sinfo -N --state=idle | tail -n +2 | awk '{print $1}')"
-  SLURM_HOSTS="$(echo "$SLURM_HOSTS" | tr '\n' ',' | sed 's/,$/\n/')"
-  HOST_FLAG="--host $SLURM_HOSTS"
-else
-  # Otherwise, assuming we're running in a single node
-  HOST_FLAG="--host localhost"
+if [[ -z "$MPI_HOSTS" ]]; then
+  if [[ -n "$MPI_HOST_FILE" ]]; then
+    export MPI_HOSTS="$(cat $MPI_HOST_FILE | sed -z 's/\n/,/g' | sed 's/,$/\n/g')"
+  elif [[ -n "$(command -v sinfo)" ]]; then
+    # If slurm is installed, get the idle hosts from it and use the hosts in --host
+    SLURM_HOSTS="$(sinfo -N --state=idle | tail -n +2 | awk '{print $1}')"
+    export MPI_HOSTS="$(echo "$SLURM_HOSTS" | tr '\n' ',' | sed 's/,$/\n/')"
+  else
+    export MPI_HOSTS="localhost"
+  fi
 fi
-export HOST_FLAG
+export HOST_FLAG="--host $MPI_HOSTS"
+
+# When running in a shared cluster in elasticity mode, we wish to control where the
+# first worker (the master) of a job is launched. MPI follows the order of the hosts
+# passed in through the --host option, so we have to move the master host to the front
+# of the list. Unfortunately, this does not work this script is called on one of the
+# hosts in the --host list. This is because MPI always prioritizes the local node.
+# To bypass this limitation, we additionally pass in --nolocal in this case.
+if [[ "$ENABLE_ELASTICITY" == "true" ]] && [[ -n "$MASTER_HOST" ]]; then
+  WITHOUT_MASTER_HOST="$(echo $MPI_HOSTS | sed "s/${MASTER_HOST},//g")"
+  export HOST_FLAG="--host $MASTER_HOST,$WITHOUT_MASTER_HOST"
+  if [[ "$(hostname)" != "$MASTER_HOST" ]]; then
+    export HOST_FLAG="$HOST_FLAG --nolocal"
+  fi
+fi
 
 # If elasticity is enabled, we always start with 1 worker first and let that worker
 # spawn the remaining workers. We need to do this because MPI fate shares all workers
