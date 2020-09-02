@@ -5,14 +5,17 @@ export ENVIRONMENT="$(hostname | awk -F '[.-]' '{print $1}' | sed 's/[0-9]//g')"
 if [[ "$ENVIRONMENT" == "snsgpu" ]]; then
   export BASE_DIR="/home/andrew/Documents/dev"
   export PYTHON_COMMAND="/usr/bin/python3"
+  export DEFAULT_NUM_GPUS_PER_NODE="2"
 elif [[ "$ENVIRONMENT" == "ns" ]]; then
   export BASE_DIR="/home/andrewor"
   export PYTHON_COMMAND="/usr/licensed/anaconda3/5.2.0/bin/python3.6"
   export NUM_GPUS="0"
+  export DEFAULT_NUM_GPUS_PER_NODE="1"
 elif [[ -n "$IN_DOCKER_CONTAINER" ]]; then
   export ENVIRONMENT="docker"
   export BASE_DIR="/root/dev"
   export PYTHON_COMMAND="/usr/bin/python3"
+  export DEFAULT_NUM_GPUS_PER_NODE="8"
 else
   echo "ERROR: Unknown environment '$ENVIRONMENT'"
   exit 1
@@ -22,6 +25,7 @@ export TF_DIR="$BASE_DIR/tensorflow"
 export LOG_DIR="${LOG_DIR:=$BASE_DIR/logs}"
 export MODELS_DIR="$BASE_DIR/models"
 export PYTHONPATH="$PYTHONPATH:$MODELS_DIR"
+export NUM_GPUS_PER_NODE="${NUM_GPUS_PER_NODE:=$DEFAULT_NUM_GPUS_PER_NODE}"
 
 # Tensorflow related flags
 export NUM_GPUS="${NUM_GPUS:=1}"

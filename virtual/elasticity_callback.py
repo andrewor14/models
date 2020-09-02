@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import copy
 import json
 import math
 import os
@@ -19,11 +18,15 @@ from virtual import virtual_helper
 
 # Constants and environment variables
 RETRY_INTERVAL_SECONDS = 1
-ELASTICITY_PORT = 17272
+BASE_ELASTICITY_PORT = 17272
 ELASTICITY_VERBOSE = os.getenv("ELASTICITY_VERBOSE", "").lower() == "true"
 ENABLE_ELASTICITY = os.getenv("ENABLE_ELASTICITY", "").lower() == "true"
 ELASTICITY_MASTER = "ELASTICITY_MASTER"
+SCHEDULER_ADDR = "SCHEDULER_ADDR"
+GPU_BLACKLIST_VALUE = -1
+NUM_GPUS_PER_NODE = "NUM_GPUS_PER_NODE"
 SPAWN_RANK = "SPAWN_RANK"
+JOB_ID = "JOB_ID"
 
 # Elasticity state passed to tensorflow
 # Setting these will signal tensorflow to rebuild the graph
@@ -45,11 +48,43 @@ def initialize_singleton_callback():
   global ELASTICITY_CALLBACK
   ELASTICITY_CALLBACK = ElasticityCallback()
 
-def get_elasticity_client(host):
+def get_elasticity_client(host, job_id=0):
   """
   Return a client that can communicate with the elasticity server on the master.
   """
-  return xmlrpc.client.ServerProxy("http://%s:%s" % (host, ELASTICITY_PORT))
+  return xmlrpc.client.ServerProxy("http://%s:%s" % (host, BASE_ELASTICITY_PORT + job_id))
+
+def assign_gpus(n, gpu_availability, all_possible_hosts=None):
+  """
+  Assign the specified number of GPUs based on the current availability.
+
+  `gpu_availability` is a map from host to a list, where each entry of the list
+  is None if the GPU is available to be assigned. We assume `gpu_availability`
+  contains all the hosts in `all_possible_hosts`, if it is defined. This function
+  does not mutate any state.
+
+  Return a list of 2-tuples (host, gpu_index), one for each GPU assigned.
+  """
+  assigned_gpus = []
+  host_index = 0
+  gpu_index = 0
+  if all_possible_hosts is None:
+    all_possible_hosts = list(gpu_availability.keys())
+  # Fill up GPUs within a host first
+  while len(assigned_gpus) < n and host_index < len(all_possible_hosts):
+    host = all_possible_hosts[host_index]
+    gpus = gpu_availability[host]
+    if gpu_index < len(gpus):
+      if gpus[gpu_index] is None and gpus[gpu_index] != GPU_BLACKLIST_VALUE:
+        # Found a free GPU, assign it
+        assigned_gpus.append((host, gpu_index))
+      gpu_index += 1
+    else:
+      # If a host does not have any more free GPUs, move onto the next
+      gpu_index = 0
+      host_index += 1
+  assert(len(assigned_gpus) <= n)
+  return assigned_gpus
 
 class ElasticityCallback(tf.keras.callbacks.Callback):
   """
@@ -62,6 +97,7 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
     self.is_master = virtual_helper.is_master(self.comm) and not self.is_joining
     self.current_batch = 0
     self.current_epoch = 0
+    self.job_id = int(os.getenv(JOB_ID, 0))
     num_nodes = int(os.environ[virtual_helper.NUM_NODES])
 
     # Number of total virtual nodes across all devices
@@ -76,14 +112,7 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       self.new_size = None
 
       # Number of GPUs per node, assumed to be the same across all nodes
-      if virtual_helper.CUDA_VISIBLE_DEVICES in os.environ:
-        cuda_visible_devices = [int(i) for i in os.environ[virtual_helper.CUDA_VISIBLE_DEVICES].split(",")]
-        if cuda_visible_devices != list(range(len(cuda_visible_devices))):
-          raise ValueError("In elasticity mode, CUDA_VISIBLE_DEVICES must be continuous")
-        self.num_gpus_per_node = len(cuda_visible_devices)
-      else:
-        # On CPU clusters, use 1 GPU per node for simplicity
-        self.num_gpus_per_node = 1
+      self.num_gpus_per_node = int(os.getenv(NUM_GPUS_PER_NODE, 1))
 
       # Map from hostname to a list of size `self.num_gpus_per_node`, where each item in the
       # list the rank of the process the GPU is assigned to, or None if the GPU is not assigned
@@ -91,9 +120,23 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       for host in virtual_helper.get_all_mpi_hosts():
         self.cuda_visible_devices_map[host] = [None] * self.num_gpus_per_node
 
-      # Set CUDA_VISIBLE_DEVICES
-      os.environ[virtual_helper.CUDA_VISIBLE_DEVICES] = "0"
-      self.cuda_visible_devices_map[MPI.Get_processor_name()][0] = 0
+      # If running in a shared cluster, communicate with the scheduler for GPU assignment
+      from deploy.scheduler import get_scheduler_client
+      scheduler_addr = os.getenv(SCHEDULER_ADDR)
+      if scheduler_addr is not None:
+        self.scheduler_client = get_scheduler_client(scheduler_addr)
+      else:
+        self.scheduler_client = None
+
+      # Assign a GPU to this process
+      # All other GPUs are assigned at spawn time
+      master_host = MPI.Get_processor_name()
+      assigned_gpus = self.assign_gpus(1, all_possible_hosts=[master_host])
+      if len(assigned_gpus) != 1:
+        raise ValueError("Unable to assign the first GPU for the master")
+      _, master_gpu_index = assigned_gpus[0]
+      os.environ[virtual_helper.CUDA_VISIBLE_DEVICES] = str(master_gpu_index)
+      self.cuda_visible_devices_map[master_host][master_gpu_index] = 0
 
       # A list of communicators returned from the last call to MPI spawn, if any
       self.spawned_communicators = []
@@ -103,7 +146,8 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
 
       # Listen for elasticity requests from the user
       server = xmlrpc.server.SimpleXMLRPCServer(
-        (socket.gethostname(), ELASTICITY_PORT), logRequests=False, allow_none=True)
+        (socket.gethostname(), BASE_ELASTICITY_PORT + self.job_id),
+        logRequests=False, allow_none=True)
       server.register_function(self.set_num_workers)
       server.register_function(self.spawn)
       server.register_function(self.handle_join)
@@ -115,6 +159,34 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       # spawn the remaining workers so the fates of the workers are not tied
       self.awaiting_initial_workers = True
       self.spawn(num_nodes - 1)
+
+  def assign_gpus(self, n, all_possible_hosts=None):
+    """
+    Assign the specified number of GPUs based on the current availability.
+
+    If running in a shared cluster, we first request the latest GPU availability
+    from the scheduler and update our own mapping accordingly.
+
+    Return a list of 2-tuples (host, gpu_index), one for each GPU assigned.
+    """
+    if not self.is_master:
+      raise ValueError("Only the master can assign GPUs")
+    # Request the latest GPU availability from the scheduler, if applicable
+    if self.scheduler_client is not None:
+      assigned_gpus = self.scheduler_client.get_assigned_gpus(self.job_id)
+      # Confirm the clusters are the same
+      assert(set(assigned_gpus.keys()) == set(self.cuda_visible_devices_map.keys()))
+      for host in assigned_gpus.keys():
+        assert(len(assigned_gpus[host]) == len(self.cuda_visible_devices_map[host]))
+        for i, j in enumerate(assigned_gpus[host]):
+          # Blacklist entries in our own mapping
+          if j == GPU_BLACKLIST_VALUE:
+            self.cuda_visible_devices_map[host][i] = GPU_BLACKLIST_VALUE
+          # If a GPU was previously blacklisted but now assigned to this job,
+          # mark the GPU as available
+          if j == self.job_id and self.cuda_visible_devices_map[host][i] == GPU_BLACKLIST_VALUE:
+            self.cuda_visible_devices_map[host][i] = None
+    return assign_gpus(n, self.cuda_visible_devices_map, all_possible_hosts)
 
   def set_num_workers(self, num_workers):
     """
@@ -139,51 +211,37 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
     no outstanding spawned processes.
     """
     self._check_master_request("spawn")
-    # List of 2-tuples (host, gpu_index) for GPUs assigned to the spawned processes
-    assigned_gpus = []
-    # Assign GPUs to processes to be spawned, filling up GPUs within a host first
-    host_index = 0
-    gpu_index = 0
-    all_possible_hosts = virtual_helper.get_all_mpi_hosts()
-    while len(assigned_gpus) < n and host_index < len(all_possible_hosts):
-      host = all_possible_hosts[host_index]
-      gpus = self.cuda_visible_devices_map[host]
-      if gpu_index < len(gpus):
-        if gpus[gpu_index] is None:
-          # Found a free GPU, assign it
-          assigned_gpus.append((host, gpu_index))
-        gpu_index += 1
-      else:
-        gpu_index = 0
-        host_index += 1
-    # Spawn it
-    if len(assigned_gpus) == n:
-      spawn_threads = []
-      max_spawn_parallel = 16
-      self.spawned_communicators = [None] * n
-      for i, (host, gpu_index) in enumerate(assigned_gpus):
-        rank = self.comm.size + i
-        env = {
-          ELASTICITY_MASTER: MPI.Get_processor_name(),
-          SPAWN_RANK: rank,
-          virtual_helper.CUDA_VISIBLE_DEVICES: gpu_index
-        }
-        self.cuda_visible_devices_map[host][gpu_index] = rank
-        def do_spawn(host, env, index):
-          self.spawned_communicators[index] = virtual_helper.mpi_spawn(host, env)
-        t = threading.Thread(target=do_spawn, args=(host, env, i))
-        t.setDaemon(True)
-        t.start()
-        spawn_threads.append(t)
-        # Limit the number of parallel spawns to avoid MPI errors
-        if (i+1) % max_spawn_parallel == 0:
-          for t in spawn_threads:
-            t.join()
-          spawn_threads = []
-      for t in spawn_threads:
-        t.join()
-    else:
+    assigned_gpus = self.assign_gpus(n)
+    if len(assigned_gpus) < n:
       logging.warn("Not enough hosts to spawn %s more processes, ignoring spawn request" % n)
+      return
+    # Spawn processes in parallel because MPI spawn takes a few seconds each
+    spawn_threads = []
+    max_spawn_parallel = 16
+    self.spawned_communicators = [None] * n
+    for i, (host, gpu_index) in enumerate(assigned_gpus):
+      rank = self.comm.size + i
+      # Inform the spawned worker of a way to contact us, its rank, and its assigned GPUs
+      env = {
+        ELASTICITY_MASTER: MPI.Get_processor_name(),
+        SPAWN_RANK: rank,
+        virtual_helper.CUDA_VISIBLE_DEVICES: gpu_index
+      }
+      self.cuda_visible_devices_map[host][gpu_index] = rank
+      def do_spawn(host, env, index):
+        self.spawned_communicators[index] = virtual_helper.mpi_spawn(host, env)
+      t = threading.Thread(target=do_spawn, args=(host, env, i))
+      t.setDaemon(True)
+      t.start()
+      spawn_threads.append(t)
+      # Limit the number of parallel spawns to avoid MPI errors
+      if (i+1) % max_spawn_parallel == 0:
+        for t in spawn_threads:
+          t.join()
+        spawn_threads = []
+    for t in spawn_threads:
+      t.join()
+
 
   def handle_join(self, rank):
     """
@@ -267,11 +325,16 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       self.comm = self.comm.Create_group(new_group)
       # On the master, remove corresponding entries in our CUDA_VISIBLE_DEVICES mapping
       if self.is_master:
+        released_gpus = []
         for removed_rank in list(range(new_size, old_size)):
           host = self.members[removed_rank]
           for i, r in enumerate(self.cuda_visible_devices_map[host]):
             if r == removed_rank:
               self.cuda_visible_devices_map[host][i] = None
+              released_gpus.append((host, i))
+        # If running in a shared cluster, report released GPUs to the scheduler
+        if self.scheduler_client is not None:
+          self.scheduler_client.report_released_gpus(self.job_id, released_gpus)
 
     # Update some state using the new communicator
     self.members = self.comm.allgather(MPI.Get_processor_name())
@@ -362,7 +425,7 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       new_size = None
       # Notify the master the new workers are ready to join the cluster
       if self.comm.rank == 0:
-        master_client = get_elasticity_client(os.environ[ELASTICITY_MASTER])
+        master_client = get_elasticity_client(os.environ[ELASTICITY_MASTER], self.job_id)
         new_size = master_client.handle_join(int(os.environ[SPAWN_RANK]))
       new_size = self.comm.bcast(new_size, root=0)
       self.transition(new_size)

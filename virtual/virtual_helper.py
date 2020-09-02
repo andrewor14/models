@@ -55,11 +55,12 @@ def set_tf_config(base_port=2222, comm=MPI.COMM_WORLD):
   Set TF_CONFIG based on hostnames of all processes in the given MPI communicator.
   To avoid port collisions, we add a process' rank to its port.
   """
-  from virtual.elasticity_callback import ENABLE_ELASTICITY
+  from virtual.elasticity_callback import ENABLE_ELASTICITY, SPAWN_RANK
   my_host = MPI.Get_processor_name()
   if ENABLE_ELASTICITY:
     my_index = 0
-    host_ports = ["%s:%s" % (my_host, base_port + comm.rank)]
+    rank = int(os.getenv(SPAWN_RANK, 0))
+    host_ports = ["%s:%s" % (my_host, base_port + rank)]
   else:
     my_index = comm.rank
     all_hosts = comm.allgather(my_host)
