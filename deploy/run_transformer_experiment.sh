@@ -34,6 +34,8 @@ for num_gpus in $num_gpus_list; do
   if [[ "$BASELINE" == "true" ]]; then
     export NUM_VIRTUAL_NODES_PER_DEVICE="1"
     export BATCH_SIZE="$((VIRTUAL_NODE_SIZE * NUM_GPUS * NUM_NODES))"
+    export NUM_STEPS="$((NUM_STEPS * MAX_NUM_GPUS))"
+    export STEPS_BETWEEN_EVALS="$((NUM_STEPS / 20))"
   else
     export NUM_VIRTUAL_NODES_PER_DEVICE="$((BATCH_SIZE / NUM_GPUS / VIRTUAL_NODE_SIZE))"
   fi

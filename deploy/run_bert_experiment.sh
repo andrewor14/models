@@ -56,6 +56,9 @@ function run_it() {
 if [[ "$BERT_TASK" == "glue" ]]; then
   export NUM_EPOCHS="50"
   export NUM_STEPS="100"
+  if [[ "$BASELINE" == "true" ]]; then
+    export NUM_STEPS="$((NUM_STEPS * MAX_NUM_GPUS))"
+  fi
   if [[ "$EXPERIMENT_MODE" == "try" ]]; then
     glue_task_list="${GLUE_TASK:=SST-2}"
   else
