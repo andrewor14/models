@@ -140,7 +140,8 @@ class TransformerTask(object):
 
     # Add flag-defined parameters to params object
     num_gpus = flags_core.get_num_gpus(flags_obj)
-    self.params = params = misc.get_model_params(flags_obj.param_set, num_gpus)
+    # Hack: always use multi GPU param set for now
+    self.params = params = misc.get_model_params(flags_obj.param_set, max(2, num_gpus))
 
     params["num_gpus"] = num_gpus
     params["use_ctl"] = flags_obj.use_ctl
