@@ -33,9 +33,9 @@ class RunJobEvent(Event):
   An event that attempts to run the job.
   """
 
-  def __init__(self, job, initial_allocation):
+  def __init__(self, job, initial_allocation=None):
     self.job = job
-    self.initial_allocation = initial_allocation
+    self.initial_allocation = initial_allocation or job.workload.gpu_demand
 
   def process(self, scheduler):
     """

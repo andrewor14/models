@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import copy
+from enum import Enum
 import math
 import os
 import random
@@ -24,11 +25,17 @@ def get_scheduler_client(host):
   """
   return xmlrpc.client.ServerProxy("http://%s:%s" % (host, SCHEDULER_PORT))
 
+class SchedulerMode(Enum):
+  FIFO = 1
+  PRIORITY = 2
+  WFS = 3
+
 class WorkloadScheduler:
 
-  def __init__(self, all_hosts, num_gpus_per_node):
+  def __init__(self, all_hosts, num_gpus_per_node, scheduler_mode):
     self.next_job_id = 0
     self.num_gpus_per_node = num_gpus_per_node
+    self.scheduler_mode = scheduler_mode
 
     # A global lock for all operations accessing our data structures
     self.lock = threading.RLock()
@@ -96,7 +103,8 @@ class WorkloadScheduler:
       self.next_job_id += 1
       job = Job(job_id, ResNetWorkload("cifar10", gpu_demand, 32, num_steps), priority)
       self.job_queue.append(job)
-      self.job_queue.sort(key=lambda j: -j.priority)
+      if self.scheduler_mode != SchedulerMode.FIFO:
+        self.job_queue.sort(key=lambda j: -j.priority)
       self.event_queue.append(ScheduleEvent())
 
   def schedule(self):
@@ -116,47 +124,77 @@ class WorkloadScheduler:
       for e in self.event_queue:
         if isinstance(e, ResizeEvent) or isinstance(e, RunJobEvent):
           return False
+      if self.scheduler_mode == SchedulerMode.FIFO or\
+          self.scheduler_mode == SchedulerMode.PRIORITY:
+        return self.fifo_schedule()
+      elif self.scheduler_mode == SchedulerMode.WFS:
+        return self.wfs_schedule()
+      else:
+        raise ValueError("Unknown scheduler mode: %s" % self.scheduler_mode)
 
-      current_allocations = self.get_current_allocations()
-      fair_allocations = self.get_weighted_fair_shares(self.running_jobs)
+  def fifo_schedule(self):
+    """
+    Schedule jobs according to their order in the job queue.
+    This assumes the caller holds `self.lock`.
+    """
+    num_available_gpus = len(self.get_available_gpus())
+    while len(self.job_queue) > 0:
+      candidate_job = self.job_queue[0]
+      gpu_demand = candidate_job.workload.gpu_demand
+      # If there are enough GPUs to meet the job's demand, run it
+      if num_available_gpus >= gpu_demand:
+        self.event_queue.append(RunJobEvent(candidate_job))
+        num_available_gpus -= gpu_demand
+        self.job_queue.pop(0)
+      else:
+        break
+    return True
 
+  def wfs_schedule(self):
+    """
+    Schedule jobs according to their weighted fair shares.
+    This assumes the caller holds `self.lock`.
+    """
+    current_allocations = self.get_current_allocations()
+    fair_allocations = self.get_weighted_fair_shares(self.running_jobs)
+
+    if DEBUG:
+      print("... wfs schedule: current_allocations %s" % current_allocations)
+
+    # Keep scheduling new jobs until existing higher priority jobs are affected
+    new_jobs = []
+    while len(self.job_queue) > 0:
+      candidate_job = self.job_queue[0]
+      potential_allocations = self.get_weighted_fair_shares(
+        self.running_jobs + new_jobs + [candidate_job])
       if DEBUG:
-        print("schedule: current_allocations %s" % current_allocations)
+        print("... wfs schedule: potential_allocations %s" % potential_allocations)
+      # Run this job only if doing so would not affect the allocations of higher
+      # priority jobs that are already running
+      run_new_job = True
+      for job in self.running_jobs:
+        if job.priority > candidate_job.priority and\
+            potential_allocations[job.job_id] < fair_allocations[job.job_id]:
+          run_new_job = False
+      if run_new_job:
+        fair_allocations = potential_allocations
+        new_jobs.append(self.job_queue.pop(0))
+      else:
+        break
 
-      # Keep scheduling new jobs until existing higher priority jobs are affected
-      new_jobs = []
-      while len(self.job_queue) > 0:
-        candidate_job = self.job_queue[0]
-        potential_allocations = self.get_weighted_fair_shares(
-          self.running_jobs + new_jobs + [candidate_job])
-        if DEBUG:
-          print("schedule: potential_allocations %s" % potential_allocations)
-        # Run this job only if doing so would not affect the allocations of higher
-        # priority jobs that are already running
-        run_new_job = True
-        for job in self.running_jobs:
-          if job.priority > candidate_job.priority and\
-              potential_allocations[job.job_id] < fair_allocations[job.job_id]:
-            run_new_job = False
-        if run_new_job:
-          fair_allocations = potential_allocations
-          new_jobs.append(self.job_queue.pop(0))
-        else:
-          break
+    if DEBUG:
+      print("... wfs schedule: fair_allocations %s" % fair_allocations)
 
-      if DEBUG:
-        print("schedule: fair_allocations %s" % fair_allocations)
-
-      # Resize existing jobs and/or run new jobs to match the fair allocation
-      if current_allocations != fair_allocations:
-        assert(len(fair_allocations) >= len(current_allocations))
-        # Resize old jobs if the allocation has changed
-        for job_id in current_allocations.keys():
-          if current_allocations[job_id] != fair_allocations[job_id]:
-            self.event_queue.append(ResizeEvent(job_id, fair_allocations[job_id]))
-        # Schedule all new jobs
-        for job in new_jobs:
-          self.event_queue.append(RunJobEvent(job, fair_allocations[job.job_id]))
+    # Resize existing jobs and/or run new jobs to match the fair allocation
+    if current_allocations != fair_allocations:
+      assert(len(fair_allocations) >= len(current_allocations))
+      # Resize old jobs if the allocation has changed
+      for job_id in current_allocations.keys():
+        if current_allocations[job_id] != fair_allocations[job_id]:
+          self.event_queue.append(ResizeEvent(job_id, fair_allocations[job_id]))
+      # Schedule all new jobs
+      for job in new_jobs:
+        self.event_queue.append(RunJobEvent(job, fair_allocations[job.job_id]))
 
     return True
 
@@ -304,23 +342,24 @@ class WorkloadScheduler:
             (job_id, gpu_index, host))
         self.gpu_assignment[host][gpu_index] = None
 
-  def get_available_gpus(self, n):
+  def get_available_gpus(self, n=sys.maxsize):
     """
-    Return a set of GPUs not currently assigned to any job, in the format of a list of
-    2-tuples (host, gpu_index).
+    Return a set of `n` available GPUs in the format of 2-tuples (host, gpu_index).
     """
     from virtual.elasticity_callback import assign_gpus
-    return assign_gpus(n, self.gpu_assignment)
+    with self.lock:
+      return assign_gpus(n, self.gpu_assignment)
 
 def main():
   args = sys.argv
-  if len(args) != 3:
-    print("Usage: ./scheduler.py [host1,host2,host3...] [num_gpus_per_node]")
+  if len(args) != 4:
+    print("Usage: ./scheduler.py [host1,host2,host3...] [num_gpus_per_node] [scheduler_mode=<fifo|priority|wfs>]")
     sys.exit(1)
   all_hosts = args[1]
   num_gpus_per_node = int(args[2])
+  scheduler_mode = SchedulerMode[args[3].upper()]
   all_hosts = all_hosts.split(",")
-  WorkloadScheduler(all_hosts, num_gpus_per_node)
+  WorkloadScheduler(all_hosts, num_gpus_per_node, scheduler_mode)
 
 if __name__ == "__main__":
   main()
