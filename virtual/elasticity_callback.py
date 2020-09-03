@@ -75,7 +75,7 @@ def assign_gpus(n, gpu_availability, all_possible_hosts=None):
     host = all_possible_hosts[host_index]
     gpus = gpu_availability[host]
     if gpu_index < len(gpus):
-      if gpus[gpu_index] is None and gpus[gpu_index] != GPU_BLACKLIST_VALUE:
+      if gpus[gpu_index] is None:
         # Found a free GPU, assign it
         assigned_gpus.append((host, gpu_index))
       gpu_index += 1
@@ -137,6 +137,7 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       _, master_gpu_index = assigned_gpus[0]
       os.environ[virtual_helper.CUDA_VISIBLE_DEVICES] = str(master_gpu_index)
       self.cuda_visible_devices_map[master_host][master_gpu_index] = 0
+      logging.info("Setting CUDA_VISIBLE_DEVICES to %s" % master_gpu_index)
 
       # A list of communicators returned from the last call to MPI spawn, if any
       self.spawned_communicators = []
@@ -148,6 +149,7 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       server = xmlrpc.server.SimpleXMLRPCServer(
         (socket.gethostname(), BASE_ELASTICITY_PORT + self.job_id),
         logRequests=False, allow_none=True)
+      server.register_function(self.get_num_workers)
       server.register_function(self.set_num_workers)
       server.register_function(self.spawn)
       server.register_function(self.handle_join)
@@ -157,7 +159,7 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
 
       # In elasticity mode, we always start with a single worker and let it
       # spawn the remaining workers so the fates of the workers are not tied
-      self.awaiting_initial_workers = True
+      self.awaiting_initial_workers = num_nodes > 1
       self.spawn(num_nodes - 1)
 
   def assign_gpus(self, n, all_possible_hosts=None):
@@ -187,6 +189,15 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
           if j == self.job_id and self.cuda_visible_devices_map[host][i] == GPU_BLACKLIST_VALUE:
             self.cuda_visible_devices_map[host][i] = None
     return assign_gpus(n, self.cuda_visible_devices_map, all_possible_hosts)
+
+  def get_num_workers(self):
+    """
+    Return the current number of workers in this job.
+    This should only called on the master.
+    """
+    if not self.is_master:
+      raise ValueError("Only the master accepts cluster size queries")
+    return self.comm.size
 
   def set_num_workers(self, num_workers):
     """

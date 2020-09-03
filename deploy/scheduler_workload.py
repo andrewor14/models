@@ -7,14 +7,6 @@ import subprocess
 EXECUTABLE = "bash"
 RUN_SCRIPT = "run_distributed.sh"
 
-# TODO: support other models
-def get_synthetic_workload():
-  return [
-    ResNetWorkload("cifar10", 8, 64, num_steps=100),
-    ResNetWorkload("cifar10", 4, 32, num_steps=8),
-    ResNetWorkload("cifar10", 2, 16, num_steps=4)
-  ]
-
 class Job:
   """
   Helper class to represent jobs.
@@ -35,11 +27,11 @@ class Workload:
 
   def __init__(
       self,
-      num_gpus,
+      gpu_demand,
       batch_size,
       num_steps,
       num_epochs):
-    self.num_gpus = num_gpus
+    self.gpu_demand = gpu_demand
     self.batch_size = batch_size
     self.num_steps = num_steps
     self.num_epochs = num_epochs
@@ -62,23 +54,31 @@ class Workload:
     if self.num_epochs is not None:
       env["NUM_EPOCHS"] = str(self.num_epochs)
     env["ENABLE_ELASTICITY"] = "true"
-    env ["MPI_VERBOSE"] = "true"
-    print("Running workload %s with env %s" % (self, env))
+    env["RUN_TAG"] = "job_%s" % job_id
     env.update(os.environ)
     return subprocess.Popen([EXECUTABLE, RUN_SCRIPT],\
       env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+class DummyWorkload(Workload):
+  """
+  A dummy workload for testing purposes.
+  """
+  def __init__(self, gpu_demand):
+    super(DummyWorkload, self).__init__(gpu_demand, -1, -1, -1)
+  def run(self, job_id, master_host, all_hosts, num_assigned_gpus, num_gpus_per_node, env={}):
+    pass
 
 class ResNetWorkload(Workload):
 
   def __init__(
       self,
       dataset,
-      num_gpus,
+      gpu_demand,
       batch_size,
       num_steps=None,
       num_epochs=None):
     super(ResNetWorkload, self).__init__(
-      num_gpus, batch_size, num_steps, num_epochs)
+      gpu_demand, batch_size, num_steps, num_epochs)
     self.dataset = dataset
 
   def run(self, job_id, master_host, all_hosts, num_assigned_gpus, num_gpus_per_node, env={}):
@@ -88,6 +88,6 @@ class ResNetWorkload(Workload):
     return super().run(job_id, master_host, all_hosts, num_assigned_gpus, num_gpus_per_node, env)
 
   def __str__(self):
-    return "ResNetWorkload(dataset=%s, num_gpus=%s, batch_size=%s, num_steps=%s, num_epochs=%s)" %\
-      (self.dataset, self.num_gpus, self.batch_size, self.num_steps, self.num_epochs)
+    return "ResNetWorkload(dataset=%s, gpu_demand=%s, batch_size=%s, num_steps=%s, num_epochs=%s)" %\
+      (self.dataset, self.gpu_demand, self.batch_size, self.num_steps, self.num_epochs)
 
