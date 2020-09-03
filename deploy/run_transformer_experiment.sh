@@ -3,7 +3,7 @@
 export MODEL="transformer"
 export NUM_NODES="1"
 export ENABLE_XLA="true"
-export ENABLE_MONITOR_MEMORY="true"
+export ENABLE_MONITOR_MEMORY="false"
 export MPI_VERBOSE="false"
 export MAX_NUM_GPUS="8"
 export BASELINE="${BASELINE:=false}"
