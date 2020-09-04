@@ -73,8 +73,13 @@ class RunJobEvent(Event):
                 scheduler.gpu_assignment[host][i] = None
           del scheduler.elasticity_master_hosts[job_id]
           scheduler.running_jobs.remove(self.job)
-          # Trigger schedule event so new jobs can be scheduled
-          scheduler.event_queue.append(ScheduleEvent())
+          # If we are the last job, tell the scheduler to exit
+          # Else, trigger schedule event so new jobs can be scheduled
+          if scheduler.max_job_id == job_id:
+            print("# Reached max job ID %s" % job_id)
+            scheduler.done = True
+          else:
+            scheduler.event_queue.append(ScheduleEvent())
       t = threading.Thread(target=wait_for_process, args=(p,))
       t.setDaemon(True)
       t.start()
@@ -92,6 +97,7 @@ class ResizeEvent(Event):
   def __init__(self, job_id, target_num_workers):
     self.job_id = job_id
     self.target_num_workers = target_num_workers
+    self.last_exception_str = None
 
   def process(self, scheduler):
     """
@@ -152,8 +158,13 @@ class ResizeEvent(Event):
       else:
         return elasticity_client.set_num_workers(self.target_num_workers)
     except Exception as e:
-      rpc_name = "get_num_workers" if get else "set_num_workers(%s)" % self.target_num_workers
-      print("Exception encountered with %s request to job %s: %s" % (rpc_name, self.job_id, e))
+      from deploy.scheduler import DEBUG
+      if DEBUG:
+        rpc_name = "get_num_workers" if get else "set_num_workers(%s)" % self.target_num_workers
+        exception_str = "(same as above)" if str(e) == self.last_exception_str else str(e)
+        print("... exception encountered with %s request to job %s: %s" %\
+          (rpc_name, self.job_id, exception_str))
+        self.last_exception_str = str(e)
       # We assume get requests are called synchronously, while set requests are not.
       # When this method is called asynchronously, we have to manually add the event back
       # to the event queue ourselves instead of relying on the event loop to do so, because

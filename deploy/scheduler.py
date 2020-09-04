@@ -65,13 +65,22 @@ class WorkloadScheduler:
     # used to issue resize requests
     self.elasticity_master_hosts = {}
 
+    # Whether the scheduler loop should exit
+    # This is set to `True` at the end of a trace
+    self.done = False
+
+    # If set, the scheduler will exit at the end of the job with this ID
+    self.max_job_id = -1
+
     # Listen for requests to get the GPUs assigned to a given job
     server = xmlrpc.server.SimpleXMLRPCServer(
       (socket.gethostname(), SCHEDULER_PORT), logRequests=False, allow_none=True)
     server.register_function(self.submit_job)
     server.register_function(self.get_assigned_gpus)
     server.register_function(self.report_released_gpus)
+    server.register_function(self.stop)
     t = threading.Thread(target=server.serve_forever)
+    t.setDaemon(True)
     t.start()
     print("Listening for scheduler requests on port %s" % SCHEDULER_PORT)
 
@@ -84,24 +93,31 @@ class WorkloadScheduler:
           self.failed_events = []
           while len(scheduler.event_queue) > 0:
             e = scheduler.event_queue.pop(0)
-            print("* Processing event %s" % e)
+            job_queue_str = ": %s job(s) in queue" % len(self.job_queue)\
+              if isinstance(e, ScheduleEvent) else ""
+            print("* Processing event %s%s" % (e, job_queue_str))
             if not e.process(scheduler):
               self.failed_events.append(e)
+          if self.done:
+            print("Exiting event loop.")
+            break
         time.sleep(LOOP_INTERVAL_SECONDS)
     t = threading.Thread(target=event_loop, args=(self,))
-    t.setDaemon(True)
     t.start()
     print("Started event loop...")
 
-  def submit_job(self, gpu_demand, priority, num_steps=100):
+  def stop(self):
     """
-    Submit a job to the scheduler queue.
-    TODO: support different workloads
+    Stop this scheduler.
     """
     with self.lock:
-      job_id = self.next_job_id
-      self.next_job_id += 1
-      job = Job(job_id, ResNetWorkload("cifar10", gpu_demand, 32, num_steps), priority)
+      self.done = True
+
+  def submit_job(self, job):
+    """
+    Submit a job to the scheduler queue.
+    """
+    with self.lock:
       self.job_queue.append(job)
       if self.scheduler_mode != SchedulerMode.FIFO:
         self.job_queue.sort(key=lambda j: -j.priority)
@@ -350,16 +366,41 @@ class WorkloadScheduler:
     with self.lock:
       return assign_gpus(n, self.gpu_assignment)
 
+def run_trace(trace_path, scheduler):
+  """
+  Run a schedule of jobs from a trace.
+  Exit when all jobs have been submitted.
+  """
+  start_time = time.time()
+  schedule = generate_schedule_from_trace(trace_path)
+  scheduler.max_job_id = schedule[-1][1].job_id
+  while len(schedule) > 0:
+    elapsed = time.time() - start_time
+    arrival_time, job = schedule[0]
+    if elapsed > arrival_time:
+      scheduler.submit_job(job)
+      schedule.pop(0)
+    else:
+      time.sleep(LOOP_INTERVAL_SECONDS)
+
 def main():
   args = sys.argv
-  if len(args) != 4:
-    print("Usage: ./scheduler.py [host1,host2,host3...] [num_gpus_per_node] [scheduler_mode=<fifo|priority|wfs>]")
+  if len(args) != 4 and len(args) != 5:
+    print("Usage: ./scheduler.py "
+      "[host1,host2,host3...] "
+      "[num_gpus_per_node] "
+      "[scheduler_mode=<fifo|priority|wfs>]"
+      "<trace_path>")
     sys.exit(1)
   all_hosts = args[1]
   num_gpus_per_node = int(args[2])
   scheduler_mode = SchedulerMode[args[3].upper()]
+  trace_path = args[4] if len(args) == 5 else None
   all_hosts = all_hosts.split(",")
-  WorkloadScheduler(all_hosts, num_gpus_per_node, scheduler_mode)
+  scheduler = WorkloadScheduler(all_hosts, num_gpus_per_node, scheduler_mode)
+  if trace_path is not None:
+    t = threading.Thread(target=run_trace, args=(trace_path, scheduler))
+    t.start()
 
 if __name__ == "__main__":
   main()
