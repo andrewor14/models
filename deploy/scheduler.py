@@ -69,20 +69,24 @@ class WorkloadScheduler:
     # This is set to `True` at the end of a trace
     self.done = False
 
-    # If set, the scheduler will exit at the end of the job with this ID
-    self.max_job_id = -1
+    # If set, the scheduler will exit after running this many jobs
+    self.max_num_jobs = -1
+    self.num_jobs_completed = 0
+
+    # Keep track of how much time has elapsed, useful for logging
+    self.start_time = time.time()
 
     # Listen for requests to get the GPUs assigned to a given job
     server = xmlrpc.server.SimpleXMLRPCServer(
       (socket.gethostname(), SCHEDULER_PORT), logRequests=False, allow_none=True)
     server.register_function(self.submit_job)
     server.register_function(self.get_assigned_gpus)
-    server.register_function(self.report_released_gpus)
+    server.register_function(self.notify_transition)
     server.register_function(self.stop)
     t = threading.Thread(target=server.serve_forever)
     t.setDaemon(True)
     t.start()
-    print("Listening for scheduler requests on port %s" % SCHEDULER_PORT)
+    self.log("Listening for scheduler requests on port %s" % SCHEDULER_PORT)
 
     # Start event processing loop
     # If an event was not processed successfully, try it again after a short delay
@@ -95,16 +99,24 @@ class WorkloadScheduler:
             e = scheduler.event_queue.pop(0)
             job_queue_str = ": %s job(s) in queue" % len(self.job_queue)\
               if isinstance(e, ScheduleEvent) else ""
-            print("* Processing event %s%s" % (e, job_queue_str))
+            self.log("* Processing event %s%s" % (e, job_queue_str))
             if not e.process(scheduler):
               self.failed_events.append(e)
           if self.done:
-            print("Exiting event loop.")
+            self.log("Exiting event loop.")
             break
         time.sleep(LOOP_INTERVAL_SECONDS)
     t = threading.Thread(target=event_loop, args=(self,))
     t.start()
-    print("Started event loop...")
+    self.log("Started event loop...")
+
+  def log(self, msg):
+    """
+    Log a message with timestamp.
+    """
+    formatted_time = "{:10.4f}".format(time.time() - self.start_time)
+    maybe_space = " " if not msg.startswith("[") else ""
+    print("[%s]%s%s" % (formatted_time, maybe_space, msg))
 
   def stop(self):
     """
@@ -122,6 +134,7 @@ class WorkloadScheduler:
       if self.scheduler_mode != SchedulerMode.FIFO:
         self.job_queue.sort(key=lambda j: -j.priority)
       self.event_queue.append(ScheduleEvent())
+      self.log("Job %s submitted" % job.job_id)
 
   def schedule(self):
     """
@@ -175,7 +188,7 @@ class WorkloadScheduler:
     fair_allocations = self.get_weighted_fair_shares(self.running_jobs)
 
     if DEBUG:
-      print("... wfs schedule: current_allocations %s" % current_allocations)
+      self.log("... wfs schedule: current_allocations %s" % current_allocations)
 
     # Keep scheduling new jobs until existing higher priority jobs are affected
     new_jobs = []
@@ -184,7 +197,7 @@ class WorkloadScheduler:
       potential_allocations = self.get_weighted_fair_shares(
         self.running_jobs + new_jobs + [candidate_job])
       if DEBUG:
-        print("... wfs schedule: potential_allocations %s" % potential_allocations)
+        self.log("... wfs schedule: potential_allocations %s" % potential_allocations)
       # Run this job only if doing so would not affect the allocations of higher
       # priority jobs that are already running
       run_new_job = True
@@ -199,7 +212,7 @@ class WorkloadScheduler:
         break
 
     if DEBUG:
-      print("... wfs schedule: fair_allocations %s" % fair_allocations)
+      self.log("... wfs schedule: fair_allocations %s" % fair_allocations)
 
     # Resize existing jobs and/or run new jobs to match the fair allocation
     if current_allocations != fair_allocations:
@@ -288,7 +301,7 @@ class WorkloadScheduler:
         # Make sure all fair shares are integers
         for jid, wfs in weighted_fair_shares.items():
           if not float(wfs).is_integer():
-            print("Warning: Weighted fair share for job %s was not an integer (%s), rounding" %\
+            self.log("Warning: Weighted fair share for job %s was not an integer (%s), rounding" %\
               (jid, wfs))
           weighted_fair_shares[jid] = int(wfs)
 
@@ -346,16 +359,17 @@ class WorkloadScheduler:
             assigned_gpus[host][i] = GPU_BLACKLIST_VALUE
     return assigned_gpus
 
-  def report_released_gpus(self, job_id, released_gpus):
+  def notify_transition(self, job_id, new_size, released_gpus):
     """
-    Called by a job to report the GPUs it released after a transition.
+    Called by a job to report that it has transitioned to a new cluster configuration.
     `released_gpus` is a list of 2-tuple (host, gpu_index).
     """
     with self.lock:
+      self.log("Job %s successfully resized to %s GPUs" % (job_id, new_size))
       for host, gpu_index in released_gpus:
         if self.gpu_assignment[host][gpu_index] != job_id:
-          raise ValueError("Job %s released GPU %s on host %s but that GPU was never assigned to that job" %\
-            (job_id, gpu_index, host))
+          raise ValueError("Job %s released GPU %s on host %s " % (job_id, gpu_index, host) +
+            "but that GPU was never assigned to that job")
         self.gpu_assignment[host][gpu_index] = None
 
   def get_available_gpus(self, n=sys.maxsize):
@@ -371,11 +385,10 @@ def run_trace(trace_path, scheduler):
   Run a schedule of jobs from a trace.
   Exit when all jobs have been submitted.
   """
-  start_time = time.time()
   schedule = generate_schedule_from_trace(trace_path)
-  scheduler.max_job_id = schedule[-1][1].job_id
+  scheduler.max_num_jobs = len(schedule)
   while len(schedule) > 0:
-    elapsed = time.time() - start_time
+    elapsed = time.time() - scheduler.start_time
     arrival_time, job = schedule[0]
     if elapsed > arrival_time:
       scheduler.submit_job(job)

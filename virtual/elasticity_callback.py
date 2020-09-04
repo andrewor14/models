@@ -308,6 +308,7 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
 
     old_comm = self.comm
     old_size = self.comm.size
+    released_gpus = []
     if new_size > old_size:
       # If we are expanding the cluster, merge the old and new communicators
       logging.info("Expanding communicator from size %s to %s" % (self.comm.size, new_size))
@@ -336,16 +337,12 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       self.comm = self.comm.Create_group(new_group)
       # On the master, remove corresponding entries in our CUDA_VISIBLE_DEVICES mapping
       if self.is_master:
-        released_gpus = []
         for removed_rank in list(range(new_size, old_size)):
           host = self.members[removed_rank]
           for i, r in enumerate(self.cuda_visible_devices_map[host]):
             if r == removed_rank:
               self.cuda_visible_devices_map[host][i] = None
               released_gpus.append((host, i))
-        # If running in a shared cluster, report released GPUs to the scheduler
-        if self.scheduler_client is not None:
-          self.scheduler_client.report_released_gpus(self.job_id, released_gpus)
 
     # Update some state using the new communicator
     self.members = self.comm.allgather(MPI.Get_processor_name())
@@ -373,6 +370,10 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       raise ValueError("Num virtual nodes must be an integer! (was %s)" % NUM_VIRTUAL_NODES)
     NUM_VIRTUAL_NODES = int(NUM_VIRTUAL_NODES)
     self.new_size = None
+
+    # Notify the scheduler that our transition is complete, if applicable
+    if self.is_master and self.scheduler_client is not None:
+      self.scheduler_client.notify_transition(self.job_id, self.comm.size, released_gpus)
 
   def transfer_parameters(self, old_size, new_size):
     """

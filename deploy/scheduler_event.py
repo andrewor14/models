@@ -17,6 +17,9 @@ class Event:
     """
     raise ValueError("Not implemented")
 
+  def __str__(self):
+    return self.__class__.__name__
+
 class ScheduleEvent(Event):
   """
   An event that triggers the scheduler to adjust its allocations.
@@ -24,9 +27,6 @@ class ScheduleEvent(Event):
 
   def process(self, scheduler):
     return scheduler.schedule()
-
-  def __str__(self):
-    return "Schedule"
 
 class RunJobEvent(Event):
   """
@@ -61,10 +61,11 @@ class RunJobEvent(Event):
       scheduler.running_jobs.append(self.job)
       p = self.job.workload.run(job_id, master_host, all_hosts,\
         self.initial_allocation, scheduler.num_gpus_per_node)
-      print("# Job %s started (PID = %s)" % (job_id, p.pid))
+      scheduler.log("Job %s started with %s GPUs (PID = %s)" %\
+        (job_id, self.initial_allocation, p.pid))
       def wait_for_process(process):
         process.wait()
-        print("# Job %s finished" % job_id)
+        scheduler.log("Job %s finished" % job_id)
         with scheduler.lock:
           # Unassign GPUs
           for host in scheduler.gpu_assignment.keys():
@@ -75,8 +76,9 @@ class RunJobEvent(Event):
           scheduler.running_jobs.remove(self.job)
           # If we are the last job, tell the scheduler to exit
           # Else, trigger schedule event so new jobs can be scheduled
-          if scheduler.max_job_id == job_id:
-            print("# Reached max job ID %s" % job_id)
+          scheduler.num_jobs_completed += 1
+          if scheduler.num_jobs_completed == scheduler.max_num_jobs:
+            scheduler.log("Reached maximum number of %s jobs" % scheduler.max_num_jobs)
             scheduler.done = True
           else:
             scheduler.event_queue.append(ScheduleEvent())
@@ -156,13 +158,13 @@ class ResizeEvent(Event):
       if get:
         return elasticity_client.get_num_workers()
       else:
-        return elasticity_client.set_num_workers(self.target_num_workers)
+        elasticity_client.set_num_workers(self.target_num_workers)
     except Exception as e:
       from deploy.scheduler import DEBUG
       if DEBUG:
         rpc_name = "get_num_workers" if get else "set_num_workers(%s)" % self.target_num_workers
         exception_str = "(same as above)" if str(e) == self.last_exception_str else str(e)
-        print("... exception encountered with %s request to job %s: %s" %\
+        scheduler.log("... exception encountered with %s request to job %s: %s" %\
           (rpc_name, self.job_id, exception_str))
         self.last_exception_str = str(e)
       # We assume get requests are called synchronously, while set requests are not.
@@ -175,6 +177,6 @@ class ResizeEvent(Event):
       return None
 
   def __str__(self):
-    return "Resize(job_id=%s, target_num_workers=%s)" %\
+    return "ResizeEvent(job_id=%s, target_num_workers=%s)" %\
       (self.job_id, self.target_num_workers)
 
