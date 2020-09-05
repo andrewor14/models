@@ -62,6 +62,7 @@ class Workload:
     if self.num_epochs is not None:
       env["NUM_EPOCHS"] = str(self.num_epochs)
     env["ENABLE_ELASTICITY"] = "true"
+    env["ENABLE_XLA"] = "false"
     env["RUN_TAG"] = "%s-scheduler_job%s" %\
       (scheduler.scheduler_mode.name, job_id)
     env.update(os.environ)
@@ -191,10 +192,18 @@ def poisson_interarrival_time(jobs_per_hour):
   """
   return int(-math.log(1.0 - random.random()) / (jobs_per_hour / 3600))
 
-def generate_trace(trace_path, num_jobs, jobs_per_hour, workloads):
+def generate_trace(trace_path, num_jobs, jobs_per_hour, priorities, workload_size):
   """
   Generate a trace of jobs choosing from the given list of workloads.
   """
+  workloads = []
+  if workload_size == "tiny":
+    workloads = tiny_workload()
+  elif workload_size == "medium" or workload_size == "big":
+    raise ValueError("Workload size not supported yet: %s" % workload_size)
+  else:
+    raise ValueError("Unknown workload size: %s" % workload_size)
+
   with open(trace_path, "w") as f:
     f.write("[\n")
     arrival_time_seconds = 1
@@ -204,19 +213,18 @@ def generate_trace(trace_path, num_jobs, jobs_per_hour, workloads):
       j = {}
       j["arrival_time"] = arrival_time_seconds
       j["workload"] = workload_name
+      j["priority"] = random.choice(priorities)
       j.update(workload.to_json())
       maybe_comma = "" if i == num_jobs-1 else ","
       f.write("  %s%s\n" % (json.dumps(j), maybe_comma))
       arrival_time_seconds += poisson_interarrival_time(jobs_per_hour)
     f.write("]\n")
 
-def generate_tiny_workload_trace(trace_path, num_jobs, jobs_per_hour):
+def tiny_workload(resnet_dataset="cifar10", glue_task="MRPC"):
   """
-  Generate a trace of tiny jobs, intended for testing.
+  Return a list of tiny workloads, intended for testing.
   """
-  resnet_dataset = "cifar10"
-  glue_task = "MRPC"
-  workloads = [
+  return [
     ResNetWorkload(resnet_dataset, 1, 32, num_steps=500),
     ResNetWorkload(resnet_dataset, 2, 64, num_steps=500),
     ResNetWorkload(resnet_dataset, 4, 128, num_steps=500),
@@ -236,24 +244,21 @@ def generate_tiny_workload_trace(trace_path, num_jobs, jobs_per_hour):
     BERTGlueWorkload(glue_task, 2, 4, num_steps=200),
     BERTGlueWorkload(glue_task, 4, 8, num_steps=200)
   ]
-  generate_trace(trace_path, num_jobs, jobs_per_hour, workloads)
 
 def main():
   args = sys.argv
-  if len(args) != 5:
+  if len(args) != 6:
     print("Usage: python3 scheduler_workload.py "
-      "[trace_path] [num_jobs] [jobs_per_hour] [tiny|medium|big]")
+      "[trace_path] [num_jobs] [jobs_per_hour] [priorities] [workload_size]")
+    print("  priorities: comma-delimited list of priorities, e.g. 1,2,3")
+    print("  workload_size: choose from 'tiny', 'medium', or 'big'")
     sys.exit(1)
   trace_path = args[1]
   num_jobs = int(args[2])
   jobs_per_hour = int(args[3])
-  workload_size = args[4]
-  if workload_size == "tiny":
-    generate_tiny_workload_trace(trace_path, num_jobs, jobs_per_hour)
-  elif workload_size == "medium" or workload_size == "big":
-    raise ValueError("Workload size not supported yet: %s" % workload_size)
-  else:
-    raise ValueError("Unknown workload size: %s" % workload_size)
+  priorities = [int(p) for p in args[4].split(",")]
+  workload_size = args[5]
+  generate_trace(trace_path, num_jobs, jobs_per_hour, priorities, workload_size)
   print("Wrote to %s." % trace_path)
 
 if __name__ == "__main__":

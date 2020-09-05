@@ -77,6 +77,9 @@ class WorkloadScheduler:
     # Keep track of how much time has elapsed, useful for logging
     self.start_time = time.time()
 
+    self.log("Running %s scheduler on hosts %s with %s GPU(s) per host" %\
+      (scheduler_mode, ",".join(all_hosts), num_gpus_per_node))
+
     # Listen for requests to get the GPUs assigned to a given job
     server = xmlrpc.server.SimpleXMLRPCServer(
       (self.addr, SCHEDULER_PORT), logRequests=False, allow_none=True)
@@ -390,6 +393,7 @@ def run_trace(trace_path, scheduler):
   Run a schedule of jobs from a trace.
   Exit when all jobs have been submitted.
   """
+  scheduler.log("Running with trace: %s" % trace_path)
   schedule = generate_schedule_from_trace(trace_path)
   scheduler.max_num_jobs = len(schedule)
   while len(schedule) > 0:
