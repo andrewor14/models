@@ -33,12 +33,14 @@ function run_it() {
   else
     num_gpus_list="${USER_NUM_GPUS:-1 2 4 8}"
   fi
+  ORIG_NUM_STEPS="$NUM_STEPS"
   for num_gpus in $num_gpus_list; do
     export NUM_GPUS="$num_gpus"
     export CUDA_VISIBLE_DEVICES="$(seq -s ',' 0 "$((num_gpus - 1))")"
     if [[ "$BASELINE" == "true" ]]; then
       export NUM_VIRTUAL_NODES_PER_DEVICE="1"
       export BATCH_SIZE="$((VIRTUAL_NODE_SIZE * NUM_GPUS * NUM_NODES))"
+      export NUM_STEPS="$((ORIG_NUM_STEPS * MAX_NUM_GPUS / NUM_GPUS))"
     else
       export NUM_VIRTUAL_NODES_PER_DEVICE="$((BATCH_SIZE / NUM_GPUS / NUM_NODES / VIRTUAL_NODE_SIZE))"
     fi
@@ -56,9 +58,6 @@ function run_it() {
 if [[ "$BERT_TASK" == "glue" ]]; then
   export NUM_EPOCHS="50"
   export NUM_STEPS="100"
-  if [[ "$BASELINE" == "true" ]]; then
-    export NUM_STEPS="$((NUM_STEPS * MAX_NUM_GPUS))"
-  fi
   if [[ "$EXPERIMENT_MODE" == "try" ]]; then
     glue_task_list="${GLUE_TASK:=SST-2}"
   else
