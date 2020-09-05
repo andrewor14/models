@@ -149,7 +149,6 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       server = xmlrpc.server.SimpleXMLRPCServer(
         (socket.gethostname(), BASE_ELASTICITY_PORT + self.job_id),
         logRequests=False, allow_none=True)
-      server.register_function(self.get_num_workers)
       server.register_function(self.set_num_workers)
       server.register_function(self.spawn)
       server.register_function(self.handle_join)
@@ -189,15 +188,6 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
           if j == self.job_id and self.cuda_visible_devices_map[host][i] == GPU_BLACKLIST_VALUE:
             self.cuda_visible_devices_map[host][i] = None
     return assign_gpus(n, self.cuda_visible_devices_map, all_possible_hosts)
-
-  def get_num_workers(self):
-    """
-    Return the current number of workers in this job.
-    This should only called on the master.
-    """
-    if not self.is_master:
-      raise ValueError("Only the master accepts cluster size queries")
-    return self.comm.size
 
   def set_num_workers(self, num_workers):
     """

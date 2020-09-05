@@ -111,19 +111,6 @@ class ResizeEvent(Event):
     if self.job_id not in [j.job_id for j in scheduler.running_jobs]:
       return True
 
-    from virtual.elasticity_callback import get_elasticity_client
-    master_host = scheduler.elasticity_master_hosts[self.job_id]
-    elasticity_client = get_elasticity_client(master_host, self.job_id)
-    current_num_workers = self._send_request(elasticity_client, scheduler, get=True)
-
-    # If we encountered an exception while sending the get request, try again later
-    if current_num_workers is None:
-      return False
-
-    # If we are already at the target, ignore this event
-    if self.target_num_workers == elasticity_client.get_num_workers():
-      return True
-
     # For size up request, first try to allocate the desired number of GPUs
     # If this is successful, send the request to the job
     allocated_num_workers = scheduler.get_current_allocation(self.job_id)
@@ -139,40 +126,32 @@ class ResizeEvent(Event):
         return False
 
     # Send the set num workers request to the job asynchronously
-    t = threading.Thread(target=self._send_request, args=(elasticity_client, scheduler))
+    from virtual.elasticity_callback import get_elasticity_client
+    master_host = scheduler.elasticity_master_hosts[self.job_id]
+    elasticity_client = get_elasticity_client(master_host, self.job_id)
+    t = threading.Thread(
+      target=self._send_resize_request,
+      args=(elasticity_client, scheduler))
     t.setDaemon(True)
     t.start()
     return True
 
-  def _send_request(self, elasticity_client, scheduler, get=False):
+  def _send_resize_request(self, elasticity_client, scheduler):
     """
-    Send either a `set_num_workers` or a `get_num_workers` request to the job.
-
-    This method catches any exception that are thrown.
-    If `get` is True, return the result of the request, or None if the request failed.
-    If `get` is False, we assume this method is called asynchronously, so we manually
-    place this event back into the event queue to try it again later.
+    Send a `set_num_workers` request to the job, catching any exception that was thrown.
+    This should be called asynchronously.
     """
     try:
-      if get:
-        return elasticity_client.get_num_workers()
-      else:
-        elasticity_client.set_num_workers(self.target_num_workers)
+      elasticity_client.set_num_workers(self.target_num_workers)
     except Exception as e:
       from deploy.scheduler import DEBUG
       if DEBUG:
-        rpc_name = "get_num_workers" if get else "set_num_workers(%s)" % self.target_num_workers
-        exception_str = "(same as above)" if str(e) == self.last_exception_str else str(e)
-        scheduler.log("... exception encountered with %s request to job %s: %s" %\
-          (rpc_name, self.job_id, exception_str))
+        e_str = "(same as above)" if str(e) == self.last_exception_str else str(e)
+        scheduler.log("... set_num_workers exception from job %s: %s" % (self.job_id, e_str))
         self.last_exception_str = str(e)
-      # We assume get requests are called synchronously, while set requests are not.
-      # When this method is called asynchronously, we have to manually add the event back
-      # to the event queue ourselves instead of relying on the event loop to do so, because
-      # `event.process` had already returned True previously.
-      if not get:
-        with scheduler.lock:
-          scheduler.failed_events.append(self)
+      # Add this event back into the queue manually because this was called asynchronously
+      with scheduler.lock:
+        scheduler.failed_events.append(self)
       return None
 
   def __str__(self):
