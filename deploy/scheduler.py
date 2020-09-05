@@ -36,6 +36,7 @@ class WorkloadScheduler:
     self.next_job_id = 0
     self.num_gpus_per_node = num_gpus_per_node
     self.scheduler_mode = scheduler_mode
+    self.addr = socket.gethostname()
 
     # A global lock for all operations accessing our data structures
     self.lock = threading.RLock()
@@ -78,7 +79,7 @@ class WorkloadScheduler:
 
     # Listen for requests to get the GPUs assigned to a given job
     server = xmlrpc.server.SimpleXMLRPCServer(
-      (socket.gethostname(), SCHEDULER_PORT), logRequests=False, allow_none=True)
+      (self.addr, SCHEDULER_PORT), logRequests=False, allow_none=True)
     server.register_function(self.submit_job)
     server.register_function(self.get_assigned_gpus)
     server.register_function(self.notify_transition)
@@ -399,7 +400,7 @@ def run_trace(trace_path, scheduler):
 def main():
   args = sys.argv
   if len(args) != 4 and len(args) != 5:
-    print("Usage: ./scheduler.py "
+    print("Usage: python3 scheduler.py "
       "[host1,host2,host3...] "
       "[num_gpus_per_node] "
       "[scheduler_mode=<fifo|priority|wfs>]"

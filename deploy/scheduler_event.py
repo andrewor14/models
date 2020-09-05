@@ -54,13 +54,12 @@ class RunJobEvent(Event):
       for host, gpu_index in available_gpus:
         scheduler.gpu_assignment[host][gpu_index] = job_id
       master_host = available_gpus[0][0]
-      all_hosts = list(scheduler.gpu_assignment.keys()).copy()
       scheduler.elasticity_master_hosts[job_id] = master_host
       # Run the job in the background
       # On exit, release all GPUs assigned to this job
       scheduler.running_jobs.append(self.job)
-      p = self.job.workload.run(job_id, master_host, all_hosts,\
-        self.initial_allocation, scheduler.num_gpus_per_node)
+      p = self.job.workload.run(\
+        scheduler, job_id, master_host, self.initial_allocation)
       scheduler.log("Job %s started with %s GPUs (PID = %s)" %\
         (job_id, self.initial_allocation, p.pid))
       def wait_for_process(process):
