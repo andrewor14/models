@@ -379,6 +379,9 @@ class WorkloadScheduler:
           raise ValueError("Job %s released GPU %s on host %s " % (job_id, gpu_index, host) +
             "but that GPU was never assigned to that job")
         self.gpu_assignment[host][gpu_index] = None
+      if len(released_gpus) > 0 and DEBUG:
+        self.log("Job %s released %s GPUs, new GPU assignment: %s" %\
+          (job_id, len(released_gpus), self.gpu_assignment))
 
   def get_available_gpus(self, n=sys.maxsize):
     """

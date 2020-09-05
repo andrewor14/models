@@ -51,19 +51,26 @@ class RunJobEvent(Event):
     available_gpus = scheduler.get_available_gpus(self.initial_allocation)
     should_run = len(available_gpus) == self.initial_allocation
     if should_run:
+
       # There are enough GPUs, assign them
+      from deploy.scheduler import DEBUG
       for host, gpu_index in available_gpus:
         scheduler.gpu_assignment[host][gpu_index] = job_id
-      master_host = available_gpus[0][0]
-      scheduler.elasticity_master_hosts[job_id] = master_host
+      if DEBUG:
+        scheduler.log("Job %s was assigned %s GPUs, new GPU assignment = %s" %\
+          (job_id, self.initial_allocation, scheduler.gpu_assignment))
+
       # Run the job in the background
-      # On exit, release all GPUs assigned to this job
       scheduler.running_jobs.append(self.job)
       start_time = time.time()
+      master_host = available_gpus[0][0]
+      scheduler.elasticity_master_hosts[job_id] = master_host
       p = self.job.workload.run(\
         scheduler, job_id, master_host, self.initial_allocation)
       scheduler.log("Job %s started with %s GPUs (PID = %s)" %\
         (job_id, self.initial_allocation, p.pid))
+
+      # On exit, release all GPUs assigned to this job
       def wait_for_process(process):
         process.wait()
         seconds_elapsed = time.time() - start_time
@@ -74,6 +81,9 @@ class RunJobEvent(Event):
             for i, j in enumerate(scheduler.gpu_assignment[host]):
               if j == job_id:
                 scheduler.gpu_assignment[host][i] = None
+          if DEBUG:
+            scheduler.log("Job %s released its GPUs, new GPU assignment = %s" %\
+              (job_id, scheduler.gpu_assignment))
           del scheduler.elasticity_master_hosts[job_id]
           scheduler.running_jobs.remove(self.job)
           # If we are the last job, tell the scheduler to exit
@@ -84,6 +94,7 @@ class RunJobEvent(Event):
             scheduler.done = True
           else:
             scheduler.event_queue.append(ScheduleEvent())
+
       t = threading.Thread(target=wait_for_process, args=(p,))
       t.setDaemon(True)
       t.start()
@@ -124,6 +135,10 @@ class ResizeEvent(Event):
       if len(available_gpus) == new_num_workers:
         for host, gpu_index in available_gpus:
           scheduler.gpu_assignment[host][gpu_index] = self.job_id
+        from deploy.scheduler import DEBUG
+        if DEBUG:
+          scheduler.log("Job %s was assigned %s new GPUs, new GPU assignment: %s" %\
+            (self.job_id, new_num_workers, scheduler.gpu_assignment))
       else:
         # There are not enough GPUs yet, so try again later
         return False
