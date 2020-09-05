@@ -191,22 +191,26 @@ class WorkloadScheduler:
     if DEBUG:
       self.log("... wfs schedule: current_allocations %s" % current_allocations)
 
-    # Keep scheduling new jobs until existing higher priority jobs are affected
+    # Keep scheduling until one of the following conditions is met:
+    # (1) The allocation of an existing job of higher priority is affected
+    # (2) The potential allocation will exceed the number of GPUs in the system
+    # (3) There are no more jobs to schedule
     new_jobs = []
-    while len(self.job_queue) > 0:
+    total_num_gpus = sum([len(gpus) for gpus in self.gpu_assignment.values()])
+    while len(self.job_queue) > 0 and len(self.running_jobs + new_jobs) < total_num_gpus:
       candidate_job = self.job_queue[0]
       potential_allocations = self.get_weighted_fair_shares(
         self.running_jobs + new_jobs + [candidate_job])
       if DEBUG:
         self.log("... wfs schedule: potential_allocations %s" % potential_allocations)
-      # Run this job only if doing so would not affect the allocations of higher
-      # priority jobs that are already running
-      run_new_job = True
+      # Check if existing jobs of higher priority will be affected if we run this job
+      # If so, there is no need to keep scheduling because the queue is sorted by priority
+      run_it = True
       for job in self.running_jobs:
         if job.priority > candidate_job.priority and\
             potential_allocations[job.job_id] < fair_allocations[job.job_id]:
-          run_new_job = False
-      if run_new_job:
+          run_it = False
+      if run_it:
         fair_allocations = potential_allocations
         new_jobs.append(self.job_queue.pop(0))
       else:
