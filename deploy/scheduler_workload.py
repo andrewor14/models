@@ -40,32 +40,34 @@ class Workload:
     Run this workload asynchronously and return the process object.
     This assumes the caller holds `scheduler.lock`.
     """
-    env = env.copy()
-    env["JOB_ID"] = str(job_id)
+    job_env = {}
+    job_env["JOB_ID"] = str(job_id)
     if scheduler.addr is not None:
-      env["SCHEDULER_ADDR"] = scheduler.addr
-    env["MASTER_HOST"] = master_host
-    env["MPI_HOSTS"] = ",".join(list(scheduler.gpu_assignment.keys()).copy())
-    env["NUM_GPUS_PER_NODE"] = str(scheduler.num_gpus_per_node)
-    env["NUM_NODES"] = str(num_assigned_gpus)
+      job_env["SCHEDULER_ADDR"] = scheduler.addr
+    job_env["MASTER_HOST"] = master_host
+    job_env["MPI_HOSTS"] = ",".join(list(scheduler.gpu_assignment.keys()).copy())
+    job_env["NUM_GPUS_PER_NODE"] = str(scheduler.num_gpus_per_node)
+    job_env["NUM_NODES"] = str(num_assigned_gpus)
     # Due to contention in the cluster, we may not be granted our full GPU demand
     # In this case, our demand should be a multiple of the number of GPUs assigned,
     # and this multiple is the number of virtual nodes per device
     if self.gpu_demand % num_assigned_gpus != 0:
       raise ValueError("GPU demand (%s) was not a multiple of " % self.gpu_demand +
         "number of GPUs assigned (%s) for job %s" % (num_assigned_gpus, job_id))
-    env["NUM_VIRTUAL_NODES_PER_DEVICE"] = str(int(self.gpu_demand / num_assigned_gpus))
-    env["NUM_GPUS"] = "1"
-    env["BATCH_SIZE"] = str(self.batch_size)
+    job_env["NUM_VIRTUAL_NODES_PER_DEVICE"] = str(int(self.gpu_demand / num_assigned_gpus))
+    job_env["NUM_GPUS"] = "1"
+    job_env["BATCH_SIZE"] = str(self.batch_size)
     if self.num_steps is not None:
-      env["NUM_STEPS"] = str(self.num_steps)
+      job_env["NUM_STEPS"] = str(self.num_steps)
     if self.num_epochs is not None:
-      env["NUM_EPOCHS"] = str(self.num_epochs)
-    env["ENABLE_ELASTICITY"] = "true"
-    env["ENABLE_XLA"] = "false"
-    env["RUN_TAG"] = "%s-scheduler_job%s" %\
+      job_env["NUM_EPOCHS"] = str(self.num_epochs)
+    job_env["ENABLE_ELASTICITY"] = "true"
+    job_env["ENABLE_XLA"] = "false"
+    job_env["RUN_TAG"] = "%s-scheduler_job%s" %\
       (scheduler.scheduler_mode.name, job_id)
+    env = env.copy()
     env.update(os.environ)
+    env.update(job_env)
     return subprocess.Popen([EXECUTABLE, RUN_SCRIPT],\
       env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
