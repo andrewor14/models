@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import time
 import threading
 
 class Event:
@@ -58,13 +59,15 @@ class RunJobEvent(Event):
       # Run the job in the background
       # On exit, release all GPUs assigned to this job
       scheduler.running_jobs.append(self.job)
+      start_time = time.time()
       p = self.job.workload.run(\
         scheduler, job_id, master_host, self.initial_allocation)
       scheduler.log("Job %s started with %s GPUs (PID = %s)" %\
         (job_id, self.initial_allocation, p.pid))
       def wait_for_process(process):
         process.wait()
-        scheduler.log("Job %s finished" % job_id)
+        seconds_elapsed = time.time() - start_time
+        scheduler.log("Job %s finished, took %.1f seconds" % (job_id, seconds_elapsed))
         with scheduler.lock:
           # Unassign GPUs
           for host in scheduler.gpu_assignment.keys():

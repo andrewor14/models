@@ -217,24 +217,24 @@ def generate_tiny_workload_trace(trace_path, num_jobs, jobs_per_hour):
   resnet_dataset = "cifar10"
   glue_task = "MRPC"
   workloads = [
+    ResNetWorkload(resnet_dataset, 1, 32, num_steps=500),
+    ResNetWorkload(resnet_dataset, 2, 64, num_steps=500),
+    ResNetWorkload(resnet_dataset, 4, 128, num_steps=500),
     ResNetWorkload(resnet_dataset, 1, 32, num_epochs=1),
     ResNetWorkload(resnet_dataset, 2, 64, num_epochs=1),
-    ResNetWorkload(resnet_dataset, 4, 64, num_epochs=1),
-    ResNetWorkload(resnet_dataset, 1, 32, num_steps=100),
-    ResNetWorkload(resnet_dataset, 2, 64, num_steps=100),
-    ResNetWorkload(resnet_dataset, 4, 64, num_steps=100),
-    TransformerWorkload(1, 128, num_steps=10),
-    TransformerWorkload(2, 256, num_steps=10),
-    TransformerWorkload(4, 512, num_steps=10),
-    TransformerWorkload(1, 128, num_steps=400),
-    TransformerWorkload(2, 256, num_steps=200),
-    TransformerWorkload(4, 512, num_steps=100),
-    BERTGlueWorkload(glue_task, 1, 2, num_steps=100),
-    BERTGlueWorkload(glue_task, 2, 4, num_steps=100),
-    BERTGlueWorkload(glue_task, 4, 8, num_steps=100),
-    BERTGlueWorkload(glue_task, 1, 2, num_steps=500),
-    BERTGlueWorkload(glue_task, 2, 4, num_steps=500),
-    BERTGlueWorkload(glue_task, 4, 8, num_steps=500)
+    ResNetWorkload(resnet_dataset, 4, 128, num_epochs=1),
+    TransformerWorkload(1, 128, num_steps=50),
+    TransformerWorkload(2, 256, num_steps=50),
+    TransformerWorkload(4, 512, num_steps=50),
+    TransformerWorkload(1, 128, num_steps=300),
+    TransformerWorkload(2, 256, num_steps=300),
+    TransformerWorkload(4, 512, num_steps=300),
+    BERTGlueWorkload(glue_task, 1, 2, num_steps=50),
+    BERTGlueWorkload(glue_task, 2, 4, num_steps=50),
+    BERTGlueWorkload(glue_task, 4, 8, num_steps=50),
+    BERTGlueWorkload(glue_task, 1, 2, num_steps=200),
+    BERTGlueWorkload(glue_task, 2, 4, num_steps=200),
+    BERTGlueWorkload(glue_task, 4, 8, num_steps=200)
   ]
   generate_trace(trace_path, num_jobs, jobs_per_hour, workloads)
 
