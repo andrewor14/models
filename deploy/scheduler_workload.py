@@ -197,17 +197,17 @@ def generate_trace(trace_path, num_jobs, jobs_per_hour, workloads):
   """
   with open(trace_path, "w") as f:
     f.write("[\n")
-    cumulative_time = 0
+    arrival_time_seconds = 1
     for i in range(num_jobs):
       workload = random.choice(workloads)
-      cumulative_time += poisson_interarrival_time(jobs_per_hour)
       workload_name = Workload.cls_to_name()[workload.__class__]
       j = {}
-      j["arrival_time"] = cumulative_time
+      j["arrival_time"] = arrival_time_seconds
       j["workload"] = workload_name
       j.update(workload.to_json())
       maybe_comma = "" if i == num_jobs-1 else ","
       f.write("  %s%s\n" % (json.dumps(j), maybe_comma))
+      arrival_time_seconds += poisson_interarrival_time(jobs_per_hour)
     f.write("]\n")
 
 def generate_tiny_workload_trace(trace_path, num_jobs, jobs_per_hour):
