@@ -29,11 +29,17 @@ class Workload:
   Abstract base class for all workloads.
   """
 
-  def __init__(self, gpu_demand, batch_size, num_steps=None, num_epochs=None):
+  def __init__(self,
+      gpu_demand,
+      batch_size,
+      num_steps=None,
+      num_epochs=None,
+      num_virtual_nodes_per_device=None):
     self.gpu_demand = gpu_demand
     self.batch_size = batch_size
     self.num_steps = num_steps
     self.num_epochs = num_epochs
+    self.num_virtual_nodes_per_device = num_virtual_nodes_per_device or 1
 
   def run(self, scheduler, job_id, master_host, num_assigned_gpus, env={}):
     """
@@ -49,12 +55,13 @@ class Workload:
     job_env["NUM_GPUS_PER_NODE"] = str(scheduler.num_gpus_per_node)
     job_env["NUM_NODES"] = str(num_assigned_gpus)
     # Due to contention in the cluster, we may not be granted our full GPU demand
-    # In this case, our demand should be a multiple of the number of GPUs assigned,
-    # and this multiple is the number of virtual nodes per device
+    # In this case, our demand should be a multiple of the number of GPUs assigned
+    # so that the number of virtual nodes will be an integer
     if self.gpu_demand % num_assigned_gpus != 0:
       raise ValueError("GPU demand (%s) was not a multiple of " % self.gpu_demand +
         "number of GPUs assigned (%s) for job %s" % (num_assigned_gpus, job_id))
-    job_env["NUM_VIRTUAL_NODES_PER_DEVICE"] = str(int(self.gpu_demand / num_assigned_gpus))
+    job_env["NUM_VIRTUAL_NODES_PER_DEVICE"] =\
+      str(int(self.num_virtual_nodes_per_device * self.gpu_demand / num_assigned_gpus))
     job_env["NUM_GPUS"] = "1"
     job_env["BATCH_SIZE"] = str(self.batch_size)
     if self.num_steps is not None:
@@ -89,13 +96,18 @@ class Workload:
 
   def to_json(self):
     j = {"gpu_demand": self.gpu_demand, "batch_size": self.batch_size}
-    if self.num_steps is not None: j["num_steps"] = self.num_steps
-    if self.num_epochs is not None: j["num_epochs"] = self.num_epochs
+    if self.num_steps is not None:
+      j["num_steps"] = self.num_steps
+    if self.num_epochs is not None:
+      j["num_epochs"] = self.num_epochs
+    if self.virtual_nodes_per_device > 1:
+      j["num_virtual_nodes_per_device"] = self.num_virtual_nodes_per_device
     return j
 
   @classmethod
   def from_json(cls, j):
-    return cls(j["gpu_demand"], j["batch_size"], j.get("num_steps"), j.get("num_epochs"))
+    return cls(j["gpu_demand"], j["batch_size"], j.get("num_steps"),
+      j.get("num_epochs"), j.get("num_virtual_nodes_per_device"))
 
   @staticmethod
   def name_to_cls():
@@ -111,8 +123,15 @@ class Workload:
 
 class ResNetWorkload(Workload):
 
-  def __init__(self, dataset, gpu_demand, batch_size, num_steps=None, num_epochs=None):
-    super(ResNetWorkload, self).__init__(gpu_demand, batch_size, num_steps, num_epochs)
+  def __init__(self,
+      dataset,
+      gpu_demand,
+      batch_size,
+      num_steps=None,
+      num_epochs=None,
+      num_virtual_nodes_per_device=None):
+    super(ResNetWorkload, self).__init__(gpu_demand, batch_size,
+      num_steps, num_epochs, num_virtual_nodes_per_device)
     self.dataset = dataset
 
   def run(self, scheduler, job_id, master_host, num_assigned_gpus, env={}):
@@ -122,8 +141,10 @@ class ResNetWorkload(Workload):
     return super().run(scheduler, job_id, master_host, num_assigned_gpus, env)
 
   def __str__(self):
-    return "ResNetWorkload(dataset=%s, gpu_demand=%s, batch_size=%s, num_steps=%s, num_epochs=%s)" %\
-      (self.dataset, self.gpu_demand, self.batch_size, self.num_steps, self.num_epochs)
+    return ("ResNetWorkload(dataset=%s, gpu_demand=%s, batch_size=%s, "\
+      "num_steps=%s, num_epochs=%s, num_virtual_nodes_per_device=%s)") %\
+       (self.dataset, self.gpu_demand, self.batch_size, self.num_steps,\
+       self.num_epochs, self.num_virtual_nodes_per_device)
 
   def to_json(self):
     j = super().to_json()
@@ -133,12 +154,19 @@ class ResNetWorkload(Workload):
   @classmethod
   def from_json(cls, j):
     return ResNetWorkload(j["dataset"], j["gpu_demand"], j["batch_size"],
-      j.get("num_steps"), j.get("num_epochs"))
+      j.get("num_steps"), j.get("num_epochs"), j.get("num_virtual_nodes_per_device"))
 
 class BERTGlueWorkload(Workload):
 
-  def __init__(self, glue_task, gpu_demand, batch_size, num_steps=None, num_epochs=None):
-    super(BERTGlueWorkload, self).__init__(gpu_demand, batch_size, num_steps, num_epochs)
+  def __init__(self,
+      glue_task,
+      gpu_demand,
+      batch_size,
+      num_steps=None,
+      num_epochs=None,
+      num_virtual_nodes_per_device=None):
+    super(BERTGlueWorkload, self).__init__(gpu_demand, batch_size,
+      num_steps, num_epochs, num_virtual_nodes_per_device)
     self.glue_task = glue_task
 
   def run(self, scheduler, job_id, master_host, num_assigned_gpus, env={}):
@@ -149,8 +177,10 @@ class BERTGlueWorkload(Workload):
     return super().run(scheduler, job_id, master_host, num_assigned_gpus, env)
 
   def __str__(self):
-    return "BERTGlueWorkload(task=%s, gpu_demand=%s, batch_size=%s, num_steps=%s, num_epochs=%s)" %\
-      (self.glue_task, self.gpu_demand, self.batch_size, self.num_steps, self.num_epochs)
+    return ("BERTGlueWorkload(task=%s, gpu_demand=%s, batch_size=%s, "\
+      "num_steps=%s, num_epochs=%s, num_virtual_nodes_per_device=%s)") %\
+       (self.glue_task, self.gpu_demand, self.batch_size, self.num_steps,\
+       self.num_epochs, self.num_virtual_nodes_per_device)
 
   def to_json(self):
     j = super().to_json()
@@ -160,7 +190,7 @@ class BERTGlueWorkload(Workload):
   @classmethod
   def from_json(cls, j):
     return BERTGlueWorkload(j["glue_task"], j["gpu_demand"], j["batch_size"],
-      j.get("num_steps"), j.get("num_epochs"))
+      j.get("num_steps"), j.get("num_epochs"), j.get("num_virtual_nodes_per_device"))
 
 class TransformerWorkload(Workload):
 
