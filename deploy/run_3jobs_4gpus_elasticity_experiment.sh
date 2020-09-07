@@ -4,7 +4,7 @@ source common.sh
 
 export DEBUG="true"
 ORIG_LOG_DIR="$LOG_DIR"
-for version in 1 2 3 4 5; do
+for version in 1 2 3; do
   TRACE_NAME="3jobs_4gpus_v${version}"
   TRACE_PATH="scheduler_traces/${TRACE_NAME}.json"
   for scheduler_mode in "WFS" "Priority"; do

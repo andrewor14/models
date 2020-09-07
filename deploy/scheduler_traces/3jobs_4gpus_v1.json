@@ -14,10 +14,10 @@
   "gpu_demand": 2,
   "priority": 5,
   "batch_size": 128,
-  "num_epochs": 200,
+  "num_epochs": 100,
   "dataset": "cifar10"
 }, {
-  "arrival_time": 600,
+  "arrival_time": 1500,
   "workload": "bert",
   "gpu_demand": 4,
   "priority": 10,
