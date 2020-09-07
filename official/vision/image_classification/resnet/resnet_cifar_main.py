@@ -305,6 +305,7 @@ def main(_):
   virtual_helper.initialize()
   with logger.benchmark_context(flags.FLAGS):
     return run(flags.FLAGS)
+  virtual_helper.maybe_force_exit()
 
 
 if __name__ == '__main__':

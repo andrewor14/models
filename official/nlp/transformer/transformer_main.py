@@ -488,6 +488,7 @@ def main(_):
       task.eval()
     else:
       raise ValueError("Invalid mode {}".format(flags_obj.mode))
+  virtual_helper.maybe_force_exit()
 
 
 if __name__ == "__main__":

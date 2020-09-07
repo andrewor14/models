@@ -312,6 +312,7 @@ def main(_):
   with logger.benchmark_context(flags.FLAGS):
     stats = run(flags.FLAGS)
   logging.info('Run stats:\n%s', stats)
+  virtual_helper.maybe_force_exit()
 
 
 if __name__ == '__main__':

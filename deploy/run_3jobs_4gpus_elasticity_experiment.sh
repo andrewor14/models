@@ -3,6 +3,7 @@
 source common.sh
 
 export DEBUG="true"
+export FORCE_EXIT="true"
 ORIG_LOG_DIR="$LOG_DIR"
 for version in 1 2 3; do
   TRACE_NAME="3jobs_4gpus_v${version}"

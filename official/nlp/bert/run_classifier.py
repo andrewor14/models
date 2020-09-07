@@ -416,6 +416,7 @@ def main(_):
   bert_config = bert_configs.BertConfig.from_json_file(FLAGS.bert_config_file)
   run_bert(strategy, input_meta_data, bert_config, train_input_fn,
            eval_input_fn)
+  virtual_helper.maybe_force_exit()
 
 
 if __name__ == '__main__':

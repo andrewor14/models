@@ -21,6 +21,7 @@ OMPI_MCA_initial_wdir = "OMPI_MCA_initial_wdir"
 RUN_SCRIPT = "RUN_SCRIPT"
 HOROVOD_COMPRESS = "HOROVOD_COMPRESS"
 HOROVOD_USE_CPU = "HOROVOD_USE_CPU"
+FORCE_EXIT = "FORCE_EXIT"
 
 # Constants
 LAUNCH_DIRECTORY = os.getenv(OMPI_MCA_initial_wdir, "")
@@ -81,6 +82,13 @@ def get_tf_config():
     return None
   else:
     return json.loads(tf_config)
+
+def maybe_force_exit():
+  """
+  If the env var FORCE_EXIT is set to true, force exit this program without cleaning up.
+  """
+  if os.getenv(FORCE_EXIT, "").lower() == "true":
+    os._exit(0)
 
 def get_input_context(comm=MPI.COMM_WORLD):
   """
