@@ -100,7 +100,7 @@ class Workload:
       j["num_steps"] = self.num_steps
     if self.num_epochs is not None:
       j["num_epochs"] = self.num_epochs
-    if self.virtual_nodes_per_device > 1:
+    if self.num_virtual_nodes_per_device > 1:
       j["num_virtual_nodes_per_device"] = self.num_virtual_nodes_per_device
     return j
 
@@ -231,7 +231,9 @@ def generate_trace(trace_path, num_jobs, jobs_per_hour, priorities, workload_siz
   workloads = []
   if workload_size == "tiny":
     workloads = tiny_workload()
-  elif workload_size == "medium" or workload_size == "big":
+  elif workload_size == "medium":
+    workloads = medium_workload()
+  elif workload_size == "big":
     raise ValueError("Workload size not supported yet: %s" % workload_size)
   else:
     raise ValueError("Unknown workload size: %s" % workload_size)
@@ -275,6 +277,69 @@ def tiny_workload(resnet_dataset="cifar10", glue_task="MRPC"):
     BERTGlueWorkload(glue_task, 1, 2, num_steps=200),
     BERTGlueWorkload(glue_task, 2, 4, num_steps=200),
     BERTGlueWorkload(glue_task, 4, 8, num_steps=200)
+  ]
+
+def medium_workload():
+  """
+  Return a list of medium workloads, intended for an 8x V100 GPU machine.
+  """
+  return [
+    ResNetWorkload("cifar10", 1, 64, num_epochs=50),
+    ResNetWorkload("cifar10", 1, 128, num_epochs=50),
+    ResNetWorkload("cifar10", 1, 128, num_epochs=100),
+    ResNetWorkload("cifar10", 1, 128, num_epochs=200),
+    ResNetWorkload("imagenet", 1, 256, num_epochs=1),
+    ResNetWorkload("imagenet", 2, 512, num_epochs=1),
+    ResNetWorkload("imagenet", 4, 1024, num_epochs=3),
+    ResNetWorkload("imagenet", 8, 2048, num_epochs=3),
+    ResNetWorkload("imagenet", 1, 512, num_epochs=1, num_virtual_nodes_per_device=2),
+    ResNetWorkload("imagenet", 2, 1024, num_epochs=1, num_virtual_nodes_per_device=2),
+    ResNetWorkload("imagenet", 4, 2048, num_epochs=5, num_virtual_nodes_per_device=2),
+    ResNetWorkload("imagenet", 8, 4096, num_epochs=10, num_virtual_nodes_per_device=2),
+    ResNetWorkload("imagenet", 1, 1024, num_epochs=1, num_virtual_nodes_per_device=4),
+    ResNetWorkload("imagenet", 2, 2048, num_epochs=1, num_virtual_nodes_per_device=4),
+    ResNetWorkload("imagenet", 4, 4096, num_epochs=5, num_virtual_nodes_per_device=4),
+    ResNetWorkload("imagenet", 8, 8192, num_epochs=10, num_virtual_nodes_per_device=4),
+    BERTGlueWorkload("CoLA", 1, 8, num_epochs=10),
+    BERTGlueWorkload("CoLA", 2, 16, num_epochs=10),
+    BERTGlueWorkload("CoLA", 4, 32, num_epochs=20),
+    BERTGlueWorkload("CoLA", 8, 64, num_epochs=20),
+    BERTGlueWorkload("CoLA", 1, 16, num_epochs=10, num_virtual_nodes_per_device=2),
+    BERTGlueWorkload("CoLA", 2, 32, num_epochs=10, num_virtual_nodes_per_device=2),
+    BERTGlueWorkload("CoLA", 4, 64, num_epochs=20, num_virtual_nodes_per_device=2),
+    BERTGlueWorkload("CoLA", 8, 128, num_epochs=20, num_virtual_nodes_per_device=2),
+    BERTGlueWorkload("SST-2", 1, 8, num_epochs=1),
+    BERTGlueWorkload("SST-2", 2, 16, num_epochs=1),
+    BERTGlueWorkload("SST-2", 4, 32, num_epochs=3),
+    BERTGlueWorkload("SST-2", 8, 64, num_epochs=3),
+    BERTGlueWorkload("SST-2", 1, 16, num_epochs=1, num_virtual_nodes_per_device=2),
+    BERTGlueWorkload("SST-2", 2, 32, num_epochs=1, num_virtual_nodes_per_device=2),
+    BERTGlueWorkload("SST-2", 4, 64, num_epochs=3, num_virtual_nodes_per_device=2),
+    BERTGlueWorkload("SST-2", 8, 128, num_epochs=3, num_virtual_nodes_per_device=2),
+    BERTGlueWorkload("MRPC", 1, 8, num_epochs=10),
+    BERTGlueWorkload("MRPC", 2, 16, num_epochs=10),
+    BERTGlueWorkload("MRPC", 4, 32, num_epochs=20),
+    BERTGlueWorkload("MRPC", 8, 64, num_epochs=20),
+    BERTGlueWorkload("MRPC", 1, 16, num_epochs=10, num_virtual_nodes_per_device=2),
+    BERTGlueWorkload("MRPC", 2, 32, num_epochs=10, num_virtual_nodes_per_device=2),
+    BERTGlueWorkload("MRPC", 4, 64, num_epochs=20, num_virtual_nodes_per_device=2),
+    BERTGlueWorkload("MRPC", 8, 128, num_epochs=20, num_virtual_nodes_per_device=2),
+    TransformerWorkload(1, 4096, num_steps=500),
+    TransformerWorkload(2, 8192, num_steps=500),
+    TransformerWorkload(4, 16384, num_steps=500),
+    TransformerWorkload(8, 32768, num_steps=500),
+    TransformerWorkload(1, 4096, num_steps=1000),
+    TransformerWorkload(2, 8192, num_steps=1000),
+    TransformerWorkload(4, 16384, num_steps=1000),
+    TransformerWorkload(8, 32768, num_steps=1000),
+    TransformerWorkload(1, 8192, num_steps=1000, num_virtual_nodes_per_device=2),
+    TransformerWorkload(2, 16384, num_steps=1000, num_virtual_nodes_per_device=2),
+    TransformerWorkload(4, 32768, num_steps=1000, num_virtual_nodes_per_device=2),
+    TransformerWorkload(8, 65536, num_steps=1000, num_virtual_nodes_per_device=2),
+    TransformerWorkload(1, 8192, num_steps=5000, num_virtual_nodes_per_device=2),
+    TransformerWorkload(2, 16384, num_steps=5000, num_virtual_nodes_per_device=2),
+    TransformerWorkload(4, 32768, num_steps=5000, num_virtual_nodes_per_device=2),
+    TransformerWorkload(8, 65536, num_steps=5000, num_virtual_nodes_per_device=2)
   ]
 
 def main():
