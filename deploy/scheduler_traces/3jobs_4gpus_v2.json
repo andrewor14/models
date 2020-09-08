@@ -9,7 +9,7 @@
   "num_virtual_nodes_per_device": 2,
   "glue_task": "SST-2"
 }, {
-  "arrival_time": 300,
+  "arrival_time": 240,
   "workload": "resnet",
   "gpu_demand": 2,
   "priority": 5,
@@ -17,7 +17,7 @@
   "num_epochs": 100,
   "dataset": "cifar10"
 }, {
-  "arrival_time": 1800,
+  "arrival_time": 1500,
   "workload": "bert",
   "gpu_demand": 4,
   "priority": 10,
