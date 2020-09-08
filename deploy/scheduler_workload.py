@@ -324,18 +324,18 @@ def medium_workload():
     BERTGlueWorkload("MRPC", 2, 32, num_epochs=10, num_virtual_nodes_per_device=2), # 5 mins
     BERTGlueWorkload("MRPC", 4, 64, num_epochs=20, num_virtual_nodes_per_device=2), # 8 mins
     BERTGlueWorkload("MRPC", 8, 128, num_epochs=20, num_virtual_nodes_per_device=2), # 8 mins
-    TransformerWorkload(1, 2048, num_steps=1000), # 4 mins
-    TransformerWorkload(2, 4096, num_steps=1000), # 4 mins
-    TransformerWorkload(4, 8192, num_steps=1000), # 6 mins
-    TransformerWorkload(8, 16384, num_steps=1000), # 5 mins
-    TransformerWorkload(1, 2048, num_steps=2000), # 8 mins
-    TransformerWorkload(2, 4096, num_steps=2000), # 8 mins
-    TransformerWorkload(4, 8192, num_steps=2000), # 12 mins
-    TransformerWorkload(8, 16384, num_steps=2000), # 9 mins
-    TransformerWorkload(1, 4096, num_steps=2000, num_virtual_nodes_per_device=2), # 16 mins
-    TransformerWorkload(2, 8192, num_steps=2000, num_virtual_nodes_per_device=2), # 16 mins
-    TransformerWorkload(4, 16384, num_steps=2000, num_virtual_nodes_per_device=2), # 24 mins
-    TransformerWorkload(8, 32768, num_steps=2000, num_virtual_nodes_per_device=2), # 18 mins
+    TransformerWorkload(1, 1024, num_steps=2000), # 4 mins
+    TransformerWorkload(2, 2048, num_steps=2000), # 4 mins
+    TransformerWorkload(4, 4096, num_steps=2000), # 6 mins
+    TransformerWorkload(8, 8192, num_steps=2000), # 5 mins
+    TransformerWorkload(1, 1024, num_steps=4000), # 8 mins
+    TransformerWorkload(2, 2048, num_steps=4000), # 8 mins
+    TransformerWorkload(4, 4096, num_steps=4000), # 12 mins
+    TransformerWorkload(8, 8192, num_steps=4000), # 9 mins
+    TransformerWorkload(1, 2048, num_steps=4000, num_virtual_nodes_per_device=2), # 16 mins
+    TransformerWorkload(2, 4096, num_steps=4000, num_virtual_nodes_per_device=2), # 16 mins
+    TransformerWorkload(4, 8192, num_steps=4000, num_virtual_nodes_per_device=2), # 24 mins
+    TransformerWorkload(8, 16384, num_steps=4000, num_virtual_nodes_per_device=2), # 18 mins
   ]
 
 def main():

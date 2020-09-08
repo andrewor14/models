@@ -1,7 +1,7 @@
 [
   {"arrival_time": 1, "workload": "resnet", "priority": 5, "gpu_demand": 8, "batch_size": 8192, "num_epochs": 5, "num_virtual_nodes_per_device": 4, "dataset": "imagenet"},
   {"arrival_time": 286, "workload": "bert", "priority": 1, "gpu_demand": 4, "batch_size": 32, "num_epochs": 20, "glue_task": "CoLA"},
-  {"arrival_time": 788, "workload": "transformer", "priority": 10, "gpu_demand": 1, "batch_size": 2048, "num_steps": 2000},
+  {"arrival_time": 788, "workload": "transformer", "priority": 10, "gpu_demand": 1, "batch_size": 1024, "num_steps": 4000},
   {"arrival_time": 1441, "workload": "bert", "priority": 10, "gpu_demand": 1, "batch_size": 8, "num_epochs": 10, "glue_task": "MRPC"},
   {"arrival_time": 2081, "workload": "resnet", "priority": 1, "gpu_demand": 2, "batch_size": 512, "num_epochs": 1, "dataset": "imagenet"},
   {"arrival_time": 2411, "workload": "bert", "priority": 1, "gpu_demand": 4, "batch_size": 64, "num_epochs": 20, "num_virtual_nodes_per_device": 2, "glue_task": "CoLA"},
@@ -10,7 +10,7 @@
   {"arrival_time": 2757, "workload": "bert", "priority": 10, "gpu_demand": 2, "batch_size": 32, "num_epochs": 1, "num_virtual_nodes_per_device": 2, "glue_task": "SST-2"},
   {"arrival_time": 3315, "workload": "bert", "priority": 1, "gpu_demand": 8, "batch_size": 64, "num_epochs": 20, "glue_task": "CoLA"},
   {"arrival_time": 3342, "workload": "resnet", "priority": 1, "gpu_demand": 8, "batch_size": 8192, "num_epochs": 5, "num_virtual_nodes_per_device": 4, "dataset": "imagenet"},
-  {"arrival_time": 3540, "workload": "transformer", "priority": 5, "gpu_demand": 8, "batch_size": 16384, "num_steps": 1000},
+  {"arrival_time": 3540, "workload": "transformer", "priority": 5, "gpu_demand": 8, "batch_size": 8192, "num_steps": 2000},
   {"arrival_time": 3843, "workload": "bert", "priority": 5, "gpu_demand": 8, "batch_size": 64, "num_epochs": 20, "glue_task": "CoLA"},
   {"arrival_time": 3926, "workload": "bert", "priority": 1, "gpu_demand": 4, "batch_size": 64, "num_epochs": 20, "num_virtual_nodes_per_device": 2, "glue_task": "MRPC"},
   {"arrival_time": 4140, "workload": "bert", "priority": 10, "gpu_demand": 1, "batch_size": 16, "num_epochs": 1, "num_virtual_nodes_per_device": 2, "glue_task": "SST-2"},
