@@ -17,12 +17,12 @@
   "num_epochs": 100,
   "dataset": "cifar10"
 }, {
-  "arrival_time": 960,
+  "arrival_time": 1020,
   "workload": "bert",
   "gpu_demand": 4,
   "priority": 10,
   "batch_size": 32,
   "num_steps": 327,
-  "num_epochs": 10,
+  "num_epochs": 15,
   "glue_task": "QNLI"
 }]
