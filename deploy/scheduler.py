@@ -18,6 +18,7 @@ from deploy.scheduler_workload import *
 SCHEDULER_PORT = 18383
 LOOP_INTERVAL_SECONDS = 1
 DEBUG = os.getenv("DEBUG", "").lower() == "true"
+GPU_RELEASE_WAIT_SECONDS = int(os.getenv("GPU_RELEASE_WAIT_SECONDS", 0))
 
 def get_scheduler_client(host):
   """
@@ -372,16 +373,29 @@ class WorkloadScheduler:
     Called by a job to report that it has transitioned to a new cluster configuration.
     `released_gpus` is a list of 2-tuple (host, gpu_index).
     """
-    with self.lock:
-      self.log("Job %s successfully resized to %s GPUs" % (job_id, new_size))
-      for host, gpu_index in released_gpus:
-        if self.gpu_assignment[host][gpu_index] != job_id:
-          raise ValueError("Job %s released GPU %s on host %s " % (job_id, gpu_index, host) +
-            "but that GPU was never assigned to that job")
-        self.gpu_assignment[host][gpu_index] = None
-      if len(released_gpus) > 0 and DEBUG:
-        self.log("Job %s released %s GPUs, new GPU assignment: %s" %\
-          (job_id, len(released_gpus), self.gpu_assignment))
+    self.log("Job %s successfully resized to %s GPUs" % (job_id, new_size))
+    if len(released_gpus) == 0:
+      return
+    # Optionally wait a few seconds before releasing the GPUs
+    # Here we do this in a separate thread to avoid blocking the RPC server
+    def release_gpus():
+      if GPU_RELEASE_WAIT_SECONDS > 0:
+        if DEBUG:
+          self.log("Waiting %s seconds before releasing %s GPUs from Job %s" %\
+            (GPU_RELEASE_WAIT_SECONDS, len(released_gpus), job_id))
+        time.sleep(GPU_RELEASE_WAIT_SECONDS)
+      with self.lock:
+        for host, gpu_index in released_gpus:
+          if self.gpu_assignment[host][gpu_index] != job_id:
+            raise ValueError("Job %s released GPU %s on host %s " % (job_id, gpu_index, host) +
+              "but that GPU was never assigned to that job")
+          self.gpu_assignment[host][gpu_index] = None
+        if DEBUG:
+          self.log("Job %s released %s GPUs, new GPU assignment: %s" %\
+            (job_id, len(released_gpus), self.gpu_assignment))
+    t = threading.Thread(target=release_gpus)
+    t.setDaemon(True)
+    t.start()
 
   def get_available_gpus(self, n=sys.maxsize):
     """

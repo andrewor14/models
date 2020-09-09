@@ -75,6 +75,13 @@ class RunJobEvent(Event):
         process.wait()
         seconds_elapsed = time.time() - start_time
         scheduler.log("Job %s finished, took %.1f seconds" % (job_id, seconds_elapsed))
+        # Optionally wait for a few seconds before proceeding, to ensure GPUs are released
+        from deploy.scheduler import GPU_RELEASE_WAIT_SECONDS
+        if GPU_RELEASE_WAIT_SECONDS > 0:
+          if DEBUG:
+            scheduler.log("Waiting %s seconds before releasing Job %s's GPUs" %\
+              (GPU_RELEASE_WAIT_SECONDS, job_id))
+          time.sleep(GPU_RELEASE_WAIT_SECONDS)
         with scheduler.lock:
           # Unassign GPUs
           for host in scheduler.gpu_assignment.keys():

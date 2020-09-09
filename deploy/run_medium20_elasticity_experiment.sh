@@ -5,6 +5,7 @@ source common.sh
 export DEBUG="true"
 export FORCE_EXIT="true"
 export SKIP_EVAL="true"
+export GPU_RELEASE_WAIT_SECONDS="10"
 ORIG_LOG_DIR="$LOG_DIR"
 SCHEDULER_MODE="${SCHEDULER_MODE:=WFS Priority}"
 for trace_name in medium20_8jph medium20_12jph; do
