@@ -62,38 +62,42 @@ if [[ "$BERT_TASK" == "glue" ]]; then
     exit 0
   fi
 
-  # 1/10 of QNLI
-  export NUM_EXAMPLES_PER_EPOCH="10474"
-  export GLUE_TASK="QNLI"
-  run_it
+  ## 1/10 of QNLI
+  #export NUM_EXAMPLES_PER_EPOCH="10474"
+  #export GLUE_TASK="QNLI"
+  #run_it
 
-  # 1/10 of SST-2
-  export NUM_EXAMPLES_PER_EPOCH="6735"
-  export GLUE_TASK="SST-2"
-  run_it
+  ## 1/10 of SST-2
+  #export NUM_EXAMPLES_PER_EPOCH="6735"
+  #export GLUE_TASK="SST-2"
+  #run_it
 
   # CoLA
+  export NUM_EPOCHS="50"
   export NUM_EXAMPLES_PER_EPOCH="8551"
   export GLUE_TASK="CoLA"
   run_it
 
   # MRPC
+  export NUM_EPOCHS="50"
   export NUM_EXAMPLES_PER_EPOCH="3668"
   export GLUE_TASK="MRPC"
   run_it
 
   # RTE
+  export NUM_EPOCHS="50"
   export NUM_EXAMPLES_PER_EPOCH="2490"
   export GLUE_TASK="RTE"
   run_it
 
-  # 1/100 of MNLI
-  export NUM_EXAMPLES_PER_EPOCH="3927"
-  export GLUE_TASK="MNLI"
-  run_it
+  ## 1/100 of MNLI
+  #export NUM_EXAMPLES_PER_EPOCH="3927"
+  #export GLUE_TASK="MNLI"
+  #run_it
 
-  # 1/100 of QQP
-  export NUM_EXAMPLES_PER_EPOCH="3638"
+  # 1/10 of QQP
+  export NUM_EPOCHS="10"
+  export NUM_EXAMPLES_PER_EPOCH="36385"
   export GLUE_TASK="QQP"
   run_it
 
