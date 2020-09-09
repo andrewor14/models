@@ -301,30 +301,30 @@ def medium_workload():
     ResNetWorkload("imagenet", 4, 2048, num_epochs=3, num_virtual_nodes_per_device=4), # 17 mins
     ResNetWorkload("imagenet", 8, 4096, num_epochs=5, num_virtual_nodes_per_device=4), # 14 mins
     ResNetWorkload("imagenet", 8, 8192, num_epochs=5, num_virtual_nodes_per_device=8), # 14 mins
-    BERTGlueWorkload("CoLA", 1, 8, num_epochs=10), # 15 mins
-    BERTGlueWorkload("CoLA", 2, 16, num_epochs=10), # 11 mins
-    BERTGlueWorkload("CoLA", 4, 32, num_epochs=20), # 20 mins
-    BERTGlueWorkload("CoLA", 8, 64, num_epochs=20), # 19 mins
-    BERTGlueWorkload("CoLA", 1, 16, num_epochs=10, num_virtual_nodes_per_device=2), # 15 mins
-    BERTGlueWorkload("CoLA", 2, 32, num_epochs=10, num_virtual_nodes_per_device=2), # 11 mins
-    BERTGlueWorkload("CoLA", 4, 64, num_epochs=20, num_virtual_nodes_per_device=2), # 20 mins
-    BERTGlueWorkload("CoLA", 8, 128, num_epochs=20, num_virtual_nodes_per_device=2), # 19 mins
-    BERTGlueWorkload("SST-2", 1, 8, num_epochs=1), # 10 mins
-    BERTGlueWorkload("SST-2", 2, 16, num_epochs=1), # 9 mins
-    BERTGlueWorkload("SST-2", 4, 32, num_epochs=1), # 8 mins
-    BERTGlueWorkload("SST-2", 8, 64, num_epochs=1), # 7 mins
-    BERTGlueWorkload("SST-2", 1, 16, num_epochs=1, num_virtual_nodes_per_device=2), # 10 mins
-    BERTGlueWorkload("SST-2", 2, 32, num_epochs=1, num_virtual_nodes_per_device=2), # 9 mins
-    BERTGlueWorkload("SST-2", 4, 64, num_epochs=3, num_virtual_nodes_per_device=2), # 24 mins
-    BERTGlueWorkload("SST-2", 8, 128, num_epochs=3, num_virtual_nodes_per_device=2), # 21 mins
-    BERTGlueWorkload("MRPC", 1, 8, num_epochs=10), # 6 mins
-    BERTGlueWorkload("MRPC", 2, 16, num_epochs=10), # 5 mins
-    BERTGlueWorkload("MRPC", 4, 32, num_epochs=20), # 8 mins
-    BERTGlueWorkload("MRPC", 8, 64, num_epochs=20), # 8 mins
-    BERTGlueWorkload("MRPC", 1, 16, num_epochs=10, num_virtual_nodes_per_device=2), # 6 mins
-    BERTGlueWorkload("MRPC", 2, 32, num_epochs=10, num_virtual_nodes_per_device=2), # 5 mins
-    BERTGlueWorkload("MRPC", 4, 64, num_epochs=20, num_virtual_nodes_per_device=2), # 8 mins
-    BERTGlueWorkload("MRPC", 8, 128, num_epochs=20, num_virtual_nodes_per_device=2), # 8 mins
+    BERTGlueWorkload("CoLA", 1, 4, num_epochs=10), # 15 mins
+    BERTGlueWorkload("CoLA", 2, 8, num_epochs=10), # 11 mins
+    BERTGlueWorkload("CoLA", 4, 16, num_epochs=20), # 20 mins
+    BERTGlueWorkload("CoLA", 8, 32, num_epochs=20), # 19 mins
+    BERTGlueWorkload("CoLA", 1, 8, num_epochs=10, num_virtual_nodes_per_device=2), # 15 mins
+    BERTGlueWorkload("CoLA", 2, 16, num_epochs=10, num_virtual_nodes_per_device=2), # 11 mins
+    BERTGlueWorkload("CoLA", 4, 32, num_epochs=20, num_virtual_nodes_per_device=2), # 20 mins
+    BERTGlueWorkload("CoLA", 8, 64, num_epochs=20, num_virtual_nodes_per_device=2), # 19 mins
+    BERTGlueWorkload("SST-2", 1, 4, num_epochs=1), # 10 mins
+    BERTGlueWorkload("SST-2", 2, 8, num_epochs=1), # 9 mins
+    BERTGlueWorkload("SST-2", 4, 16, num_epochs=1), # 8 mins
+    BERTGlueWorkload("SST-2", 8, 32, num_epochs=1), # 7 mins
+    BERTGlueWorkload("SST-2", 1, 8, num_epochs=1, num_virtual_nodes_per_device=2), # 10 mins
+    BERTGlueWorkload("SST-2", 2, 16, num_epochs=1, num_virtual_nodes_per_device=2), # 9 mins
+    BERTGlueWorkload("SST-2", 4, 32, num_epochs=3, num_virtual_nodes_per_device=2), # 24 mins
+    BERTGlueWorkload("SST-2", 8, 64, num_epochs=3, num_virtual_nodes_per_device=2), # 21 mins
+    BERTGlueWorkload("MRPC", 1, 4, num_epochs=10), # 6 mins
+    BERTGlueWorkload("MRPC", 2, 8, num_epochs=10), # 5 mins
+    BERTGlueWorkload("MRPC", 4, 16, num_epochs=20), # 8 mins
+    BERTGlueWorkload("MRPC", 8, 32, num_epochs=20), # 8 mins
+    BERTGlueWorkload("MRPC", 1, 8, num_epochs=10, num_virtual_nodes_per_device=2), # 6 mins
+    BERTGlueWorkload("MRPC", 2, 16, num_epochs=10, num_virtual_nodes_per_device=2), # 5 mins
+    BERTGlueWorkload("MRPC", 4, 32, num_epochs=20, num_virtual_nodes_per_device=2), # 8 mins
+    BERTGlueWorkload("MRPC", 8, 64, num_epochs=20, num_virtual_nodes_per_device=2), # 8 mins
     TransformerWorkload(1, 1024, num_steps=2000), # 4 mins
     TransformerWorkload(2, 2048, num_steps=2000), # 4 mins
     TransformerWorkload(4, 4096, num_steps=2000), # 6 mins
