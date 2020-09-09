@@ -288,18 +288,19 @@ def medium_workload():
     ResNetWorkload("cifar10", 1, 128, num_epochs=10), # 6 mins
     ResNetWorkload("cifar10", 1, 64, num_epochs=20), # 12 mins
     ResNetWorkload("cifar10", 1, 128, num_epochs=20), # 12 mins
-    ResNetWorkload("imagenet", 1, 256, num_epochs=1), # 18 mins
-    ResNetWorkload("imagenet", 2, 512, num_epochs=1), # 10 mins
-    ResNetWorkload("imagenet", 4, 1024, num_epochs=3), # 17 mins
-    ResNetWorkload("imagenet", 8, 2048, num_epochs=3), # 8 mins
-    ResNetWorkload("imagenet", 1, 512, num_epochs=1, num_virtual_nodes_per_device=2), # 18 mins
-    ResNetWorkload("imagenet", 2, 1024, num_epochs=1, num_virtual_nodes_per_device=2), # 10 mins
-    ResNetWorkload("imagenet", 4, 2048, num_epochs=3, num_virtual_nodes_per_device=2), # 17 mins
-    ResNetWorkload("imagenet", 8, 4096, num_epochs=5, num_virtual_nodes_per_device=2), # 14 mins
-    ResNetWorkload("imagenet", 1, 1024, num_epochs=1, num_virtual_nodes_per_device=4), # 18 mins
-    ResNetWorkload("imagenet", 2, 2048, num_epochs=1, num_virtual_nodes_per_device=4), # 10 mins
-    ResNetWorkload("imagenet", 4, 4096, num_epochs=3, num_virtual_nodes_per_device=4), # 17 mins
-    ResNetWorkload("imagenet", 8, 8192, num_epochs=5, num_virtual_nodes_per_device=4), # 14 mins
+    ResNetWorkload("imagenet", 1, 128, num_epochs=1), # 18 mins
+    ResNetWorkload("imagenet", 2, 256, num_epochs=1), # 10 mins
+    ResNetWorkload("imagenet", 4, 512, num_epochs=3), # 17 mins
+    ResNetWorkload("imagenet", 8, 1024, num_epochs=3), # 8 mins
+    ResNetWorkload("imagenet", 1, 256, num_epochs=1, num_virtual_nodes_per_device=2), # 18 mins
+    ResNetWorkload("imagenet", 2, 512, num_epochs=1, num_virtual_nodes_per_device=2), # 10 mins
+    ResNetWorkload("imagenet", 4, 1024, num_epochs=3, num_virtual_nodes_per_device=2), # 17 mins
+    ResNetWorkload("imagenet", 8, 2048, num_epochs=5, num_virtual_nodes_per_device=2), # 14 mins
+    ResNetWorkload("imagenet", 1, 512, num_epochs=1, num_virtual_nodes_per_device=4), # 18 mins
+    ResNetWorkload("imagenet", 2, 1024, num_epochs=1, num_virtual_nodes_per_device=4), # 10 mins
+    ResNetWorkload("imagenet", 4, 2048, num_epochs=3, num_virtual_nodes_per_device=4), # 17 mins
+    ResNetWorkload("imagenet", 8, 4096, num_epochs=5, num_virtual_nodes_per_device=4), # 14 mins
+    ResNetWorkload("imagenet", 8, 8192, num_epochs=5, num_virtual_nodes_per_device=8), # 14 mins
     BERTGlueWorkload("CoLA", 1, 8, num_epochs=10), # 15 mins
     BERTGlueWorkload("CoLA", 2, 16, num_epochs=10), # 11 mins
     BERTGlueWorkload("CoLA", 4, 32, num_epochs=20), # 20 mins
