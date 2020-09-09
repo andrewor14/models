@@ -62,6 +62,18 @@ if [[ "$BERT_TASK" == "glue" ]]; then
     exit 0
   fi
 
+  # RTE
+  export NUM_EPOCHS="50"
+  export NUM_EXAMPLES_PER_EPOCH="2490"
+  export GLUE_TASK="RTE"
+  run_it
+
+  # 1/10 of QQP
+  export NUM_EPOCHS="10"
+  export NUM_EXAMPLES_PER_EPOCH="36385"
+  export GLUE_TASK="QQP"
+  run_it
+
   ## 1/10 of QNLI
   #export NUM_EXAMPLES_PER_EPOCH="10474"
   #export GLUE_TASK="QNLI"
@@ -84,22 +96,10 @@ if [[ "$BERT_TASK" == "glue" ]]; then
   export GLUE_TASK="MRPC"
   run_it
 
-  # RTE
-  export NUM_EPOCHS="50"
-  export NUM_EXAMPLES_PER_EPOCH="2490"
-  export GLUE_TASK="RTE"
-  run_it
-
   ## 1/100 of MNLI
   #export NUM_EXAMPLES_PER_EPOCH="3927"
   #export GLUE_TASK="MNLI"
   #run_it
-
-  # 1/10 of QQP
-  export NUM_EPOCHS="10"
-  export NUM_EXAMPLES_PER_EPOCH="36385"
-  export GLUE_TASK="QQP"
-  run_it
 
 elif [[ "$BERT_TASK" == "pretraining" ]]; then
   unset NUM_EPOCHS
