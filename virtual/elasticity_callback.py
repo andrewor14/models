@@ -419,6 +419,9 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
     Check if we need to resize the cluster and, if so, transition to the new cluster.
     """
     self.current_batch = batch
+    # Never transition on the very first batch
+    if self.current_epoch == 0 and batch == 0:
+      return
     # New workers should run a batch before joining the cluster
     # This significantly shortens the GPU idle time during transitions because the existing
     # workers do not have to wait for the new workers to bootstrap, which can take minutes.
