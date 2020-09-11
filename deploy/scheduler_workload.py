@@ -294,6 +294,7 @@ def medium_workload():
     ResNetWorkload("imagenet", 8, 1024, num_epochs=3), # 8 mins
     ResNetWorkload("imagenet", 1, 256, num_epochs=1, num_virtual_nodes_per_device=2), # 18 mins
     ResNetWorkload("imagenet", 2, 512, num_epochs=1, num_virtual_nodes_per_device=2), # 10 mins
+    ResNetWorkload("imagenet", 4, 256, num_epochs=3, num_virtual_nodes_per_device=2),
     ResNetWorkload("imagenet", 4, 1024, num_epochs=3, num_virtual_nodes_per_device=2), # 17 mins
     ResNetWorkload("imagenet", 8, 2048, num_epochs=5, num_virtual_nodes_per_device=2), # 14 mins
     ResNetWorkload("imagenet", 1, 512, num_epochs=1, num_virtual_nodes_per_device=4), # 18 mins
@@ -333,6 +334,7 @@ def medium_workload():
     TransformerWorkload(2, 2048, num_steps=4000), # 8 mins
     TransformerWorkload(4, 4096, num_steps=4000), # 12 mins
     TransformerWorkload(8, 8192, num_steps=4000), # 9 mins
+    TransformerWorkload(8, 2048, num_steps=4000),
     TransformerWorkload(1, 2048, num_steps=4000, num_virtual_nodes_per_device=2), # 16 mins
     TransformerWorkload(2, 4096, num_steps=4000, num_virtual_nodes_per_device=2), # 16 mins
     TransformerWorkload(4, 8192, num_steps=4000, num_virtual_nodes_per_device=2), # 24 mins
