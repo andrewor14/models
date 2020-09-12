@@ -113,6 +113,16 @@ print_diff_and_env() {
   echo -e "--------------------------------------------------------------------------"
   printenv
   echo -e "==========================================================================\n"
+  # Optionally print current python processes
+  if [[ "$PRINT_PROCESSES" == "true" ]]; then
+    echo -e "\n=========================================================================="
+    echo -e "Current running processes:"
+    echo -e "--------------------------------------------------------------------------"
+    ps aux | grep 'python\|run_distributed'
+    echo -e "--------------------------------------------------------------------------"
+    nvidia-smi
+    echo -e "==========================================================================\n"
+  fi
 }
 
 # If this is a spawned process, set the log file accordingly

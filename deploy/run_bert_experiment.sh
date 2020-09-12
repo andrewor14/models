@@ -48,7 +48,7 @@ function run_it() {
     if [[ "$BERT_TASK" == "glue" ]]; then
       export RUN_TAG="${GLUE_TASK}_${RUN_TAG}"
     fi
-    echo "Running $BERT_TASK experiment $RUN_TAG for $NUM_EPOCHS epochs and $NUM_STEPS steps per eopch"
+    echo "Running $BERT_TASK experiment $RUN_TAG for $NUM_EPOCHS epochs and $NUM_STEPS steps per epoch"
     ./run_distributed.sh
   done
 }
