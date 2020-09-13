@@ -171,10 +171,8 @@ def run(flags_obj):
     distribution_utils.undo_set_up_synthetic_data()
     input_fn = cifar_preprocessing.input_fn
 
-  # The batch sizes used by the input datasets may be smaller than the actual batch size
-  # because each device may process multiple virtual nodes.
-  # TODO: better handling for the case when the batch size doesn't divide
-  virtual_node_batch_size = flags_obj.batch_size // flags_obj.num_virtual_nodes_per_device
+  virtual_node_batch_size = virtual_helper.get_virtual_batch_size(\
+    flags_obj.batch_size, flags_obj.num_virtual_nodes_per_device)
   input_context = virtual_helper.get_input_context()
 
   train_input_dataset = input_fn(

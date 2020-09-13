@@ -141,12 +141,11 @@ def get_dataset_fn(input_file_pattern, max_seq_length, global_batch_size,
 
   def _dataset_fn(ctx=None):
     """Returns tf.data.Dataset for distributed BERT pretraining."""
+    from virtual import virtual_helper
     batch_size = ctx.get_per_replica_batch_size(
         global_batch_size) if ctx else global_batch_size
-    # The batch sizes used by the input datasets may be smaller than the actual batch size
-    # because each device may process multiple virtual nodes.
-    # TODO: better handling for the case when the batch size doesn't divide
-    virtual_node_batch_size = batch_size // FLAGS.num_virtual_nodes_per_device
+    virtual_node_batch_size = virtual_helper.get_virtual_batch_size(\
+      batch_size, FLAGS.num_virtual_nodes_per_device)
 
     dataset = input_pipeline.create_squad_dataset(
         input_file_pattern,

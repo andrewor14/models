@@ -96,6 +96,20 @@ def get_input_context(comm=MPI.COMM_WORLD):
   """
   return tf.distribute.InputContext(comm.size, comm.rank)
 
+def get_virtual_batch_size(batch_size, num_virtual_nodes_per_device):
+  """
+  Return the number of examples to be processed per virtual node.
+  """
+  # In elasticity mode, we don't rely on tensorflow's experimental_distribute_dataset
+  # to further split our dataset across the devices, so we need to further divide our
+  # batch size here to ensure everyone gets the right batch size
+  from virtual.elasticity_callback import ENABLE_ELASTICITY
+  if ENABLE_ELASTICITY:
+    return batch_size // (num_virtual_nodes_per_device * int(os.environ[NUM_NODES]))
+  else:
+    # TODO: better handling for the case when the batch size doesn't divide
+    return batch_size // num_virtual_nodes_per_device
+
 def get_checkpoint_path(checkpoint_dir):
   """
   Given a checkpoint directory, return the path to the final checkpoint in the directory.

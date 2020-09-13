@@ -225,10 +225,8 @@ def _read_and_batch_from_files(
   Returns:
     tf.data.Dataset object containing examples loaded from the files.
   """
-  # The batch sizes used by the input datasets may be smaller than the actual batch size
-  # because each device may process multiple virtual nodes.
-  # TODO: better handling for the case when the batch size doesn't divide
-  batch_size = batch_size // num_virtual_nodes_per_device
+  from virtual.virtual_helper import get_virtual_batch_size
+  batch_size = get_virtual_batch_size(batch_size, num_virtual_nodes_per_device)
   dataset = tf.data.Dataset.list_files(file_pattern, shuffle=shuffle)
 
   if ctx and ctx.num_input_pipelines > 1:
@@ -274,10 +272,9 @@ def _read_and_batch_from_files(
 
 def _generate_synthetic_data(params):
   """Create synthetic data based on the parameter batch size."""
-  # The batch sizes used by the input datasets may be smaller than the actual batch size
-  # because each device may process multiple virtual nodes.
-  # TODO: better handling for the case when the batch size doesn't divide
-  virtual_node_batch_size = params["batch_size"] // params["num_virtual_nodes_per_device"]
+  from virtual.virtual_helper import get_virtual_batch_size
+  virtual_node_batch_size = get_virtual_batch_size(\
+    params["batch_size"], params["num_virtual_nodes_per_device"])
   batch = length = int(math.sqrt(virtual_node_batch_size))
   dataset = model_helpers.generate_synthetic_data(
       input_shape=tf.TensorShape([length]),

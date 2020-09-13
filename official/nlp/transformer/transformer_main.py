@@ -244,7 +244,8 @@ class TransformerTask(object):
           .experimental_distribute_datasets_from_function(
               lambda ctx: data_pipeline.train_input_fn(params, ctx)))
     else:
-      train_ds = data_pipeline.train_input_fn(params)
+      input_context = virtual_helper.get_input_context()
+      train_ds = data_pipeline.train_input_fn(params, input_context)
       map_data_fn = data_pipeline.map_data_for_transformer_fn
       train_ds = train_ds.map(
           map_data_fn, num_parallel_calls=params["num_parallel_calls"])
