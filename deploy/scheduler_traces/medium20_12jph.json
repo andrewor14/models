@@ -1,0 +1,22 @@
+[
+  {"arrival_time": 1, "workload": "resnet", "priority": 5, "gpu_demand": 8, "batch_size": 2048, "num_epochs": 2, "dataset": "imagenet"},
+  {"arrival_time": 187, "workload": "transformer", "priority": 5, "gpu_demand": 4, "batch_size": 32768, "num_steps": 1000, "num_virtual_nodes_per_device": 2},
+  {"arrival_time": 361, "workload": "transformer", "priority": 5, "gpu_demand": 4, "batch_size": 16384, "num_steps": 1000},
+  {"arrival_time": 458, "workload": "bert", "priority": 10, "gpu_demand": 2, "batch_size": 16, "num_epochs": 10, "glue_task": "CoLA"},
+  {"arrival_time": 499, "workload": "bert", "priority": 5, "gpu_demand": 1, "batch_size": 8, "num_epochs": 1, "glue_task": "SST-2"},
+  {"arrival_time": 668, "workload": "bert", "priority": 1, "gpu_demand": 2, "batch_size": 16, "num_epochs": 1, "glue_task": "SST-2"},
+  {"arrival_time": 730, "workload": "resnet", "priority": 1, "gpu_demand": 8, "batch_size": 4096, "num_epochs": 3, "num_virtual_nodes_per_device": 2, "dataset": "imagenet"},
+  {"arrival_time": 1188, "workload": "bert", "priority": 5, "gpu_demand": 4, "batch_size": 32, "num_epochs": 10, "glue_task": "CoLA"},
+  {"arrival_time": 1239, "workload": "bert", "priority": 1, "gpu_demand": 1, "batch_size": 16, "num_epochs": 10, "num_virtual_nodes_per_device": 2, "glue_task": "CoLA"},
+  {"arrival_time": 1499, "workload": "resnet", "priority": 5, "gpu_demand": 1, "batch_size": 128, "num_epochs": 20, "dataset": "cifar10"},
+  {"arrival_time": 1520, "workload": "resnet", "priority": 5, "gpu_demand": 1, "batch_size": 256, "num_epochs": 1, "dataset": "imagenet"},
+  {"arrival_time": 1843, "workload": "bert", "priority": 5, "gpu_demand": 4, "batch_size": 64, "num_epochs": 20, "num_virtual_nodes_per_device": 2, "glue_task": "CoLA"},
+  {"arrival_time": 1999, "workload": "resnet", "priority": 5, "gpu_demand": 2, "batch_size": 2048, "num_epochs": 1, "num_virtual_nodes_per_device": 4, "dataset": "imagenet"},
+  {"arrival_time": 2676, "workload": "transformer", "priority": 10, "gpu_demand": 4, "batch_size": 16384, "num_steps": 500},
+  {"arrival_time": 2874, "workload": "bert", "priority": 1, "gpu_demand": 2, "batch_size": 32, "num_epochs": 1, "num_virtual_nodes_per_device": 2, "glue_task": "SST-2"},
+  {"arrival_time": 2888, "workload": "resnet", "priority": 1, "gpu_demand": 8, "batch_size": 8192, "num_epochs": 3, "num_virtual_nodes_per_device": 4, "dataset": "imagenet"},
+  {"arrival_time": 3834, "workload": "bert", "priority": 5, "gpu_demand": 8, "batch_size": 128, "num_epochs": 2, "num_virtual_nodes_per_device": 2, "glue_task": "SST-2"},
+  {"arrival_time": 4742, "workload": "resnet", "priority": 10, "gpu_demand": 1, "batch_size": 512, "num_epochs": 1, "num_virtual_nodes_per_device": 2, "dataset": "imagenet"},
+  {"arrival_time": 4767, "workload": "bert", "priority": 5, "gpu_demand": 8, "batch_size": 64, "num_epochs": 10, "glue_task": "CoLA"},
+  {"arrival_time": 5032, "workload": "transformer", "priority": 10, "gpu_demand": 8, "batch_size": 32768, "num_steps": 1000}
+]
