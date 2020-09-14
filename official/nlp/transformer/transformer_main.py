@@ -234,6 +234,7 @@ class TransformerTask(object):
 
     model.summary()
 
+    dynamic_input_fn = None
     if self.use_tpu:
       # Different from experimental_distribute_dataset,
       # experimental_distribute_datasets_from_function requires
@@ -245,10 +246,15 @@ class TransformerTask(object):
               lambda ctx: data_pipeline.train_input_fn(params, ctx)))
     else:
       input_context = virtual_helper.get_input_context()
-      train_ds = data_pipeline.train_input_fn(params, input_context)
+      _input_fn = lambda ctx: data_pipeline.train_input_fn(params, ctx)
+      train_ds = _input_fn(input_context)
       map_data_fn = data_pipeline.map_data_for_transformer_fn
       train_ds = train_ds.map(
           map_data_fn, num_parallel_calls=params["num_parallel_calls"])
+      # If elasticity is enabled, provide a function to reshard the data
+      from virtual.elasticity_callback import ENABLE_ELASTICITY
+      dynamic_input_fn = _input_fn if ENABLE_ELASTICITY else None
+
     if params["use_ctl"]:
       train_ds_iterator = iter(train_ds)
 
@@ -340,7 +346,8 @@ class TransformerTask(object):
             callbacks=callbacks,
             # If TimeHistory is enabled, progress bar would be messy. Increase
             # the verbose level to get rid of it.
-            verbose=(2 if flags_obj.enable_time_history else 1))
+            verbose=(2 if flags_obj.enable_time_history else 1),
+            dynamic_input_fn=dynamic_input_fn)
         current_step += train_steps_per_eval
         logging.info("Train history: {}".format(history.history))
 

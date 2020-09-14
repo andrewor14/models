@@ -175,7 +175,7 @@ def run(flags_obj):
     flags_obj.batch_size, flags_obj.num_virtual_nodes_per_device)
   input_context = virtual_helper.get_input_context()
 
-  train_input_dataset = input_fn(
+  _input_fn = lambda ctx: input_fn(
       is_training=True,
       data_dir=flags_obj.data_dir,
       batch_size=virtual_node_batch_size,
@@ -186,7 +186,13 @@ def run(flags_obj):
       # layer, which triggers tf.where and leads to extra memory copy of input
       # sizes between host and GPU.
       drop_remainder=(not flags_obj.enable_get_next_as_optional),
-      input_context=input_context)
+      input_context=ctx)
+
+  # If elasticity is enabled, provide a function to reshard the data
+  from virtual.elasticity_callback import ENABLE_ELASTICITY
+  dynamic_input_fn = _input_fn if ENABLE_ELASTICITY else None
+
+  train_input_dataset = _input_fn(input_context)
 
   eval_input_dataset = None
   if not flags_obj.skip_eval:
@@ -268,7 +274,8 @@ def run(flags_obj):
                       validation_steps=num_eval_steps,
                       validation_data=validation_data,
                       validation_freq=flags_obj.epochs_between_evals,
-                      verbose=2)
+                      verbose=2,
+                      dynamic_input_fn=dynamic_input_fn)
   eval_output = None
   if not flags_obj.skip_eval:
     eval_output = model.evaluate(eval_input_dataset,

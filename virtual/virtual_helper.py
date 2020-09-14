@@ -90,11 +90,17 @@ def maybe_force_exit():
   if os.getenv(FORCE_EXIT, "").lower() == "true":
     os._exit(0)
 
-def get_input_context(comm=MPI.COMM_WORLD):
+def get_input_context():
   """
   Return a `tf.distribute.InputContext`s that matches this process' rank.
   """
-  return tf.distribute.InputContext(comm.size, comm.rank)
+  from virtual.elasticity_callback import ENABLE_ELASTICITY, ELASTICITY_CALLBACK, SPAWN_RANK
+  if ENABLE_ELASTICITY:
+    size = ELASTICITY_CALLBACK.get_expected_size()
+    rank = int(os.getenv(SPAWN_RANK, 0))
+    return tf.distribute.InputContext(size, rank)
+  else:
+    return tf.distribute.InputContext(MPI.COMM_WORLD.size, MPI.COMM_WORLD.rank)
 
 def get_virtual_batch_size(batch_size, num_virtual_nodes_per_device):
   """

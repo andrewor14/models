@@ -152,6 +152,7 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       server.register_function(self.set_num_workers)
       server.register_function(self.spawn)
       server.register_function(self.handle_join)
+      server.register_function(self.get_expected_size)
       t = threading.Thread(target=server.serve_forever)
       t.setDaemon(True)
       t.start()
@@ -160,6 +161,10 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       # spawn the remaining workers so the fates of the workers are not tied
       self.awaiting_initial_workers = num_nodes > 1
       self.spawn(num_nodes - 1)
+    else:
+      self.master_client = get_elasticity_client(\
+        os.environ[ELASTICITY_MASTER], self.job_id)
+
 
   def assign_gpus(self, n, all_possible_hosts=None):
     """
@@ -203,6 +208,16 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       self.spawn(num_workers - self.comm.size)
     else:
       self.new_size = num_workers
+
+  def get_expected_size(self):
+    """
+    Return the expected size of the new cluster, including all spawned workers, if any.
+    If this is not called on a worker, we will send request this information from the master.
+    """
+    if self.is_master:
+      return self.comm.size + len(self.spawned_communicators)
+    else:
+      return self.master_client.get_expected_size()
 
   def spawn(self, n):
     """
@@ -426,13 +441,8 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
     # This significantly shortens the GPU idle time during transitions because the existing
     # workers do not have to wait for the new workers to bootstrap, which can take minutes.
     if self.is_joining and batch == 1:
-      self.comm.barrier()
-      new_size = None
-      # Notify the master the new workers are ready to join the cluster
-      if self.comm.rank == 0:
-        master_client = get_elasticity_client(os.environ[ELASTICITY_MASTER], self.job_id)
-        new_size = master_client.handle_join(int(os.environ[SPAWN_RANK]))
-      new_size = self.comm.bcast(new_size, root=0)
+      # Notify the master this worker is ready to join the cluster
+      new_size = self.master_client.handle_join(int(os.environ[SPAWN_RANK]))
       self.transition(new_size)
       self.is_joining = False
     else:

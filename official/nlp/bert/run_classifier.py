@@ -205,6 +205,10 @@ def run_keras_compile_fit(model_dir,
     bert_model, sub_model = model_fn()
     optimizer = bert_model.optimizer
 
+    # If elasticity is enabled, provide a function to reshard the data
+    from virtual.elasticity_callback import ENABLE_ELASTICITY
+    dynamic_input_fn = train_input_fn if ENABLE_ELASTICITY else None
+
     if init_checkpoint:
       checkpoint = tf.train.Checkpoint(model=sub_model)
       checkpoint.restore(init_checkpoint).assert_existing_objects_matched()
@@ -217,7 +221,8 @@ def run_keras_compile_fit(model_dir,
         steps_per_epoch=steps_per_epoch,
         epochs=epochs,
         validation_steps=eval_steps,
-        callbacks=custom_callbacks)
+        callbacks=custom_callbacks,
+        dynamic_input_fn=dynamic_input_fn)
 
     return bert_model
 
