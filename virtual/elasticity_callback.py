@@ -397,8 +397,9 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
     bcast_parameters = None
     sending_ranks = list(range(old_size))
     if self.comm.rank in sending_ranks:
-      bcast_parameters = [v.value() for v in np.array_split(\
-        self.model.trainable_variables, old_size)[self.comm.rank]]
+      bcast_parameters = self.model.non_trainable_variables + self.model.trainable_variables
+      bcast_parameters = [v.value() for v in\
+        np.array_split(bcast_parameters, old_size)[self.comm.rank]]
     bcast_parameters = self.comm.allgather(bcast_parameters)
 
     # Update model on receiving ranks
@@ -407,9 +408,14 @@ class ElasticityCallback(tf.keras.callbacks.Callback):
       for p in bcast_parameters:
         if p is not None:
           received_parameters.extend(p)
-      assert(len(received_parameters) == len(self.model.trainable_variables))
+      assert(len(received_parameters) == len(self.model.non_trainable_variables) +\
+        len(self.model.trainable_variables))
+      non_trainable_variables = received_parameters[:len(self.model.non_trainable_variables)]
+      trainable_variables = received_parameters[-len(self.model.trainable_variables):]
       tf.python.keras.backend.batch_set_value(\
-        list(zip(self.model.trainable_variables, received_parameters)))
+        list(zip(self.model.trainable_variables, trainable_variables)))
+      tf.python.keras.backend.batch_set_value(\
+        list(zip(self.model.non_trainable_variables, non_trainable_variables)))
 
     self.log_parameters("[After transfer] ", old_size)
 
