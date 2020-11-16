@@ -201,7 +201,8 @@ def _read_and_batch_from_files(file_pattern,
                                repeat,
                                static_batch=False,
                                num_replicas=1,
-                               ctx=None):
+                               ctx=None,
+                               num_virtual_nodes_per_device=1):
   """Create dataset where each item is a dict of "inputs" and "targets".
 
   Args:
@@ -230,6 +231,8 @@ def _read_and_batch_from_files(file_pattern,
   Returns:
     tf.data.Dataset object containing examples loaded from the files.
   """
+  from virtual.virtual_helper import get_virtual_batch_size
+  batch_size = get_virtual_batch_size(batch_size, num_virtual_nodes_per_device)
   dataset = tf.data.Dataset.list_files(file_pattern, shuffle=shuffle)
 
   if ctx and ctx.num_input_pipelines > 1:
@@ -276,7 +279,10 @@ def _read_and_batch_from_files(file_pattern,
 
 def _generate_synthetic_data(params):
   """Create synthetic data based on the parameter batch size."""
+  from virtual.virtual_helper import get_virtual_batch_size
   batch_size = int(params["batch_size"] // params["max_length"])
+  batch_size = get_virtual_node_batch_size(\
+    batch_size, params["num_virtual_nodes_per_device"])
   length = params["max_length"]
   dataset = model_helpers.generate_synthetic_data(
       input_shape=tf.TensorShape([length]),
@@ -307,7 +313,8 @@ def train_input_fn(params, ctx=None):
       repeat=params["repeat_dataset"],
       static_batch=params["static_batch"],
       num_replicas=params["num_gpus"],
-      ctx=ctx)
+      ctx=ctx,
+      num_virtual_nodes_per_device=params["num_virtual_nodes_per_device"])
 
 
 def eval_input_fn(params, ctx=None):
@@ -324,7 +331,8 @@ def eval_input_fn(params, ctx=None):
       repeat=1,
       static_batch=params["static_batch"],
       num_replicas=params["num_gpus"],
-      ctx=ctx)
+      ctx=ctx,
+      num_virtual_nodes_per_device=params["num_virtual_nodes_per_device"])
 
 
 def map_data_for_transformer_fn(x, y):
@@ -332,3 +340,4 @@ def map_data_for_transformer_fn(x, y):
   # Will transform input x and targets y into tuple(x, y) as new model inputs.
   # For TF v2, the 2nd parameter is omitted to make Keras training work.
   return ((x, y),)
+

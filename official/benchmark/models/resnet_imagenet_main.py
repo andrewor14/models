@@ -34,6 +34,7 @@ from official.vision.image_classification import test_utils
 from official.vision.image_classification.resnet import common
 from official.vision.image_classification.resnet import imagenet_preprocessing
 from official.vision.image_classification.resnet import resnet_model
+from virtual import virtual_helper
 
 
 def _cluster_last_three_conv2d_layers(model):
@@ -146,10 +147,14 @@ def run(flags_obj):
   use_keras_image_data_format = \
     (flags_obj.model == 'mobilenet' or flags_obj.model == 'mobilenet_pretrained')
 
-  train_input_dataset = input_fn(
+  virtual_node_batch_size = virtual_helper.get_virtual_batch_size(\
+    flags_obj.batch_size, flags_obj.num_virtual_nodes_per_device)
+  input_context = virtual_helper.get_input_context()
+
+  _input_fn = lambda ctx: input_fn(
       is_training=True,
       data_dir=flags_obj.data_dir,
-      batch_size=flags_obj.batch_size,
+      batch_size=virtual_node_batch_size,
       parse_record_fn=imagenet_preprocessing.get_parse_record_fn(
           use_keras_image_data_format=use_keras_image_data_format),
       datasets_num_private_threads=flags_obj.datasets_num_private_threads,
@@ -157,21 +162,29 @@ def run(flags_obj):
       drop_remainder=drop_remainder,
       tf_data_experimental_slack=flags_obj.tf_data_experimental_slack,
       training_dataset_cache=flags_obj.training_dataset_cache,
-  )
+      input_context=ctx)
+
+  # If elasticity is enabled, provide a function to reshard the data
+  from virtual.elasticity_callback import ENABLE_ELASTICITY
+  dynamic_input_fn = _input_fn if ENABLE_ELASTICITY else None
+
+  train_input_dataset = _input_fn(input_context)
 
   eval_input_dataset = None
   if not flags_obj.skip_eval:
     eval_input_dataset = input_fn(
         is_training=False,
         data_dir=flags_obj.data_dir,
-        batch_size=flags_obj.batch_size,
+        batch_size=virtual_node_batch_size,
         parse_record_fn=imagenet_preprocessing.get_parse_record_fn(
             use_keras_image_data_format=use_keras_image_data_format),
         dtype=dtype,
-        drop_remainder=drop_remainder)
+        drop_remainder=drop_remainder,
+        input_context=input_context)
 
+  learning_rate_batch_size = flags_obj.learning_rate_batch_size or flags_obj.batch_size
   lr_schedule = common.PiecewiseConstantDecayWithWarmup(
-      batch_size=flags_obj.batch_size,
+      batch_size=learning_rate_batch_size,
       epoch_size=imagenet_preprocessing.NUM_IMAGES['train'],
       warmup_epochs=common.LR_SCHEDULE[0][1],
       boundaries=list(p[1] for p in common.LR_SCHEDULE[1:]),
@@ -185,7 +198,7 @@ def run(flags_obj):
       optimizer = common.get_optimizer(lr_schedule)
     elif flags_obj.optimizer == 'mobilenet_default' or flags_obj.optimizer == 'mobilenet_fine_tune':
       initial_learning_rate = \
-          flags_obj.initial_learning_rate_per_sample * flags_obj.batch_size
+          flags_obj.initial_learning_rate_per_sample * learning_rate_batch_size
       if flags_obj.optimizer == 'mobilenet_fine_tune':
         initial_learning_rate = 1e-5
       optimizer = tf.keras.optimizers.SGD(
@@ -226,6 +239,7 @@ def run(flags_obj):
           layers=tf.keras.layers)
 
     if flags_obj.pretrained_filepath:
+      logging.info("Restoring from checkpoint %s" % flags_obj.pretrained_filepath)
       model.load_weights(flags_obj.pretrained_filepath)
 
     if flags_obj.pruning_method == 'polynomial_decay':
@@ -269,12 +283,13 @@ def run(flags_obj):
   callbacks = common.get_callbacks(
       pruning_method=flags_obj.pruning_method,
       enable_checkpoint_and_export=flags_obj.enable_checkpoint_and_export,
-      model_dir=flags_obj.model_dir)
+      model_dir=flags_obj.model_dir,
+      num_checkpoints_to_keep=flags_obj.num_checkpoints_to_keep,
+      enable_monitor_memory=flags_obj.enable_monitor_memory,
+      enable_elasticity=flags_obj.enable_elasticity)
 
-  # If mutliple epochs, ignore the train_steps flag.
-  if train_epochs <= 1 and flags_obj.train_steps:
+  if flags_obj.train_steps:
     steps_per_epoch = min(flags_obj.train_steps, steps_per_epoch)
-    train_epochs = 1
 
   num_eval_steps = (
       imagenet_preprocessing.NUM_IMAGES['validation'] // flags_obj.batch_size)
@@ -304,7 +319,8 @@ def run(flags_obj):
                       validation_steps=num_eval_steps,
                       validation_data=validation_data,
                       validation_freq=flags_obj.epochs_between_evals,
-                      verbose=2)
+                      verbose=2,
+                      dynamic_input_fn=dynamic_input_fn)
 
   eval_output = None
   if not flags_obj.skip_eval:
@@ -346,8 +362,10 @@ def define_imagenet_keras_flags():
 
 def main(_):
   model_helpers.apply_clean(flags.FLAGS)
+  virtual_helper.initialize()
   stats = run(flags.FLAGS)
   logging.info('Run stats:\n%s', stats)
+  virtual_helper.maybe_force_exit()
 
 
 if __name__ == '__main__':

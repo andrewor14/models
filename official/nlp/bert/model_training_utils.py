@@ -322,39 +322,83 @@ def run_customized_training_loop(
     # Collects training variables.
     training_vars = model.trainable_variables
 
-    def _replicated_step(inputs):
+    def _replicated_step(iterator):
       """Replicated training step."""
+      # DUPLICATE CODE ALERT: the logic here mirrors that in this file closely:
+      # https://github.com/andrewor14/tensorflow/blob/6da0d8a19b44d6b5008a0712047151321dfe0199
+      #   /tensorflow/python/keras/engine/training.py#L527-L580
+      num_virtual_nodes = int(os.getenv("NUM_VIRTUAL_NODES_PER_DEVICE") or 1)
 
-      inputs, labels = inputs
-      with tf.GradientTape() as tape:
-        model_outputs = model(inputs, training=True)
-        loss = loss_fn(labels, model_outputs)
-        # Raw loss is used for reporting in metrics/logs.
-        raw_loss = loss
-        if scale_loss:
-          # Scales down the loss for gradients to be invariant from replicas.
-          loss = loss / strategy.num_replicas_in_sync
-
-      if explicit_allreduce:
-        grad_utils.minimize_using_explicit_allreduce(tape, optimizer, loss,
-                                                     training_vars,
-                                                     pre_allreduce_callbacks,
-                                                     post_allreduce_callbacks,
-                                                     allreduce_bytes_per_pack)
-      else:
-        if isinstance(optimizer,
-                      tf.keras.mixed_precision.experimental.LossScaleOptimizer):
-          with tape:
-            scaled_loss = optimizer.get_scaled_loss(loss)
-          scaled_grads = tape.gradient(scaled_loss, training_vars)
-          grads = optimizer.get_unscaled_gradients(scaled_grads)
+      aggregated_gradients = None
+      for i in range(num_virtual_nodes):
+        # Ensure we have finished running the previous virtual node before proceeding
+        if aggregated_gradients is not None:
+          dependencies = [g for g in aggregated_gradients if g is not None]
         else:
-          grads = tape.gradient(loss, training_vars)
-        optimizer.apply_gradients(zip(grads, training_vars))
-      # For reporting, the metric takes the mean of losses.
-      train_loss_metric.update_state(raw_loss)
-      for metric in train_metrics:
-        metric.update_state(labels, model_outputs)
+          dependencies = []
+        with tf.control_dependencies(dependencies):
+          print_op = tf.print("Training on virtual node %s/%s" %\
+            (i+1, num_virtual_nodes))
+        with tf.control_dependencies([print_op]):
+          inputs, labels = next(iterator)
+          with tf.GradientTape() as tape:
+            model_outputs = model(inputs, training=True)
+            loss = loss_fn(labels, model_outputs)
+            # Raw loss is used for reporting in metrics/logs.
+            raw_loss = loss
+            if scale_loss:
+              # Scales down the loss for gradients to be invariant from replicas.
+              loss = loss / strategy.num_replicas_in_sync
+
+          if explicit_allreduce:
+            if i > 0:
+              raise ValueError("Virtual node processing and explicit allreduce are not compatible")
+            grad_utils.minimize_using_explicit_allreduce(tape, optimizer, loss,
+                                                         training_vars,
+                                                         pre_allreduce_callbacks,
+                                                         post_allreduce_callbacks,
+                                                         allreduce_bytes_per_pack)
+          else:
+            if isinstance(optimizer,
+                          tf.keras.mixed_precision.experimental.LossScaleOptimizer):
+              with tape:
+                scaled_loss = optimizer.get_scaled_loss(loss)
+              scaled_grads = tape.gradient(scaled_loss, training_vars)
+              grads = optimizer.get_unscaled_gradients(scaled_grads)
+            else:
+              grads = tape.gradient(loss, training_vars)
+
+            # Convert all IndexedSlices to dense tensors
+            # TODO: find a more efficient way to handle this, e.g. processing them in place
+            for j, grad in enumerate(grads):
+              if isinstance(grad, tf.IndexedSlices):
+                grads[j] = tf.convert_to_tensor(grad)
+
+            # Aggregate gradients across virtual nodes
+            # We sum them here and divide them later
+            if aggregated_gradients is None:
+              aggregated_gradients = grads
+            else:
+              if len(aggregated_gradients) != len(grads):
+                raise ValueError("Wrong number of gradients %s, expected %s" %\
+                  (len(grads), len(aggregated_gradients)))
+              for j in range(len(grads)):
+                if aggregated_gradients[j] is not None and grads[j] is not None:
+                  aggregated_gradients[j] += grads[j]
+
+          # For reporting, the metric takes the mean of losses.
+          train_loss_metric.update_state(raw_loss)
+          for metric in train_metrics:
+            metric.update_state(labels, model_outputs)
+
+      # Finish averaging local gradients across virtual nodes before synchronizing
+      # them with other devices. If we are using explicit_allreduce, then we have
+      # already synchronized and applied the gradients.
+      if not explicit_allreduce:
+        for j in range(len(aggregated_gradients)):
+          if aggregated_gradients[j] is not None:
+            aggregated_gradients[j] /= num_virtual_nodes
+        optimizer.apply_gradients(zip(aggregated_gradients, training_vars))
 
     @tf.function
     def train_steps(iterator, steps):
@@ -373,7 +417,7 @@ def run_customized_training_loop(
                          'retracing.')
 
       for _ in tf.range(steps):
-        strategy.run(_replicated_step, args=(next(iterator),))
+        strategy.run(_replicated_step, args=(iterator,))
 
     def train_single_step(iterator):
       """Performs a distributed training step.
@@ -384,21 +428,34 @@ def run_customized_training_loop(
       Raises:
         ValueError: Any of the arguments or tensor shapes are invalid.
       """
-      strategy.run(_replicated_step, args=(next(iterator),))
+      strategy.run(_replicated_step, args=(iterator,))
 
     def test_step(iterator):
       """Calculates evaluation metrics on distributed devices."""
 
-      def _test_step_fn(inputs):
+      def _test_step_fn(iterator):
         """Replicated accuracy calculation."""
+        num_virtual_nodes = int(os.getenv("NUM_VIRTUAL_NODES_PER_DEVICE") or 1)
 
-        inputs, labels = inputs
-        model_outputs = model(inputs, training=False)
-        for metric in eval_metrics:
-          metric.update_state(labels, model_outputs)
+        control_dependencies = []
+        for i in range(num_virtual_nodes):
+          # Ensure we have finished running the previous virtual node before proceeding
+          with tf.control_dependencies(control_dependencies):
+            print_op = tf.print("Evaluating on virtual node %s/%s" %\
+              (i+1, num_virtual_nodes))
+          with tf.control_dependencies([print_op]):
+            inputs, labels = next(iterator)
+            model_outputs = model(inputs, training=False)
+            for metric in eval_metrics:
+              metric.update_state(labels, model_outputs)
+            if isinstance(model_outputs, list):
+              control_dependencies = model_outputs
+            else:
+              control_dependencies = [model_outputs]
+        # TODO: merge the model outputs across virtual nodes
         return model_outputs, labels
 
-      outputs, labels = strategy.run(_test_step_fn, args=(next(iterator),))
+      outputs, labels = strategy.run(_test_step_fn, args=(iterator,))
       outputs = tf.nest.map_structure(strategy.experimental_local_results,
                                       outputs)
       labels = tf.nest.map_structure(strategy.experimental_local_results,

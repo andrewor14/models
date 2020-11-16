@@ -96,3 +96,5 @@ ENV/
 
 # For mac
 .DS_Store
+
+*.swp

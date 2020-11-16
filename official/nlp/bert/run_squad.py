@@ -29,11 +29,13 @@ from absl import logging
 import gin
 import tensorflow as tf
 from official.common import distribute_utils
+from official.nlp.bert import common_flags
 from official.nlp.bert import configs as bert_configs
 from official.nlp.bert import run_squad_helper
 from official.nlp.bert import tokenization
 from official.nlp.data import squad_lib as squad_lib_wp
 from official.utils.misc import keras_utils
+from virtual import virtual_helper
 
 
 flags.DEFINE_string('vocab_file', None,
@@ -94,6 +96,7 @@ def export_squad(model_export_path, input_meta_data):
 
 def main(_):
   gin.parse_config_files_and_bindings(FLAGS.gin_file, FLAGS.gin_param)
+  virtual_helper.initialize()
 
   with tf.io.gfile.GFile(FLAGS.input_meta_data_path, 'rb') as reader:
     input_meta_data = json.loads(reader.read().decode('utf-8'))
@@ -112,14 +115,14 @@ def main(_):
       tpu_address=FLAGS.tpu)
 
   if 'train' in FLAGS.mode:
-    if FLAGS.log_steps:
-      custom_callbacks = [keras_utils.TimeHistory(
-          batch_size=FLAGS.train_batch_size,
-          log_steps=FLAGS.log_steps,
-          logdir=FLAGS.model_dir,
-      )]
-    else:
-      custom_callbacks = None
+    custom_callbacks = common_flags.get_callbacks(
+      batch_size=FLAGS.train_batch_size,
+      model_dir=FLAGS.model_dir,
+      log_steps=FLAGS.log_steps,
+      enable_checkpoints=FLAGS.enable_checkpoints,
+      num_checkpoints_to_keep=FLAGS.num_checkpoints_to_keep,
+      enable_monitor_memory=FLAGS.enable_monitor_memory,
+      enable_elasticity=FLAGS.enable_elasticity)
 
     train_squad(
         strategy,
@@ -144,6 +147,9 @@ def main(_):
     squad_lib_wp.write_to_json_files(
         eval_metrics, os.path.join(summary_dir, 'eval_metrics.json'))
     time.sleep(60)
+
+  if FLAGS.model_export_path:
+    export_squad(FLAGS.model_export_path, input_meta_data)
 
 
 if __name__ == '__main__':

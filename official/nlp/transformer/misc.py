@@ -217,6 +217,22 @@ def define_transformer_flags():
           'If True, then only the model\'s weights will be saved '
           '(`model.save_weights(filepath)`), else the full model is saved '
           '(`model.save(filepath)`)'))
+  flags.DEFINE_integer(
+      name='num_checkpoints_to_keep', default=5,
+      help='Number of most recent checkpoints to keep, only read if '
+      '`enable_checkpointing` is set.')
+  flags.DEFINE_integer(
+      name='num_virtual_nodes_per_device', default=1,
+      help='Number of virtual nodes mapped to each device in each batch. '
+      'Virtual nodes are processed one after another, with the number of examples '
+      'processed per virtual node equal to the per device batch size divided by '
+      'this value.')
+  flags.DEFINE_boolean(
+      name='enable_monitor_memory', default=False,
+      help='Whether to enable a callback that periodically monitors GPU memory usage.')
+  flags.DEFINE_boolean(
+      name='enable_elasticity', default=False,
+      help='Whether to enable a callback that provides resource elasticity.')
 
   flags_core.set_defaults(
       data_dir='/tmp/translate_ende',

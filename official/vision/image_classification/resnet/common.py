@@ -26,6 +26,7 @@ from tensorflow.python.keras.optimizer_v2 import gradient_descent as gradient_de
 import tensorflow_model_optimization as tfmot
 from official.utils.flags import core as flags_core
 from official.utils.misc import keras_utils
+from virtual import elasticity_callback, virtual_helper
 
 FLAGS = flags.FLAGS
 BASE_LEARNING_RATE = 0.1  # This matches Jing's version.
@@ -112,9 +113,13 @@ def get_optimizer(learning_rate=0.1):
   return gradient_descent_v2.SGD(learning_rate=learning_rate, momentum=0.9)
 
 
-def get_callbacks(pruning_method=None,
-                  enable_checkpoint_and_export=False,
-                  model_dir=None):
+def get_callbacks(
+    pruning_method=None,
+    enable_checkpoint_and_export=False,
+    model_dir=None,
+    num_checkpoints_to_keep=None,
+    enable_monitor_memory=False,
+    enable_elasticity=False):
   """Returns common callbacks."""
   time_callback = keras_utils.TimeHistory(
       FLAGS.batch_size,
@@ -135,12 +140,24 @@ def get_callbacks(pruning_method=None,
           tfmot.sparsity.keras.PruningSummaries(
               log_dir=model_dir, profile_batch=0))
 
-  if enable_checkpoint_and_export:
+  if enable_checkpoint_and_export and virtual_helper.is_master():
     if model_dir is not None:
       ckpt_full_path = os.path.join(model_dir, 'model.ckpt-{epoch:04d}')
       callbacks.append(
           tf.keras.callbacks.ModelCheckpoint(
               ckpt_full_path, save_weights_only=True))
+      callbacks.append(virtual_helper.DeleteOldCheckpointsCallback(
+        model_dir, num_checkpoints_to_keep))
+
+  if enable_monitor_memory:
+    callbacks.append(virtual_helper.MonitorMemoryCallback())
+
+  if enable_elasticity:
+    from virtual.elasticity_callback import ELASTICITY_CALLBACK
+    if ELASTICITY_CALLBACK is None:
+      raise ValueError("Singleton elasticity callback was None")
+    callbacks.append(ELASTICITY_CALLBACK)
+
   return callbacks
 
 
@@ -249,6 +266,10 @@ def define_keras_flags(dynamic_loss_scale=True,
       name='enable_tensorboard',
       default=False,
       help='Whether to enable Tensorboard callback.')
+  flags.DEFINE_integer(
+      name='train_steps', default=None,
+      help='The number of steps to run for training in each epoch. If it is '
+      'larger than # batches per epoch, then use # batches per epoch.')
   flags.DEFINE_string(
       name='profile_steps',
       default=None,
@@ -289,6 +310,25 @@ def define_keras_flags(dynamic_loss_scale=True,
       help='Whether to build a tf.while_loop inside the training loop on the '
       'host. Setting it to True is critical to have peak performance on '
       'TPU.')
+  flags.DEFINE_integer(
+      name='num_virtual_nodes_per_device', default=1,
+      help='Number of virtual nodes mapped to each device in each batch. '
+      'Virtual nodes are processed one after another, with the number of examples '
+      'processed per virtual node equal to the per device batch size divided by '
+      'this value.')
+  flags.DEFINE_integer(
+      name='num_checkpoints_to_keep', default=5,
+      help='Number of most recent checkpoints to keep, only read if '
+      '`enable_checkpoint_and_export` is set.')
+  flags.DEFINE_boolean(
+      name='enable_monitor_memory', default=False,
+      help='Whether to enable a callback that periodically monitors GPU memory usage.')
+  flags.DEFINE_boolean(
+      name='enable_elasticity', default=False,
+      help='Whether to enable a callback that provides resource elasticity.')
+  flags.DEFINE_integer(
+      name='learning_rate_batch_size', default=None,
+      help='If provided, use this batch size for the learning rate schedule.')
 
   if model:
     flags.DEFINE_string('model', 'resnet50_v1.5',

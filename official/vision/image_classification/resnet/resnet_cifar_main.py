@@ -31,6 +31,8 @@ from official.common import distribute_utils
 from official.utils.flags import core as flags_core
 from official.utils.misc import keras_utils
 from official.vision.image_classification.resnet import common
+from official.vision.image_classification.resnet import resnet_cifar_model
+from virtual import virtual_helper
 
 
 LR_SCHEDULE = [  # (multiplier, epoch to start) tuples
@@ -171,31 +173,44 @@ def run(flags_obj):
     synthetic_util.undo_set_up_synthetic_data()
     input_fn = cifar_preprocessing.input_fn
 
-  train_input_dataset = input_fn(
+  virtual_node_batch_size = virtual_helper.get_virtual_batch_size(\
+    flags_obj.batch_size, flags_obj.num_virtual_nodes_per_device)
+  input_context = virtual_helper.get_input_context()
+
+  _input_fn = lambda ctx: input_fn(
       is_training=True,
       data_dir=flags_obj.data_dir,
-      batch_size=flags_obj.batch_size,
+      batch_size=virtual_node_batch_size,
       parse_record_fn=cifar_preprocessing.parse_record,
       datasets_num_private_threads=flags_obj.datasets_num_private_threads,
       dtype=dtype,
       # Setting drop_remainder to avoid the partial batch logic in normalization
       # layer, which triggers tf.where and leads to extra memory copy of input
       # sizes between host and GPU.
-      drop_remainder=(not flags_obj.enable_get_next_as_optional))
+      drop_remainder=(not flags_obj.enable_get_next_as_optional),
+      input_context=ctx)
+
+  # If elasticity is enabled, provide a function to reshard the data
+  from virtual.elasticity_callback import ENABLE_ELASTICITY
+  dynamic_input_fn = _input_fn if ENABLE_ELASTICITY else None
+
+  train_input_dataset = _input_fn(input_context)
 
   eval_input_dataset = None
   if not flags_obj.skip_eval:
     eval_input_dataset = input_fn(
         is_training=False,
         data_dir=flags_obj.data_dir,
-        batch_size=flags_obj.batch_size,
-        parse_record_fn=cifar_preprocessing.parse_record)
+        batch_size=virtual_node_batch_size,
+        parse_record_fn=cifar_preprocessing.parse_record,
+        input_context=input_context)
 
   steps_per_epoch = (
       cifar_preprocessing.NUM_IMAGES['train'] // flags_obj.batch_size)
+  learning_rate_batch_size = flags_obj.learning_rate_batch_size or flags_obj.batch_size
   lr_schedule = 0.1
   if flags_obj.use_tensor_lr:
-    initial_learning_rate = common.BASE_LEARNING_RATE * flags_obj.batch_size / 128
+    initial_learning_rate = common.BASE_LEARNING_RATE * learning_rate_batch_size / 128
     lr_schedule = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
         boundaries=list(p[1] * steps_per_epoch for p in LR_SCHEDULE),
         values=[initial_learning_rate] +
@@ -204,6 +219,11 @@ def run(flags_obj):
   with strategy_scope:
     optimizer = common.get_optimizer(lr_schedule)
     model = resnet_cifar_model.resnet56(classes=cifar_preprocessing.NUM_CLASSES)
+
+    if flags_obj.pretrained_filepath:
+      logging.info("Restoring from checkpoint %s" % flags_obj.pretrained_filepath)
+      model.load_weights(flags_obj.pretrained_filepath)
+
     model.compile(
         loss='sparse_categorical_crossentropy',
         optimizer=optimizer,
@@ -213,19 +233,22 @@ def run(flags_obj):
 
   train_epochs = flags_obj.train_epochs
 
-  callbacks = common.get_callbacks()
+  callbacks = common.get_callbacks(
+    enable_checkpoint_and_export=flags_obj.enable_checkpoint_and_export,
+    model_dir=flags_obj.model_dir,
+    num_checkpoints_to_keep=flags_obj.num_checkpoints_to_keep,
+    enable_monitor_memory=flags_obj.enable_monitor_memory,
+    enable_elasticity=flags_obj.enable_elasticity)
 
   if not flags_obj.use_tensor_lr:
     lr_callback = LearningRateBatchScheduler(
         schedule=learning_rate_schedule,
-        batch_size=flags_obj.batch_size,
+        batch_size=learning_rate_batch_size,
         steps_per_epoch=steps_per_epoch)
     callbacks.append(lr_callback)
 
-  # if mutliple epochs, ignore the train_steps flag.
-  if train_epochs <= 1 and flags_obj.train_steps:
+  if flags_obj.train_steps:
     steps_per_epoch = min(flags_obj.train_steps, steps_per_epoch)
-    train_epochs = 1
 
   num_eval_steps = (cifar_preprocessing.NUM_IMAGES['validation'] //
                     flags_obj.batch_size)
@@ -252,12 +275,21 @@ def run(flags_obj):
                       validation_steps=num_eval_steps,
                       validation_data=validation_data,
                       validation_freq=flags_obj.epochs_between_evals,
-                      verbose=2)
+                      verbose=2,
+                      dynamic_input_fn=dynamic_input_fn)
   eval_output = None
   if not flags_obj.skip_eval:
     eval_output = model.evaluate(eval_input_dataset,
                                  steps=num_eval_steps,
                                  verbose=2)
+
+  if flags_obj.enable_checkpoint_and_export:
+    if dtype == tf.bfloat16:
+      logging.warning('Keras model.save does not support bfloat16 dtype.')
+    else:
+      # Keras model.save assumes a float32 input designature.
+      export_path = os.path.join(flags_obj.model_dir, 'saved_model')
+      model.save(export_path, include_optimizer=False)
 
   if not strategy and flags_obj.explicit_gpu_placement:
     no_dist_strat_device.__exit__()
@@ -267,7 +299,7 @@ def run(flags_obj):
 
 
 def define_cifar_flags():
-  common.define_keras_flags(dynamic_loss_scale=False)
+  common.define_keras_flags(dynamic_loss_scale=False, pretrained_filepath=True)
 
   flags_core.set_defaults(data_dir='/tmp/cifar10_data/cifar-10-batches-bin',
                           model_dir='/tmp/cifar10_model',
@@ -276,6 +308,7 @@ def define_cifar_flags():
 
 
 def main(_):
+  virtual_helper.initialize()
   return run(flags.FLAGS)
 
 
