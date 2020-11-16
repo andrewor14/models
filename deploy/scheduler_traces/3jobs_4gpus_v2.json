@@ -1,0 +1,29 @@
+[{
+  "arrival_time": 1,
+  "workload": "bert",
+  "gpu_demand": 4,
+  "priority": 1,
+  "batch_size": 64,
+  "num_steps": 105,
+  "num_epochs": 10,
+  "num_virtual_nodes_per_device": 2,
+  "glue_task": "SST-2"
+}, {
+  "arrival_time": 240,
+  "workload": "resnet",
+  "gpu_demand": 2,
+  "priority": 5,
+  "batch_size": 128,
+  "num_epochs": 100,
+  "dataset": "cifar10"
+}, {
+  "arrival_time": 1500,
+  "workload": "bert",
+  "gpu_demand": 4,
+  "priority": 10,
+  "batch_size": 64,
+  "num_steps": 327,
+  "num_epochs": 10,
+  "num_virtual_nodes_per_device": 2,
+  "glue_task": "QNLI"
+}]

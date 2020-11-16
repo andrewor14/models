@@ -17,6 +17,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
+
 from absl import app
 from absl import flags
 from absl import logging
@@ -31,6 +33,7 @@ from official.nlp.bert import common_flags
 from official.nlp.bert import configs
 from official.nlp.bert import input_pipeline
 from official.utils.misc import distribution_utils
+from virtual import virtual_helper
 
 
 flags.DEFINE_string('input_files', None,
@@ -44,8 +47,6 @@ flags.DEFINE_integer(
 flags.DEFINE_integer('max_predictions_per_seq', 20,
                      'Maximum predictions per sequence_output.')
 flags.DEFINE_integer('train_batch_size', 32, 'Total batch size for training.')
-flags.DEFINE_integer('num_steps_per_epoch', 1000,
-                     'Total number of training steps to run per epoch.')
 flags.DEFINE_float('warmup_steps', 10000,
                    'Warmup steps for Adam weight decay optimizer.')
 
@@ -53,6 +54,7 @@ common_flags.define_common_bert_flags()
 common_flags.define_gin_flags()
 
 FLAGS = flags.FLAGS
+DEFAULT_STEPS_PER_EPOCH = 1000
 
 
 def get_pretrain_dataset_fn(input_file_pattern, seq_length,
@@ -62,11 +64,14 @@ def get_pretrain_dataset_fn(input_file_pattern, seq_length,
     """Returns tf.data.Dataset for distributed BERT pretraining."""
     input_patterns = input_file_pattern.split(',')
     batch_size = ctx.get_per_replica_batch_size(global_batch_size)
+    virtual_node_batch_size = virtual_helper.get_virtual_batch_size(\
+      batch_size, FLAGS.num_virtual_nodes_per_device)
+
     train_dataset = input_pipeline.create_pretrain_dataset(
         input_patterns,
         seq_length,
         max_predictions_per_seq,
-        batch_size,
+        virtual_node_batch_size,
         is_training=True,
         input_pipeline_context=ctx)
     return train_dataset
@@ -96,10 +101,10 @@ def run_customized_training(strategy,
                             input_files,
                             train_batch_size):
   """Run BERT pretrain model training using low-level API."""
-
   train_input_fn = get_pretrain_dataset_fn(input_files, max_seq_length,
                                            max_predictions_per_seq,
                                            train_batch_size)
+  steps_per_epoch = steps_per_epoch or DEFAULT_STEPS_PER_EPOCH
 
   def _get_pretrain_model():
     """Gets a pretraining model."""
@@ -113,6 +118,15 @@ def run_customized_training(strategy,
         use_graph_rewrite=common_flags.use_graph_rewrite())
     return pretrain_model, core_model
 
+  custom_callbacks = common_flags.get_callbacks(
+    batch_size=train_batch_size,
+    model_dir=model_dir,
+    log_steps=FLAGS.log_steps,
+    enable_checkpoints=FLAGS.enable_checkpoints,
+    num_checkpoints_to_keep=FLAGS.num_checkpoints_to_keep,
+    enable_monitor_memory=FLAGS.enable_monitor_memory,
+    enable_elasticity=False)
+
   trained_model = model_training_utils.run_customized_training_loop(
       strategy=strategy,
       model_fn=_get_pretrain_model,
@@ -123,6 +137,7 @@ def run_customized_training(strategy,
       steps_per_epoch=steps_per_epoch,
       steps_per_loop=steps_per_loop,
       epochs=epochs,
+      custom_callbacks=custom_callbacks,
       sub_model_export_name='pretrained/bert_model')
 
   return trained_model
@@ -147,7 +162,7 @@ def run_bert_pretrain(strategy):
       FLAGS.max_seq_length,
       FLAGS.max_predictions_per_seq,
       FLAGS.model_dir,
-      FLAGS.num_steps_per_epoch,
+      FLAGS.num_train_steps,
       FLAGS.steps_per_loop,
       FLAGS.num_train_epochs,
       FLAGS.learning_rate,
@@ -158,6 +173,7 @@ def run_bert_pretrain(strategy):
 
 def main(_):
   # Users should always run this script under TF 2.x
+  virtual_helper.initialize()
   gin.parse_config_files_and_bindings(FLAGS.gin_file, FLAGS.gin_param)
   if not FLAGS.model_dir:
     FLAGS.model_dir = '/tmp/bert20/'

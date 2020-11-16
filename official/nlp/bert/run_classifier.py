@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import json
 import math
 import os
@@ -36,6 +37,7 @@ from official.nlp.bert import input_pipeline
 from official.nlp.bert import model_saving_utils
 from official.utils.misc import distribution_utils
 from official.utils.misc import keras_utils
+from virtual import virtual_helper
 
 
 flags.DEFINE_enum(
@@ -85,10 +87,13 @@ def get_dataset_fn(input_file_pattern, max_seq_length, global_batch_size,
     """Returns tf.data.Dataset for distributed BERT pretraining."""
     batch_size = ctx.get_per_replica_batch_size(
         global_batch_size) if ctx else global_batch_size
+    virtual_node_batch_size = virtual_helper.get_virtual_batch_size(\
+      batch_size, FLAGS.num_virtual_nodes_per_device)
+
     dataset = input_pipeline.create_classifier_dataset(
         input_file_pattern,
         max_seq_length,
-        batch_size,
+        virtual_node_batch_size,
         is_training=is_training,
         input_pipeline_context=ctx)
     return dataset
@@ -194,10 +199,15 @@ def run_keras_compile_fit(model_dir,
   """Runs BERT classifier model using Keras compile/fit API."""
 
   with strategy.scope():
-    training_dataset = train_input_fn()
-    evaluation_dataset = eval_input_fn()
+    input_context = virtual_helper.get_input_context()
+    training_dataset = train_input_fn(input_context)
+    evaluation_dataset = eval_input_fn(input_context) if not FLAGS.skip_eval else None
     bert_model, sub_model = model_fn()
     optimizer = bert_model.optimizer
+
+    # If elasticity is enabled, provide a function to reshard the data
+    from virtual.elasticity_callback import ENABLE_ELASTICITY
+    dynamic_input_fn = train_input_fn if ENABLE_ELASTICITY else None
 
     if init_checkpoint:
       checkpoint = tf.train.Checkpoint(model=sub_model)
@@ -205,24 +215,14 @@ def run_keras_compile_fit(model_dir,
 
     bert_model.compile(optimizer=optimizer, loss=loss_fn, metrics=[metric_fn()])
 
-    summary_dir = os.path.join(model_dir, 'summaries')
-    summary_callback = tf.keras.callbacks.TensorBoard(summary_dir)
-    checkpoint_path = os.path.join(model_dir, 'checkpoint')
-    checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
-        checkpoint_path, save_weights_only=True)
-
-    if custom_callbacks is not None:
-      custom_callbacks += [summary_callback, checkpoint_callback]
-    else:
-      custom_callbacks = [summary_callback, checkpoint_callback]
-
     bert_model.fit(
         x=training_dataset,
         validation_data=evaluation_dataset,
         steps_per_epoch=steps_per_epoch,
         epochs=epochs,
         validation_steps=eval_steps,
-        callbacks=custom_callbacks)
+        callbacks=custom_callbacks,
+        dynamic_input_fn=dynamic_input_fn)
 
     return bert_model
 
@@ -343,7 +343,7 @@ def run_bert(strategy,
 
   epochs = FLAGS.num_train_epochs
   train_data_size = input_meta_data['train_data_size']
-  steps_per_epoch = int(train_data_size / FLAGS.train_batch_size)
+  steps_per_epoch = FLAGS.num_train_steps or int(train_data_size / FLAGS.train_batch_size)
   warmup_steps = int(epochs * train_data_size * 0.1 / FLAGS.train_batch_size)
   eval_steps = int(
       math.ceil(input_meta_data['eval_data_size'] / FLAGS.eval_batch_size))
@@ -351,14 +351,15 @@ def run_bert(strategy,
   if not strategy:
     raise ValueError('Distribution strategy has not been specified.')
 
-  if FLAGS.log_steps:
-    custom_callbacks = [keras_utils.TimeHistory(
-        batch_size=FLAGS.train_batch_size,
-        log_steps=FLAGS.log_steps,
-        logdir=FLAGS.model_dir,
-    )]
-  else:
-    custom_callbacks = None
+  custom_callbacks = common_flags.get_callbacks(
+    batch_size=FLAGS.train_batch_size,
+    model_dir=FLAGS.model_dir,
+    log_steps=FLAGS.log_steps,
+    enable_summaries=True,
+    enable_checkpoints=FLAGS.enable_checkpoints,
+    num_checkpoints_to_keep=FLAGS.num_checkpoints_to_keep,
+    enable_monitor_memory=FLAGS.enable_monitor_memory,
+    enable_elasticity=FLAGS.enable_elasticity)
 
   trained_model = run_bert_classifier(
       strategy,
@@ -391,6 +392,7 @@ def run_bert(strategy,
 
 def main(_):
   # Users should always run this script under TF 2.x
+  virtual_helper.initialize()
 
   with tf.io.gfile.GFile(FLAGS.input_meta_data_path, 'rb') as reader:
     input_meta_data = json.loads(reader.read().decode('utf-8'))
@@ -417,6 +419,7 @@ def main(_):
   bert_config = bert_configs.BertConfig.from_json_file(FLAGS.bert_config_file)
   run_bert(strategy, input_meta_data, bert_config, train_input_fn,
            eval_input_fn)
+  virtual_helper.maybe_force_exit()
 
 
 if __name__ == '__main__':

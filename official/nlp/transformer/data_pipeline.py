@@ -194,7 +194,7 @@ def _batch_examples(dataset, batch_size, max_length):
 
 def _read_and_batch_from_files(
     file_pattern, batch_size, max_length, num_parallel_calls, shuffle, repeat,
-    static_batch=False, num_replicas=1, ctx=None):
+    static_batch=False, num_replicas=1, ctx=None, num_virtual_nodes_per_device=1):
   """Create dataset where each item is a dict of "inputs" and "targets".
 
   Args:
@@ -225,6 +225,8 @@ def _read_and_batch_from_files(
   Returns:
     tf.data.Dataset object containing examples loaded from the files.
   """
+  from virtual.virtual_helper import get_virtual_batch_size
+  batch_size = get_virtual_batch_size(batch_size, num_virtual_nodes_per_device)
   dataset = tf.data.Dataset.list_files(file_pattern, shuffle=shuffle)
 
   if ctx and ctx.num_input_pipelines > 1:
@@ -270,7 +272,10 @@ def _read_and_batch_from_files(
 
 def _generate_synthetic_data(params):
   """Create synthetic data based on the parameter batch size."""
-  batch = length = int(math.sqrt(params["batch_size"]))
+  from virtual.virtual_helper import get_virtual_batch_size
+  virtual_node_batch_size = get_virtual_batch_size(\
+    params["batch_size"], params["num_virtual_nodes_per_device"])
+  batch = length = int(math.sqrt(virtual_node_batch_size))
   dataset = model_helpers.generate_synthetic_data(
       input_shape=tf.TensorShape([length]),
       input_value=1,
@@ -291,7 +296,8 @@ def train_input_fn(params, ctx=None):
       file_pattern, params["batch_size"], params["max_length"],
       params["num_parallel_calls"], shuffle=True,
       repeat=params["repeat_dataset"], static_batch=params["static_batch"],
-      num_replicas=params["num_gpus"], ctx=ctx)
+      num_replicas=params["num_gpus"], ctx=ctx,
+      num_virtual_nodes_per_device=params["num_virtual_nodes_per_device"])
 
 
 def eval_input_fn(params, ctx=None):
@@ -303,7 +309,7 @@ def eval_input_fn(params, ctx=None):
       file_pattern, params["batch_size"], params["max_length"],
       params["num_parallel_calls"], shuffle=False, repeat=1,
       static_batch=params["static_batch"], num_replicas=params["num_gpus"],
-      ctx=ctx)
+      ctx=ctx, num_virtual_nodes_per_device=params["num_virtual_nodes_per_device"])
 
 
 def map_data_for_transformer_fn(x, y):

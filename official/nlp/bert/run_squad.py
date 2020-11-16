@@ -24,12 +24,14 @@ from absl import app
 from absl import flags
 import tensorflow as tf
 
+from official.nlp.bert import common_flags
 from official.nlp.bert import configs as bert_configs
 from official.nlp.bert import run_squad_helper
 from official.nlp.bert import tokenization
 from official.nlp.data import squad_lib as squad_lib_wp
 from official.utils.misc import distribution_utils
 from official.utils.misc import keras_utils
+from virtual import virtual_helper
 
 
 flags.DEFINE_string('vocab_file', None,
@@ -76,6 +78,7 @@ def export_squad(model_export_path, input_meta_data):
 
 def main(_):
   # Users should always run this script under TF 2.x
+  virtual_helper.initialize()
 
   with tf.io.gfile.GFile(FLAGS.input_meta_data_path, 'rb') as reader:
     input_meta_data = json.loads(reader.read().decode('utf-8'))
@@ -94,15 +97,14 @@ def main(_):
       all_reduce_alg=FLAGS.all_reduce_alg,
       tpu_address=FLAGS.tpu)
   if FLAGS.mode in ('train', 'train_and_predict'):
-    if FLAGS.log_steps:
-      custom_callbacks = [keras_utils.TimeHistory(
-          batch_size=FLAGS.train_batch_size,
-          log_steps=FLAGS.log_steps,
-          logdir=FLAGS.model_dir,
-      )]
-    else:
-      custom_callbacks = None
-
+    custom_callbacks = common_flags.get_callbacks(
+      batch_size=FLAGS.train_batch_size,
+      model_dir=FLAGS.model_dir,
+      log_steps=FLAGS.log_steps,
+      enable_checkpoints=FLAGS.enable_checkpoints,
+      num_checkpoints_to_keep=FLAGS.num_checkpoints_to_keep,
+      enable_monitor_memory=FLAGS.enable_monitor_memory,
+      enable_elasticity=FLAGS.enable_elasticity)
     train_squad(
         strategy,
         input_meta_data,
@@ -111,6 +113,9 @@ def main(_):
     )
   if FLAGS.mode in ('predict', 'train_and_predict'):
     predict_squad(strategy, input_meta_data)
+
+  if FLAGS.model_export_path:
+    export_squad(FLAGS.model_export_path, input_meta_data)
 
 
 if __name__ == '__main__':

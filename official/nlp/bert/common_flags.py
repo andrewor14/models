@@ -14,10 +14,14 @@
 # ==============================================================================
 """Defining common flags used across all BERT models/applications."""
 
+import os
+
 from absl import flags
 import tensorflow as tf
 
 from official.utils.flags import core as flags_core
+from official.utils.misc import keras_utils
+from virtual import virtual_helper
 
 
 def define_gin_flags():
@@ -57,6 +61,10 @@ def define_common_bert_flags():
   flags.DEFINE_integer('num_train_epochs', 3,
                        'Total number of training epochs to perform.')
   flags.DEFINE_integer(
+      name='num_train_steps', default=None,
+      help='The number of steps to run for training in each epoch. If it is '
+      'larger than # batches per epoch, then use # batches per epoch.')
+  flags.DEFINE_integer(
       'steps_per_loop', 200,
       'Number of steps per graph-mode loop. Only training step '
       'happens inside the loop. Callbacks will not be called '
@@ -76,6 +84,26 @@ def define_common_bert_flags():
       'If specified, init_checkpoint flag should not be used.')
   flags.DEFINE_bool('hub_module_trainable', True,
                     'True to make keras layers in the hub module trainable.')
+  flags.DEFINE_integer(
+      name='num_virtual_nodes_per_device', default=1,
+      help='Number of virtual nodes mapped to each device in each batch. '
+      'Virtual nodes are processed one after another, with the number of examples '
+      'processed per virtual node equal to the per device batch size divided by '
+      'this value.')
+  flags.DEFINE_boolean(
+      name='enable_checkpoints', default=False,
+      help='Whether to enable a checkpoint callback and export the saved model.')
+  flags.DEFINE_integer(
+      name='num_checkpoints_to_keep', default=5,
+      help='Number of most recent checkpoints to keep, only read if '
+      '`enable_checkpoints` is set.')
+  flags.DEFINE_boolean(
+      name='enable_monitor_memory', default=False,
+      help='Whether to enable a callback that periodically monitors GPU memory usage.')
+  flags.DEFINE_boolean(
+      name='enable_elasticity', default=False,
+      help='Whether to enable a callback that provides resource elasticity.')
+  flags.DEFINE_boolean(name='skip_eval', default=False, help='Skip evaluation')
 
   flags_core.define_log_steps()
 
@@ -96,6 +124,45 @@ def define_common_bert_flags():
       enable_xla=True,
       fp16_implementation=True,
   )
+
+
+def get_callbacks(
+    batch_size=None,
+    model_dir=None,
+    log_steps=None,
+    enable_summaries=False,
+    enable_checkpoints=False,
+    num_checkpoints_to_keep=None,
+    enable_monitor_memory=False,
+    enable_elasticity=False):
+  """Returns common callbacks."""
+  callbacks = []
+  if log_steps is not None:
+    if batch_size is None or model_dir is None:
+      raise ValueError("TimeHistory callback requires batch size and model_dir")
+    callbacks.append(keras_utils.TimeHistory(
+        batch_size=batch_size,
+        log_steps=log_steps,
+        logdir=model_dir,
+    ))
+  if enable_summaries:
+    summary_dir = os.path.join(model_dir, 'summaries')
+    summary_callback = tf.keras.callbacks.TensorBoard(summary_dir)
+    callbacks.append(summary_callback)
+  if enable_checkpoints:
+    checkpoint_path = os.path.join(model_dir, 'checkpoint')
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint(
+      checkpoint_path, save_weights_only=True))
+    callbacks.append(virtual_helper.DeleteOldCheckpointsCallback(
+      model_dir, num_checkpoints_to_keep))
+  if enable_monitor_memory:
+    callbacks.append(virtual_helper.MonitorMemoryCallback())
+  if enable_elasticity:
+    from virtual.elasticity_callback import ELASTICITY_CALLBACK
+    if ELASTICITY_CALLBACK is None:
+      raise ValueError("Singleton elasticity callback was None")
+    callbacks.append(ELASTICITY_CALLBACK)
+  return callbacks
 
 
 def dtype():

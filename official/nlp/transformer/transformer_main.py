@@ -43,6 +43,8 @@ from official.utils.logs import logger
 from official.utils.misc import distribution_utils
 from official.utils.misc import keras_utils
 
+from virtual import virtual_helper
+
 INF = int(1e9)
 BLEU_DIR = "bleu"
 _SINGLE_SAMPLE = 1
@@ -138,7 +140,8 @@ class TransformerTask(object):
 
     # Add flag-defined parameters to params object
     num_gpus = flags_core.get_num_gpus(flags_obj)
-    self.params = params = misc.get_model_params(flags_obj.param_set, num_gpus)
+    # Hack: always use multi GPU param set for now
+    self.params = params = misc.get_model_params(flags_obj.param_set, max(2, num_gpus))
 
     params["num_gpus"] = num_gpus
     params["use_ctl"] = flags_obj.use_ctl
@@ -160,6 +163,10 @@ class TransformerTask(object):
     params["enable_metrics_in_training"] = flags_obj.enable_metrics_in_training
     params["steps_between_evals"] = flags_obj.steps_between_evals
     params["enable_checkpointing"] = flags_obj.enable_checkpointing
+    params["num_checkpoints_to_keep"] = flags_obj.num_checkpoints_to_keep
+    params["num_virtual_nodes_per_device"] = flags_obj.num_virtual_nodes_per_device
+    params["enable_monitor_memory"] = flags_obj.enable_monitor_memory
+    params["enable_elasticity"] = flags_obj.enable_elasticity
 
     self.distribution_strategy = distribution_utils.get_distribution_strategy(
         distribution_strategy=flags_obj.distribution_strategy,
@@ -227,6 +234,7 @@ class TransformerTask(object):
 
     model.summary()
 
+    dynamic_input_fn = None
     if self.use_tpu:
       # Different from experimental_distribute_dataset,
       # experimental_distribute_datasets_from_function requires
@@ -237,10 +245,16 @@ class TransformerTask(object):
           .experimental_distribute_datasets_from_function(
               lambda ctx: data_pipeline.train_input_fn(params, ctx)))
     else:
-      train_ds = data_pipeline.train_input_fn(params)
+      input_context = virtual_helper.get_input_context()
+      _input_fn = lambda ctx: data_pipeline.train_input_fn(params, ctx)
+      train_ds = _input_fn(input_context)
       map_data_fn = data_pipeline.map_data_for_transformer_fn
       train_ds = train_ds.map(
           map_data_fn, num_parallel_calls=params["num_parallel_calls"])
+      # If elasticity is enabled, provide a function to reshard the data
+      from virtual.elasticity_callback import ENABLE_ELASTICITY
+      dynamic_input_fn = _input_fn if ENABLE_ELASTICITY else None
+
     if params["use_ctl"]:
       train_ds_iterator = iter(train_ds)
 
@@ -332,7 +346,8 @@ class TransformerTask(object):
             callbacks=callbacks,
             # If TimeHistory is enabled, progress bar would be messy. Increase
             # the verbose level to get rid of it.
-            verbose=(2 if flags_obj.enable_time_history else 1))
+            verbose=(2 if flags_obj.enable_time_history else 1),
+            dynamic_input_fn=dynamic_input_fn)
         current_step += train_steps_per_eval
         logging.info("Train history: {}".format(history.history))
 
@@ -405,6 +420,15 @@ class TransformerTask(object):
       callbacks.append(
           tf.keras.callbacks.ModelCheckpoint(
               ckpt_full_path, save_weights_only=True))
+      callbacks.append(virtual_helper.DeleteOldCheckpointsCallback(
+        cur_log_dir, params["num_checkpoints_to_keep"]))
+    if params["enable_monitor_memory"]:
+      callbacks.append(virtual_helper.MonitorMemoryCallback())
+    if params["enable_elasticity"]:
+      from virtual.elasticity_callback import ELASTICITY_CALLBACK
+      if ELASTICITY_CALLBACK is None:
+        raise ValueError("Singleton elasticity callback was None")
+      callbacks.append(ELASTICITY_CALLBACK)
     return callbacks
 
   def _load_weights_if_possible(self, model, init_weight_path=None):
@@ -451,6 +475,7 @@ def _ensure_dir(log_dir):
 
 
 def main(_):
+  virtual_helper.initialize()
   flags_obj = flags.FLAGS
   with logger.benchmark_context(flags_obj):
     task = TransformerTask(flags_obj)
@@ -471,6 +496,7 @@ def main(_):
       task.eval()
     else:
       raise ValueError("Invalid mode {}".format(flags_obj.mode))
+  virtual_helper.maybe_force_exit()
 
 
 if __name__ == "__main__":
