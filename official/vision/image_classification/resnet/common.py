@@ -279,12 +279,6 @@ def define_keras_flags(dynamic_loss_scale=True,
       'triggers the profiler to process 3 steps, starting from the 2nd step. '
       'Note that profiler has a non-trivial performance overhead, and the '
       'output file can be gigantic if profiling many steps.')
-  flags.DEFINE_integer(
-      name='train_steps',
-      default=None,
-      help='The number of steps to run for training. If it is larger than '
-      '# batches per epoch, then use # batches per epoch. This flag will be '
-      'ignored if train_epochs is set to be larger than 1. ')
   flags.DEFINE_boolean(
       name='batchnorm_spatial_persistent',
       default=True,

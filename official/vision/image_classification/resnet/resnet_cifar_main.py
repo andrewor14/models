@@ -25,7 +25,6 @@ from absl import logging
 import numpy as np
 import tensorflow as tf
 from official.benchmark.models import cifar_preprocessing
-from official.benchmark.models import resnet_cifar_model
 from official.benchmark.models import synthetic_util
 from official.common import distribute_utils
 from official.utils.flags import core as flags_core
