@@ -29,6 +29,7 @@ export NUM_GPUS_PER_NODE="${NUM_GPUS_PER_NODE:=$DEFAULT_NUM_GPUS_PER_NODE}"
 
 # Tensorflow related flags
 export NUM_GPUS="${NUM_GPUS:=1}"
+export NUM_NODES="${NUM_NODES:=1}"
 export DTYPE="${DTYPE:=fp16}"
 export LOG_STEPS="${LOG_STEPS:=1}"
 export SKIP_EVAL="${SKIP_EVAL:=false}"
