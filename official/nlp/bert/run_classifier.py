@@ -242,8 +242,6 @@ def run_keras_compile_fit(model_dir,
         metrics=[fn() for fn in metric_fn],
         experimental_steps_per_execution=steps_per_loop)
 
-    summary_dir = os.path.join(model_dir, 'summaries')
-    summary_callback = tf.keras.callbacks.TensorBoard(summary_dir)
     checkpoint = tf.train.Checkpoint(model=bert_model, optimizer=optimizer)
     checkpoint_manager = tf.train.CheckpointManager(
         checkpoint,
@@ -254,10 +252,9 @@ def run_keras_compile_fit(model_dir,
     checkpoint_callback = keras_utils.SimpleCheckpoint(checkpoint_manager)
 
     if training_callbacks:
-      if custom_callbacks is not None:
-        custom_callbacks += [summary_callback, checkpoint_callback]
-      else:
-        custom_callbacks = [summary_callback, checkpoint_callback]
+      if custom_callbacks is None:
+        custom_callbacks = []
+      custom_callbacks.append(checkpoint_callback)
 
     history = bert_model.fit(
         x=training_dataset,
