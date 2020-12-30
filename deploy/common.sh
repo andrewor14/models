@@ -58,9 +58,6 @@ if [[ "$ENABLE_ELASTICITY" == "true" ]]; then
   DEFAULT_ENABLE_XLA="false"
 fi
 export ENABLE_XLA="${ENABLE_XLA:=$DEFAULT_ENABLE_XLA}"
-if [[ "$ENABLE_XLA" == "true" ]]; then
-  export TF_XLA_FLAGS="${TF_XLA_FLAGS:=--tf_xla_cpu_global_jit}"
-fi
 
 # Set distribution strategy
 if [[ "$ENABLE_ELASTICITY" == "true" ]] || [[ "$NUM_NODES" == "1" ]]; then
