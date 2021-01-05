@@ -26,6 +26,8 @@ FORCE_EXIT = "FORCE_EXIT"
 # Constants
 LAUNCH_DIRECTORY = os.getenv(OMPI_MCA_initial_wdir, "")
 EXECUTABLE = "bash"
+ENABLE_HETEROGENEOUS = os.getenv("ENABLE_HETEROGENEOUS", "").lower() == "true"
+GLOBAL_BATCH_SIZE = int(os.getenv("GLOBAL_BATCH_SIZE", -1))
 
 # Tag used for expanding the MPI communicator, incremented once per expand
 MPI_CURRENT_TAG = 14444
