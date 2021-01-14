@@ -436,6 +436,8 @@ def get_synth_input_fn(height,
     data = tf.data.Dataset.from_tensors((inputs, labels)).repeat()
 
     # `drop_remainder` will make dataset produce outputs with known shapes.
+    if virtual_helper.ENABLE_HETEROGENEOUS:
+      batch_size = virtual_helper.get_heterogeneous_batch_size()
     data = data.batch(batch_size, drop_remainder=drop_remainder)
     data = data.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
     return data

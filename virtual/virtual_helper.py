@@ -22,12 +22,15 @@ RUN_SCRIPT = "RUN_SCRIPT"
 HOROVOD_COMPRESS = "HOROVOD_COMPRESS"
 HOROVOD_USE_CPU = "HOROVOD_USE_CPU"
 FORCE_EXIT = "FORCE_EXIT"
+HETEROGENEOUS_SPLIT = "HETEROGENEOUS_SPLIT"
+HETEROGENEOUS_RANGE_START = "HETEROGENEOUS_RANGE_START"
+HETEROGENEOUS_RANGE_END = "HETEROGENEOUS_RANGE_END"
+GLOBAL_BATCH_SIZE = "GLOBAL_BATCH_SIZE"
 
 # Constants
 LAUNCH_DIRECTORY = os.getenv(OMPI_MCA_initial_wdir, "")
 EXECUTABLE = "bash"
 ENABLE_HETEROGENEOUS = os.getenv("ENABLE_HETEROGENEOUS", "").lower() == "true"
-GLOBAL_BATCH_SIZE = int(os.getenv("GLOBAL_BATCH_SIZE", -1))
 
 # Tag used for expanding the MPI communicator, incremented once per expand
 MPI_CURRENT_TAG = 14444
@@ -37,15 +40,63 @@ MPI_CURRENT_TAG = 14444
 # instead of rebuilding the entire graph to speed up the restart process
 HOROVOD_ALLREDUCE_FUNCTION = None
 
-def initialize():
+def initialize(comm=MPI.COMM_WORLD):
   """
   Initialize the program for virtual node processing.
   """
-  set_tf_config()
+  set_tf_config(comm=comm)
   from virtual.elasticity_callback import ENABLE_ELASTICITY, initialize_singleton_callback
   if ENABLE_ELASTICITY:
     initialize_horovod()
     initialize_singleton_callback()
+  if ENABLE_HETEROGENEOUS:
+    global_batch_size = get_global_batch_size()
+    if global_batch_size < 0:
+      raise ValueError("'%s' must be set" % global_batch_size)
+    start, end = get_heterogeneous_range(comm)
+    os.environ[HETEROGENEOUS_RANGE_START] = str(start)
+    os.environ[HETEROGENEOUS_RANGE_END] = str(end)
+    os.environ[GLOBAL_BATCH_SIZE] = str(global_batch_size)
+
+def get_global_batch_size():
+  """
+  Return the global batch size used in this job.
+  If the batch size was not set, return -1.
+  """
+  return int(os.getenv(GLOBAL_BATCH_SIZE, os.getenv("BATCH_SIZE", -1)))
+
+def get_heterogeneous_batch_size(comm=MPI.COMM_WORLD):
+  """
+  Return the batch size assigned to this rank.
+  """
+  start, end = get_heterogeneous_range(comm)
+  range_size = end - start
+  logging.info("Heterogeneous mode is enabled: batching dataset by" +\
+    "%s instead of the global batch size %s" % (range_size, get_global_batch_size()))
+  return range_size
+
+def get_heterogeneous_range(comm=MPI.COMM_WORLD):
+  """
+  Return a 2-tuple (start, end) that represents the indices of examples in
+  each batch assigned to this rank. The start is inclusive while the end is
+  non-inclusive. This is used for sharding the dataset unevenly.
+  """
+  global_batch_size = get_global_batch_size()
+  # TODO: for now, explicitly require the user to set the heterogeneous split
+  # Format: comma-delimited per-worker batch sizes, one value per rank, e.g. 32,16,16
+  # The sum of these splits must add up to the global batch size
+  if HETEROGENEOUS_SPLIT not in os.environ:
+    raise ValueError("'%s' must be set" % HETEROGENEOUS_SPLIT)
+  split = [int(bs) for bs in os.environ[HETEROGENEOUS_SPLIT].split(",")]
+  if sum(split) != global_batch_size:
+    raise ValueError("Heterogeneous split '%s' doesn't sum up to the " % split +\
+      "global batch size %s" % global_batch_size)
+  if len(split) != comm.size:
+    raise ValueError("Heterogeneous split '%s' doesn't match the world size %s" %\
+      (split, comm.size))
+  start = sum(split[:comm.rank])
+  end = start + split[comm.rank]
+  return (start, end)
 
 def is_master(comm=MPI.COMM_WORLD):
   """

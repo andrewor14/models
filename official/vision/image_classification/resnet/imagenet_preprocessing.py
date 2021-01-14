@@ -40,6 +40,8 @@ import os
 from absl import logging
 import tensorflow as tf
 
+from virtual import virtual_helper
+
 DEFAULT_IMAGE_SIZE = 224
 NUM_CHANNELS = 3
 NUM_CLASSES = 1001
@@ -113,6 +115,9 @@ def process_record_dataset(dataset,
   dataset = dataset.map(
       lambda value: parse_record_fn(value, is_training, dtype),
       num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+  if virtual_helper.ENABLE_HETEROGENEOUS:
+    batch_size = virtual_helper.get_heterogeneous_batch_size()
   dataset = dataset.batch(batch_size, drop_remainder=drop_remainder)
 
   # Operations between the final prefetch and the get_next call to the iterator
