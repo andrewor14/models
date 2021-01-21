@@ -21,6 +21,7 @@ NUM_VIRTUAL_NODES_PER_DEVICE = "NUM_VIRTUAL_NODES_PER_DEVICE"
 CUDA_VISIBLE_DEVICES = "CUDA_VISIBLE_DEVICES"
 OMPI_MCA_initial_wdir = "OMPI_MCA_initial_wdir"
 RUN_SCRIPT = "RUN_SCRIPT"
+TRAIN_DIR = "TRAIN_DIR"
 HOROVOD_COMPRESS = "HOROVOD_COMPRESS"
 HOROVOD_USE_CPU = "HOROVOD_USE_CPU"
 FORCE_EXIT = "FORCE_EXIT"
@@ -141,6 +142,12 @@ def get_heterogeneous_profile_batch_size():
   """
   batch_size = os.getenv(HETEROGENEOUS_PROFILE_CURRENT_BATCH_SIZE)
   return int(batch_size) if batch_size is not None else None
+
+def get_heterogeneous_profile_file():
+  """
+  Return the path to the heterogeneous profile file to write to.
+  """
+  return os.path.join(os.getenv(TRAIN_DIR, ""), "heterogeneous_profile.txt")
 
 def is_master(comm=MPI.COMM_WORLD):
   """

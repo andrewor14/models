@@ -28,7 +28,8 @@ import tensorflow as tf
 from tensorflow.python.eager import monitoring
 
 from virtual.virtual_helper import get_heterogeneous_profile_info,\
-  get_heterogeneous_profile_batch_size, HETEROGENEOUS_VERBOSE
+  get_heterogeneous_profile_batch_size, get_heterogeneous_profile_file,\
+  HETEROGENEOUS_VERBOSE
 
 global_batch_size_gauge = monitoring.IntGauge(
     '/tensorflow/training/global_batch_size', 'TF training global batch size')
@@ -76,6 +77,7 @@ class TimeHistory(tf.keras.callbacks.Callback):
     self.steps_in_epoch = 0
     self.start_time = None
     self.heterogeneous_profile = get_heterogeneous_profile_info() is not None
+    self.heterogeneous_profile_throughputs = {} # batch size -> list of throughputs
 
     global_batch_size_gauge.get_cell().set(batch_size)
 
@@ -122,6 +124,14 @@ class TimeHistory(tf.keras.callbacks.Callback):
 
     if self.summary_writer:
       self.summary_writer.flush()
+    if self.heterogeneous_profile:
+      profile_file = get_heterogeneous_profile_file()
+      with open(profile_file, "w") as f:
+        for bs in sorted(self.heterogeneous_profile_throughputs.keys()):
+          throughputs = self.heterogeneous_profile_throughputs[bs]
+          avg_throughput = sum(throughputs) / len(throughputs)
+          f.write("%s %s\n" % (bs, avg_throughput))
+      logging.info("Wrote to %s" % profile_file)
 
   def on_epoch_begin(self, epoch, logs=None):
     self.epoch_start = time.time()
@@ -165,6 +175,11 @@ class TimeHistory(tf.keras.callbacks.Callback):
                             self.global_steps)
           tf.summary.scalar('examples_per_second', examples_per_second,
                             self.global_steps)
+      if self.heterogeneous_profile:
+        if self.batch_size not in self.heterogeneous_profile_throughputs:
+          self.heterogeneous_profile_throughputs[self.batch_size] = []
+        self.heterogeneous_profile_throughputs[self.batch_size].append(\
+          examples_per_second)
 
       self.last_log_step = self.global_steps
       self.start_time = None
