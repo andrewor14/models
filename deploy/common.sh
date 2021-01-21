@@ -67,6 +67,18 @@ else
 fi
 export DISTRIBUTION_STRATEGY="${DISTRIBUTION_STRATEGY:=$DEFAULT_DISTRIBUTION_STRATEGY}"
 
+# Heterogeneous profile
+if [[ -n "$HETEROGENEOUS_PROFILE_MAX_BATCH_SIZE" ]]; then
+  if [[ -n "$BATCH_SIZE" ]] &&\
+      [[ "$BATCH_SIZE" != "$HETEROGENEOUS_PROFILE_MAX_BATCH_SIZE" ]]; then
+    echo -e "BATCH_SIZE should not be set when profiling for heterogeneous training"
+    exit 1
+  fi
+  export BATCH_SIZE="$HETEROGENEOUS_PROFILE_MAX_BATCH_SIZE"
+  export NUM_STEPS="100000"
+  export NUM_EPOCHS="100000"
+fi
+
 # Optionally use a process' rank as CUDA_VISIBLE_DEVICES
 if [[ "$USE_RANK_FOR_CVD" == "true" ]]; then
   export CUDA_VISIBLE_DEVICES="${SPAWN_RANK:-$OMPI_COMM_WORLD_RANK}"

@@ -3,6 +3,7 @@
 import gc
 import glob
 import json
+import math
 import os
 
 from absl import logging
@@ -22,15 +23,22 @@ RUN_SCRIPT = "RUN_SCRIPT"
 HOROVOD_COMPRESS = "HOROVOD_COMPRESS"
 HOROVOD_USE_CPU = "HOROVOD_USE_CPU"
 FORCE_EXIT = "FORCE_EXIT"
+GLOBAL_BATCH_SIZE = "GLOBAL_BATCH_SIZE"
+
+# Heterogeneous training environment variables
 HETEROGENEOUS_SPLIT = "HETEROGENEOUS_SPLIT"
 HETEROGENEOUS_RANGE_START = "HETEROGENEOUS_RANGE_START"
 HETEROGENEOUS_RANGE_END = "HETEROGENEOUS_RANGE_END"
-GLOBAL_BATCH_SIZE = "GLOBAL_BATCH_SIZE"
+HETEROGENEOUS_PROFILE_CURRENT_BATCH_SIZE = "HETEROGENEOUS_PROFILE_CURRENT_BATCH_SIZE"
+HETEROGENEOUS_PROFILE_MIN_BATCH_SIZE = "HETEROGENEOUS_PROFILE_MIN_BATCH_SIZE"
+HETEROGENEOUS_PROFILE_MAX_BATCH_SIZE = "HETEROGENEOUS_PROFILE_MAX_BATCH_SIZE"
+HETEROGENEOUS_PROFILE_STEPS = "HETEROGENEOUS_PROFILE_STEPS"
 
 # Constants
 LAUNCH_DIRECTORY = os.getenv(OMPI_MCA_initial_wdir, "")
 EXECUTABLE = "bash"
 ENABLE_HETEROGENEOUS = os.getenv("ENABLE_HETEROGENEOUS", "").lower() == "true"
+HETEROGENEOUS_VERBOSE = os.getenv("HETEROGENEOUS_VERBOSE", "").lower() == "true"
 
 # Tag used for expanding the MPI communicator, incremented once per expand
 MPI_CURRENT_TAG = 14444
@@ -97,6 +105,40 @@ def get_heterogeneous_range(comm=MPI.COMM_WORLD):
   start = sum(split[:comm.rank])
   end = start + split[comm.rank]
   return (start, end)
+
+def get_heterogeneous_profile_info():
+  """
+  Return a 3-tuple (min batch size, max batch size, steps) that represents a range
+  of batch sizes to run during the offline profile phase of heterogeneous training,
+  and the number of steps to profile for each batch size. All batch sizes must be
+  multiples of 2.
+
+  Return None if heterogeneous training is not enabled, or we are not in the offline
+  profiling phase of heterogeneous training.
+  """
+  min_batch_size = int(os.getenv(HETEROGENEOUS_PROFILE_MIN_BATCH_SIZE, 1))
+  max_batch_size = int(os.getenv(HETEROGENEOUS_PROFILE_MAX_BATCH_SIZE, -1))
+  steps = int(os.getenv(HETEROGENEOUS_PROFILE_STEPS, 10))
+  if max_batch_size < 0:
+    return None
+  if not math.log2(min_batch_size).is_integer() or\
+      not math.log2(max_batch_size).is_integer():
+    raise ValueError("Heterogeneous profiling batch size range must be powers of 2" +\
+      " (was [%s, %s))" % (min_batch_size, max_batch_size))
+  return (min_batch_size, max_batch_size, steps)
+
+def set_heterogeneous_profile_batch_size(batch_size):
+  """
+  Set the current batch size used for profiling for heterogeneous training.
+  """
+  os.environ[HETEROGENEOUS_PROFILE_CURRENT_BATCH_SIZE] = str(batch_size)
+
+def get_heterogeneous_profile_batch_size():
+  """
+  Return the current batch size used for profiling for heterogeneous training.
+  """
+  batch_size = os.getenv(HETEROGENEOUS_PROFILE_CURRENT_BATCH_SIZE)
+  return int(batch_size) if batch_size is not None else None
 
 def is_master(comm=MPI.COMM_WORLD):
   """

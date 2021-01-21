@@ -27,6 +27,9 @@ import tensorflow as tf
 
 from tensorflow.python.eager import monitoring
 
+from virtual.virtual_helper import get_heterogeneous_profile_info,\
+  get_heterogeneous_profile_batch_size, HETEROGENEOUS_VERBOSE
+
 global_batch_size_gauge = monitoring.IntGauge(
     '/tensorflow/training/global_batch_size', 'TF training global batch size')
 
@@ -72,6 +75,7 @@ class TimeHistory(tf.keras.callbacks.Callback):
     self.steps_before_epoch = initial_step
     self.steps_in_epoch = 0
     self.start_time = None
+    self.heterogeneous_profile = get_heterogeneous_profile_info() is not None
 
     global_batch_size_gauge.get_cell().set(batch_size)
 
@@ -135,6 +139,10 @@ class TimeHistory(tf.keras.callbacks.Callback):
 
   def on_batch_end(self, batch, logs=None):
     """Records elapse time of the batch and calculates examples per second."""
+    if self.heterogeneous_profile:
+      self.batch_size = get_heterogeneous_profile_batch_size()
+      if HETEROGENEOUS_VERBOSE:
+        logging.info("TimeHistory updating batch size to %s" % self.batch_size)
     if not first_batch_end_time.value():
       first_batch_end_time.set(int(time.time() * 1000000))
     self.steps_in_epoch = batch + 1
