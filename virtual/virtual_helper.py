@@ -16,6 +16,7 @@ TF_CONFIG = "TF_CONFIG"
 PYTHONPATH = "PYTHONPATH"
 MODELS_DIR = "MODELS_DIR"
 NUM_NODES = "NUM_NODES"
+NUM_GPUS = "NUM_GPUS"
 NUM_VIRTUAL_NODES_PER_DEVICE = "NUM_VIRTUAL_NODES_PER_DEVICE"
 CUDA_VISIBLE_DEVICES = "CUDA_VISIBLE_DEVICES"
 OMPI_MCA_initial_wdir = "OMPI_MCA_initial_wdir"
@@ -116,15 +117,16 @@ def get_heterogeneous_profile_info():
   Return None if heterogeneous training is not enabled, or we are not in the offline
   profiling phase of heterogeneous training.
   """
-  min_batch_size = int(os.getenv(HETEROGENEOUS_PROFILE_MIN_BATCH_SIZE, 1))
+  num_gpus = int(os.environ[NUM_GPUS])
+  min_batch_size = int(os.getenv(HETEROGENEOUS_PROFILE_MIN_BATCH_SIZE, num_gpus))
   max_batch_size = int(os.getenv(HETEROGENEOUS_PROFILE_MAX_BATCH_SIZE, -1))
   steps = int(os.getenv(HETEROGENEOUS_PROFILE_STEPS, 10))
   if max_batch_size < 0:
     return None
-  if not math.log2(min_batch_size).is_integer() or\
-      not math.log2(max_batch_size).is_integer():
+  if not math.log2(min_batch_size / num_gpus).is_integer() or\
+      not math.log2(max_batch_size / num_gpus).is_integer():
     raise ValueError("Heterogeneous profiling batch size range must be powers of 2" +\
-      " (was [%s, %s))" % (min_batch_size, max_batch_size))
+      "*for each GPU (%s)* (was [%s, %s))" % (num_gpus, min_batch_size, max_batch_size))
   return (min_batch_size, max_batch_size, steps)
 
 def set_heterogeneous_profile_batch_size(batch_size):

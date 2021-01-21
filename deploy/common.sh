@@ -71,7 +71,11 @@ export DISTRIBUTION_STRATEGY="${DISTRIBUTION_STRATEGY:=$DEFAULT_DISTRIBUTION_STR
 if [[ -n "$HETEROGENEOUS_PROFILE_MAX_BATCH_SIZE" ]]; then
   if [[ -n "$BATCH_SIZE" ]] &&\
       [[ "$BATCH_SIZE" != "$HETEROGENEOUS_PROFILE_MAX_BATCH_SIZE" ]]; then
-    echo -e "BATCH_SIZE should not be set when profiling for heterogeneous training"
+    echo -e "BATCH_SIZE should not be set for heterogeneous profiling"
+    exit 1
+  fi
+  if [[ "$DISTRIBUTION_STRATEGY" != "mirrored" ]]; then
+    echo -e "Distribution strategy must be 'mirrored' for heterogeneous profiling"
     exit 1
   fi
   export BATCH_SIZE="$HETEROGENEOUS_PROFILE_MAX_BATCH_SIZE"
